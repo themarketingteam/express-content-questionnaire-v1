@@ -6,7 +6,6 @@ import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
 import TextAreaQuestion from "../components/questionnaire/TextAreaQuestion";
 import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
-import OtherField from "../components/questionnaire/OtherField";
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import { Save, CheckCircle2 } from "lucide-react";
@@ -113,12 +112,18 @@ export default function Questionnaire() {
   const updateArrayField = (field, value, limit = 3) => {
     setFormData(prev => {
       const current = prev[field] || [];
+      const otherField = `${field}Other`;
+      const hasOther = (prev[otherField] || "").trim().length > 0;
+      const totalSelections = current.length + (hasOther ? 1 : 0);
+      
       const index = current.indexOf(value);
       
       if (index > -1) {
+        // Unchecking - always allow
         return { ...prev, [field]: current.filter(v => v !== value) };
       } else {
-        if (current.length >= limit) return prev;
+        // Checking - only if under limit
+        if (totalSelections >= limit) return prev;
         return { ...prev, [field]: [...current, value] };
       }
     });
@@ -128,19 +133,31 @@ export default function Questionnaire() {
     const checkboxValid = (field, otherField, limit = 3) => {
       const selected = (formData[field] || []).length;
       const hasOther = (formData[otherField] || "").trim().length > 0;
-      return (selected >= 1 && selected <= limit) || (selected >= 0 && selected <= limit - 1 && hasOther);
+      const total = selected + (hasOther ? 1 : 0);
+      // Valid if: 1-3 selections total (including "Other")
+      return total >= 1 && total <= limit;
     };
 
     const longEnough = (val) => (val || "").trim().length >= 150;
+    
+    const radioValid = (field, otherField) => {
+      const hasRadio = (formData[field] || "").trim().length > 0;
+      const hasOther = (formData[otherField] || "").trim().length > 0;
+      // Valid if either radio is selected OR "Other" has content (but not both)
+      return hasRadio || hasOther;
+    };
 
-    return checkboxValid("itCompanyType", "itCompanyTypeOther") &&
-           checkboxValid("serviceOfferings", "serviceOfferingsOther") &&
+    return checkboxValid("itCompanyType", "itCompanyTypeOther", 3) &&
+           checkboxValid("serviceOfferings", "serviceOfferingsOther", 3) &&
            longEnough(formData.differentiation) &&
            (formData.geographicAreaMeta?.label || !formData.geographicAreas) &&
-           checkboxValid("companyGoals", "companyGoalsOther") &&
+           radioValid("pricingPackaging", "pricingPackagingOther") &&
+           checkboxValid("companyGoals", "companyGoalsOther", 3) &&
+           radioValid("brandTone", "brandToneOther") &&
            checkboxValid("targetIndustries", "targetIndustriesOther", 999) &&
-           checkboxValid("clientChallenges", "clientChallengesOther") &&
-           checkboxValid("clientOutcomes", "clientOutcomesOther") &&
+           (formData.clientSize || "").trim().length > 0 &&
+           checkboxValid("clientChallenges", "clientChallengesOther", 3) &&
+           checkboxValid("clientOutcomes", "clientOutcomesOther", 3) &&
            longEnough(formData.idealClient);
   };
 
@@ -149,7 +166,7 @@ export default function Questionnaire() {
     if (isFormValid()) {
       setShowConfirmModal(true);
     } else {
-      alert("Please complete all required fields before submitting.");
+      alert("Please complete all required fields before submitting.\n\n• Checkbox questions need 1-3 total selections (including 'Other' if used)\n• Questions 3 and 12 need at least 150 characters\n• Radio questions need one option selected or 'Other' filled");
     }
   };
 
@@ -268,7 +285,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={1}
               title="What type of IT company are you?"
-              hint="Check all that apply. Maximum 3 selections."
+              hint="Check all that apply. Maximum 3 selections (including 'Other')."
               options={[
                 "Managed Services Provider (MSP)",
                 "IT Consulting / Project-Based Services",
@@ -288,7 +305,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={2}
               title="What are your primary service offerings?"
-              hint="Select your core services. Maximum 3 selections."
+              hint="Select your core services. Maximum 3 selections (including 'Other')."
               options={[
                 "Cloud Services", "CMMC Compliance Services", "Co-Managed IT", "Co-Managed IT Services",
                 "Cybersecurity Services", "Data Backup & Recovery", "Data Backup & Recovery Services",
@@ -351,7 +368,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={6}
               title="What are your company's biggest goals over the next year?"
-              hint="Select up to three."
+              hint="Select up to three (including 'Other')."
               options={[
                 "Acquire more clients",
                 "Improve recurring revenue",
@@ -428,7 +445,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={10}
               title="What are the main IT challenges your clients come to you for help with?"
-              hint="Select up to three."
+              hint="Select up to three (including 'Other')."
               options={[
                 "Frequent downtime or slow networks",
                 "Cybersecurity concerns or breaches",
@@ -448,7 +465,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={11}
               title="What outcomes do your clients want most from working with you?"
-              hint="Select up to three."
+              hint="Select up to three (including 'Other')."
               options={[
                 "Faster response and resolution",
                 "Peace of mind about security",
