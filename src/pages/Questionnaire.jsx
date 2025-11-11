@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -294,31 +293,36 @@ export default function Questionnaire() {
     const urlParams = new URLSearchParams(window.location.search);
     const businessName = urlParams.get("business_name") || "";
 
+    // Structure the payload with metadata and userdata sections
     const payload = {
-      business_name: businessName,
-      submission_datetime: new Date().toISOString(),
-      service_type: "express",
-      it_company_type: formData.itCompanyType,
-      it_company_type_other: formData.itCompanyTypeOther,
-      service_offerings: formData.serviceOfferings,
-      service_offerings_other: formData.serviceOfferingsOther,
-      differentiation: formData.differentiation,
-      geographic_areas: formData.geographicAreaMeta?.label || formData.geographicAreas,
-      geographic_area_meta: formData.geographicAreaMeta,
-      pricing_packaging: formData.pricingPackaging,
-      pricing_packaging_other: formData.pricingPackagingOther,
-      company_goals: formData.companyGoals,
-      company_goals_other: formData.companyGoalsOther,
-      brand_tone: formData.brandTone,
-      brand_tone_other: formData.brandToneOther,
-      target_industries: formData.targetIndustries,
-      target_industries_other: formData.targetIndustriesOther,
-      client_size: formData.clientSize,
-      client_challenges: formData.clientChallenges,
-      client_challenges_other: formData.clientChallengesOther,
-      client_outcomes: formData.clientOutcomes,
-      client_outcomes_other: formData.clientOutcomesOther,
-      ideal_client: formData.idealClient
+      metadata: {
+        business_name: businessName,
+        submission_datetime: new Date().toISOString(),
+        service_type: "express"
+      },
+      userdata: {
+        it_company_type: formData.itCompanyType,
+        it_company_type_other: formData.itCompanyTypeOther,
+        service_offerings: formData.serviceOfferings,
+        service_offerings_other: formData.serviceOfferingsOther,
+        differentiation: formData.differentiation,
+        geographic_areas: formData.geographicAreaMeta?.label || formData.geographicAreas,
+        geographic_area_meta: formData.geographicAreaMeta,
+        pricing_packaging: formData.pricingPackaging,
+        pricing_packaging_other: formData.pricingPackagingOther,
+        company_goals: formData.companyGoals,
+        company_goals_other: formData.companyGoalsOther,
+        brand_tone: formData.brandTone,
+        brand_tone_other: formData.brandToneOther,
+        target_industries: formData.targetIndustries,
+        target_industries_other: formData.targetIndustriesOther,
+        client_size: formData.clientSize,
+        client_challenges: formData.clientChallenges,
+        client_challenges_other: formData.clientChallengesOther,
+        client_outcomes: formData.clientOutcomes,
+        client_outcomes_other: formData.clientOutcomesOther,
+        ideal_client: formData.idealClient
+      }
     };
 
     submitMutation.mutate(payload);
