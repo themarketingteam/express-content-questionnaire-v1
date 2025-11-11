@@ -14,20 +14,16 @@ export default function CheckboxQuestion({
   limit = 3,
   onInfoClick
 }) {
-  // Count "Other" as a selection if it has content
-  const hasOtherValue = (otherValue || "").trim().length > 0;
-  const totalSelections = selected.length + (hasOtherValue ? 1 : 0);
+  // Count "Other" as a selection if it has text
+  const hasOtherText = (otherValue || "").trim().length > 0;
+  const totalSelections = selected.length + (hasOtherText ? 1 : 0);
   const isAtLimit = totalSelections >= limit;
 
   const isCheckboxDisabled = (value) => {
-    // Disable if at limit and this checkbox is not already selected
     return isAtLimit && !selected.includes(value);
   };
 
-  const isOtherDisabled = () => {
-    // Disable "Other" field if we're at limit and it doesn't already have content
-    return isAtLimit && !hasOtherValue;
-  };
+  const isOtherDisabled = isAtLimit && !hasOtherText;
 
   return (
     <div className="space-y-4">
@@ -49,17 +45,14 @@ export default function CheckboxQuestion({
             )}
           </div>
           {hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
+          {limit > 0 && limit < 999 && (
+            <span className={`text-sm font-medium mt-1 block ${
+              isAtLimit ? "text-amber-600" : "text-slate-600"
+            }`}>
+              {totalSelections} / {limit} selections {isAtLimit && "(limit reached)"}
+            </span>
+          )}
         </label>
-      </div>
-
-      {/* Selection counter */}
-      <div className="text-sm text-slate-600">
-        <span className={totalSelections >= limit ? "text-amber-600 font-medium" : ""}>
-          {totalSelections} of {limit} selected
-        </span>
-        {totalSelections >= limit && (
-          <span className="ml-2 text-amber-600">• Maximum reached</span>
-        )}
       </div>
 
       <div className="space-y-2.5">
@@ -70,12 +63,12 @@ export default function CheckboxQuestion({
           return (
             <label
               key={option}
-              className={`flex items-center gap-3 p-4 border rounded-xl transition-all ${
+              className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${
                 isChecked
                   ? "border-blue-500 bg-blue-50"
                   : disabled
                   ? "border-slate-200 bg-slate-50 opacity-50 cursor-not-allowed"
-                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
               }`}
             >
               <input
@@ -94,8 +87,8 @@ export default function CheckboxQuestion({
       <OtherField
         value={otherValue}
         onChange={onOtherChange}
-        disabled={isOtherDisabled()}
-        countsAsSelection={true}
+        disabled={isOtherDisabled}
+        message={isOtherDisabled ? `You've reached the limit of ${limit} selections. Uncheck an option to use "Other".` : null}
       />
     </div>
   );

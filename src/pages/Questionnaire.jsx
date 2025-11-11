@@ -6,6 +6,7 @@ import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
 import TextAreaQuestion from "../components/questionnaire/TextAreaQuestion";
 import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
+import OtherField from "../components/questionnaire/OtherField";
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import { Save, CheckCircle2 } from "lucide-react";
@@ -109,17 +110,17 @@ export default function Questionnaire() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const updateArrayField = (field, value, limit = 3) => {
+  const updateArrayField = (field, value, limit = 3, otherField = null) => {
     setFormData(prev => {
       const current = prev[field] || [];
-      const otherField = `${field}Other`;
-      const hasOther = (prev[otherField] || "").trim().length > 0;
-      const totalSelections = current.length + (hasOther ? 1 : 0);
-      
       const index = current.indexOf(value);
       
+      // Count "Other" as a selection if it has text
+      const hasOtherText = otherField && (prev[otherField] || "").trim().length > 0;
+      const totalSelections = current.length + (hasOtherText ? 1 : 0);
+      
       if (index > -1) {
-        // Unchecking - always allow
+        // Unchecking - always allowed
         return { ...prev, [field]: current.filter(v => v !== value) };
       } else {
         // Checking - only if under limit
@@ -134,30 +135,19 @@ export default function Questionnaire() {
       const selected = (formData[field] || []).length;
       const hasOther = (formData[otherField] || "").trim().length > 0;
       const total = selected + (hasOther ? 1 : 0);
-      // Valid if: 1-3 selections total (including "Other")
       return total >= 1 && total <= limit;
     };
 
     const longEnough = (val) => (val || "").trim().length >= 150;
-    
-    const radioValid = (field, otherField) => {
-      const hasRadio = (formData[field] || "").trim().length > 0;
-      const hasOther = (formData[otherField] || "").trim().length > 0;
-      // Valid if either radio is selected OR "Other" has content (but not both)
-      return hasRadio || hasOther;
-    };
 
-    return checkboxValid("itCompanyType", "itCompanyTypeOther", 3) &&
-           checkboxValid("serviceOfferings", "serviceOfferingsOther", 3) &&
+    return checkboxValid("itCompanyType", "itCompanyTypeOther") &&
+           checkboxValid("serviceOfferings", "serviceOfferingsOther") &&
            longEnough(formData.differentiation) &&
            (formData.geographicAreaMeta?.label || !formData.geographicAreas) &&
-           radioValid("pricingPackaging", "pricingPackagingOther") &&
-           checkboxValid("companyGoals", "companyGoalsOther", 3) &&
-           radioValid("brandTone", "brandToneOther") &&
+           checkboxValid("companyGoals", "companyGoalsOther") &&
            checkboxValid("targetIndustries", "targetIndustriesOther", 999) &&
-           (formData.clientSize || "").trim().length > 0 &&
-           checkboxValid("clientChallenges", "clientChallengesOther", 3) &&
-           checkboxValid("clientOutcomes", "clientOutcomesOther", 3) &&
+           checkboxValid("clientChallenges", "clientChallengesOther") &&
+           checkboxValid("clientOutcomes", "clientOutcomesOther") &&
            longEnough(formData.idealClient);
   };
 
@@ -166,7 +156,7 @@ export default function Questionnaire() {
     if (isFormValid()) {
       setShowConfirmModal(true);
     } else {
-      alert("Please complete all required fields before submitting.\n\n• Checkbox questions need 1-3 total selections (including 'Other' if used)\n• Questions 3 and 12 need at least 150 characters\n• Radio questions need one option selected or 'Other' filled");
+      alert("Please complete all required fields before submitting.");
     }
   };
 
@@ -285,7 +275,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={1}
               title="What type of IT company are you?"
-              hint="Check all that apply. Maximum 3 selections (including 'Other')."
+              hint="Check all that apply. Maximum 3 selections."
               options={[
                 "Managed Services Provider (MSP)",
                 "IT Consulting / Project-Based Services",
@@ -295,7 +285,7 @@ export default function Questionnaire() {
                 "Break-Fix / On-Demand Support"
               ]}
               selected={formData.itCompanyType}
-              onToggle={(value) => updateArrayField("itCompanyType", value, 3)}
+              onToggle={(value) => updateArrayField("itCompanyType", value, 3, "itCompanyTypeOther")}
               otherValue={formData.itCompanyTypeOther}
               onOtherChange={(value) => updateField("itCompanyTypeOther", value)}
               limit={3}
@@ -305,7 +295,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={2}
               title="What are your primary service offerings?"
-              hint="Select your core services. Maximum 3 selections (including 'Other')."
+              hint="Select your core services. Maximum 3 selections."
               options={[
                 "Cloud Services", "CMMC Compliance Services", "Co-Managed IT", "Co-Managed IT Services",
                 "Cybersecurity Services", "Data Backup & Recovery", "Data Backup & Recovery Services",
@@ -319,7 +309,7 @@ export default function Questionnaire() {
                 "VoIP Phone Systems"
               ]}
               selected={formData.serviceOfferings}
-              onToggle={(value) => updateArrayField("serviceOfferings", value, 3)}
+              onToggle={(value) => updateArrayField("serviceOfferings", value, 3, "serviceOfferingsOther")}
               otherValue={formData.serviceOfferingsOther}
               onOtherChange={(value) => updateField("serviceOfferingsOther", value)}
               limit={3}
@@ -368,7 +358,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={6}
               title="What are your company's biggest goals over the next year?"
-              hint="Select up to three (including 'Other')."
+              hint="Select up to three."
               options={[
                 "Acquire more clients",
                 "Improve recurring revenue",
@@ -378,7 +368,7 @@ export default function Questionnaire() {
                 "Recruit or retain top technical staff"
               ]}
               selected={formData.companyGoals}
-              onToggle={(value) => updateArrayField("companyGoals", value, 3)}
+              onToggle={(value) => updateArrayField("companyGoals", value, 3, "companyGoalsOther")}
               otherValue={formData.companyGoalsOther}
               onOtherChange={(value) => updateField("companyGoalsOther", value)}
               limit={3}
@@ -421,7 +411,7 @@ export default function Questionnaire() {
                 "Retail / Hospitality"
               ]}
               selected={formData.targetIndustries}
-              onToggle={(value) => updateArrayField("targetIndustries", value, 999)}
+              onToggle={(value) => updateArrayField("targetIndustries", value, 999, "targetIndustriesOther")}
               otherValue={formData.targetIndustriesOther}
               onOtherChange={(value) => updateField("targetIndustriesOther", value)}
               limit={999}
@@ -445,7 +435,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={10}
               title="What are the main IT challenges your clients come to you for help with?"
-              hint="Select up to three (including 'Other')."
+              hint="Select up to three."
               options={[
                 "Frequent downtime or slow networks",
                 "Cybersecurity concerns or breaches",
@@ -456,7 +446,7 @@ export default function Questionnaire() {
                 "Outdated or inefficient systems"
               ]}
               selected={formData.clientChallenges}
-              onToggle={(value) => updateArrayField("clientChallenges", value, 3)}
+              onToggle={(value) => updateArrayField("clientChallenges", value, 3, "clientChallengesOther")}
               otherValue={formData.clientChallengesOther}
               onOtherChange={(value) => updateField("clientChallengesOther", value)}
               limit={3}
@@ -465,7 +455,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={11}
               title="What outcomes do your clients want most from working with you?"
-              hint="Select up to three (including 'Other')."
+              hint="Select up to three."
               options={[
                 "Faster response and resolution",
                 "Peace of mind about security",
@@ -475,7 +465,7 @@ export default function Questionnaire() {
                 "Fewer day-to-day IT problems"
               ]}
               selected={formData.clientOutcomes}
-              onToggle={(value) => updateArrayField("clientOutcomes", value, 3)}
+              onToggle={(value) => updateArrayField("clientOutcomes", value, 3, "clientOutcomesOther")}
               otherValue={formData.clientOutcomesOther}
               onOtherChange={(value) => updateField("clientOutcomesOther", value)}
               limit={3}
