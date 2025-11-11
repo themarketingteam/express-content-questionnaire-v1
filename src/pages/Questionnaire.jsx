@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -249,24 +250,35 @@ export default function Questionnaire() {
   };
 
   const isFormValid = () => {
-    const checkboxValid = (field, otherField, limit = 3) => {
+    // Helper: check if checkbox/other has at least 1 selection or other text
+    const hasAnswer = (field, otherField) => {
       const selected = (formData[field] || []).length;
-      const hasOther = (formData[otherField] || "").trim().length > 0;
-      const total = selected + (hasOther ? 1 : 0);
-      return total >= 1 && total <= limit;
+      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
+      return selected > 0 || hasOther;
     };
 
-    const longEnough = (val) => (val || "").trim().length >= 150;
+    // Helper: check if radio has a selection or other text
+    const hasRadioAnswer = (field, otherField) => {
+      const selected = (formData[field] || "").trim().length > 0;
+      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
+      return selected || hasOther;
+    };
 
-    return checkboxValid("itCompanyType", "itCompanyTypeOther") &&
-           checkboxValid("serviceOfferings", "serviceOfferingsOther") &&
-           longEnough(formData.differentiation) &&
-           (formData.geographicAreaMeta?.label || !formData.geographicAreas) &&
-           checkboxValid("companyGoals", "companyGoalsOther") &&
-           checkboxValid("targetIndustries", "targetIndustriesOther", 999) &&
-           checkboxValid("clientChallenges", "clientChallengesOther") &&
-           checkboxValid("clientOutcomes", "clientOutcomesOther") &&
-           longEnough(formData.idealClient);
+    // Helper: check if text field has any content (not empty after trim)
+    const hasText = (val) => (val || "").trim().length > 0;
+
+    return hasAnswer("itCompanyType", "itCompanyTypeOther") &&                    // Q1
+           hasAnswer("serviceOfferings", "serviceOfferingsOther") &&              // Q2
+           hasText(formData.differentiation) &&                                    // Q3
+           hasText(formData.geographicAreas) &&                                    // Q4
+           hasRadioAnswer("pricingPackaging", "pricingPackagingOther") &&         // Q5
+           hasAnswer("companyGoals", "companyGoalsOther") &&                      // Q6
+           hasRadioAnswer("brandTone", "brandToneOther") &&                       // Q7
+           hasAnswer("targetIndustries", "targetIndustriesOther") &&              // Q8
+           hasRadioAnswer("clientSize", null) &&                                  // Q9 (no other)
+           hasAnswer("clientChallenges", "clientChallengesOther") &&              // Q10
+           hasAnswer("clientOutcomes", "clientOutcomesOther") &&                  // Q11
+           hasText(formData.idealClient);                                          // Q12
   };
 
   const handleSubmit = (e) => {
@@ -433,10 +445,10 @@ export default function Questionnaire() {
             <TextAreaQuestion
               questionNumber={3}
               title="What makes your company different from other MSPs in your area?"
-              hint="Short answer (minimum 150 characters)"
+              hint="Short answer"
               value={formData.differentiation}
               onChange={(value) => updateField("differentiation", value)}
-              minLength={150}
+              minLength={0}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q3)}
             />
 
@@ -596,10 +608,10 @@ export default function Questionnaire() {
             <TextAreaQuestion
               questionNumber={12}
               title="If you could describe your ideal client in one sentence, what would you say?"
-              hint="Short answer (minimum 150 characters)"
+              hint="Short answer"
               value={formData.idealClient}
               onChange={(value) => updateField("idealClient", value)}
-              minLength={150}
+              minLength={0}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q12)}
             />
           </section>
