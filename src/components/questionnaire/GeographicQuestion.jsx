@@ -31,8 +31,15 @@ export default function GeographicQuestion({
     }
 
     // Load Google Maps Places API
-    // Get API key from environment or use placeholder
-    const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || 'YOUR_GOOGLE_PLACES_API_KEY';
+    // Access the API key from Base44 environment
+    const apiKey = window.ENV?.GOOGLE_PLACES_API_KEY || import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+    
+    if (!apiKey) {
+      console.warn("Google Places API key not configured");
+      setLoadError(true);
+      return;
+    }
+
     const script = document.createElement("script");
     script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
