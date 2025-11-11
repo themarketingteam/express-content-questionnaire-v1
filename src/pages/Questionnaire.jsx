@@ -17,7 +17,7 @@ const HELPER_COPY = {
   q1: {
     title: "What type of IT company are you?",
     why: "This helps us align your site to your operating model. A Managed Services Provider markets differently than a Cloud Hosting Provider or a Cybersecurity Specialist. Matching your model ensures the right language, examples, and CTAs that attract the right clients.",
-    guidance: "Pick up to three that describe your business today (not future plans). If you don't see a perfect fit, choose the closest items and use "Other" to clarify briefly.",
+    guidance: "Pick up to three that describe your business today (not future plans). If you don't see a perfect fit, choose the closest items and use 'Other' to clarify briefly.",
     type: "checkbox",
     examples: {
       selections: ["Managed Services Provider (MSP)", "Cybersecurity Provider", "Co-Managed IT Partner"],
@@ -28,7 +28,7 @@ const HELPER_COPY = {
   q2: {
     title: "What are your primary service offerings?",
     why: "Your service focus drives navigation, page structure, and SEO priorities. Choosing your top services ensures the site showcases what you most want to sell, not just a generic list.",
-    guidance: "Select up to three of your strongest or most profitable services. If unlisted, use "Other" with the label you use in sales calls.",
+    guidance: "Select up to three of your strongest or most profitable services. If unlisted, use 'Other' with the label you use in sales calls.",
     type: "checkbox",
     examples: {
       selections: ["Managed IT Services", "Microsoft 365 Services", "Security Awareness Training"],
@@ -57,7 +57,7 @@ const HELPER_COPY = {
   q5: {
     title: "How do you typically price or package your services?",
     why: "Clarity on pricing models helps us set accurate expectations on your site. Flat-rate MSPs should sound predictable; project-based firms should sound flexible.",
-    guidance: "Pick the model you use most. If you mix models, choose the most common and add any nuance under "Other."",
+    guidance: "Pick the model you use most. If you mix models, choose the most common and add any nuance under 'Other.'",
     type: "multiple",
     examples: {
       selectionRule: "If your clients typically have over 100 staff and you provide comprehensive coverage, 'Flat-rate monthly (fully managed)' or 'Hybrid' may fit best. If most work is one-off projects, select 'Hourly or project-based'.",
@@ -79,7 +79,7 @@ const HELPER_COPY = {
   q7: {
     title: "What tone best describes how you want your brand to sound on your website?",
     why: "Tone shapes how prospects feel about you. Technical signals expertise; friendly signals approachability; bold can drive action. We'll match content to your voice.",
-    guidance: "Pick the tone that matches how you talk to clients today. Use "Other" if you want a blended voice (e.g., friendly but evidence-led).",
+    guidance: "Pick the tone that matches how you talk to clients today. Use 'Other' if you want a blended voice (e.g., friendly but evidence-led).",
     type: "multiple",
     examples: {
       selectionRule: "If most prospects are non-technical decision makers, choose 'Friendly and approachable'. If they're IT leadership, 'Technical and expert-driven' may perform better.",
@@ -90,7 +90,7 @@ const HELPER_COPY = {
   q8: {
     title: "What types of businesses do you primarily serve?",
     why: "Industry targeting improves relevance and conversion. Healthcare, legal, and manufacturing audiences need different language, visuals, and compliance cues.",
-    guidance: "Check the industries you actively serve. If you have a niche that isn't listed, use "Other" and name it clearly.",
+    guidance: "Check the industries you actively serve. If you have a niche that isn't listed, use 'Other' and name it clearly.",
     type: "checkbox",
     examples: {
       selections: ["Healthcare / Medical", "Financial / Accounting / CPA", "Manufacturing / Construction"],
@@ -104,14 +104,14 @@ const HELPER_COPY = {
     guidance: "Pick the range that best matches your average client. If many are larger than 100+ employees, choose the corresponding bracket.",
     type: "multiple",
     examples: {
-      selectionRule: "If your business mostly services clients with over 100 people, select "100–250 employees" or "250+ employees".",
+      selectionRule: "If your business mostly services clients with over 100 people, select '100–250 employees' or '250+ employees'.",
       selection: "51–100 employees"
     }
   },
   q10: {
     title: "What are the main IT challenges your clients come to you for help with?",
     why: "Stating real pain points helps visitors feel understood. We'll echo these problems on your homepage and service pages to build trust quickly.",
-    guidance: "Choose up to three issues clients mention most often in discovery calls or tickets. Use "Other" for anything specific to your niche.",
+    guidance: "Choose up to three issues clients mention most often in discovery calls or tickets. Use 'Other' for anything specific to your niche.",
     type: "checkbox",
     examples: {
       selections: ["Cybersecurity concerns or breaches", "Frequent downtime or slow networks", "Unreliable backups or disaster recovery"],
