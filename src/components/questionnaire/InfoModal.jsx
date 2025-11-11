@@ -55,69 +55,26 @@ export default function InfoModal({ data, onClose }) {
           {data.examples && (
             <div>
               <h4 className="font-semibold text-slate-900 mb-3">Examples</h4>
-              
-              {/* For checkbox type */}
-              {data.type === "checkbox" && (
-                <div className="space-y-3">
-                  {data.examples.selections && (
-                    <div className="bg-slate-50 p-4 rounded-lg">
-                      <div className="font-medium text-slate-900 mb-2">Example selections:</div>
-                      <ul className="list-disc list-inside space-y-1 text-slate-700">
-                        {data.examples.selections.map((item, i) => (
-                          <li key={i}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {data.examples.mixed && (
-                    <div className="bg-slate-50 p-4 rounded-lg">
-                      <div className="font-medium text-slate-900 mb-2">Alternative mix:</div>
-                      <ul className="list-disc list-inside space-y-1 text-slate-700">
-                        {data.examples.mixed.map((item, i) => (
-                          <li key={i}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {data.examples.other && (
-                    <div className="bg-slate-50 p-4 rounded-lg">
-                      <div className="font-medium text-slate-900 mb-2">"Other" example:</div>
-                      <div className="text-slate-700 italic">{data.examples.other}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* For short answer type */}
-              {data.type === "short" && data.examples.shortAnswer && (
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <div className="text-slate-700 italic">{data.examples.shortAnswer}</div>
-                </div>
-              )}
-
-              {/* For multiple choice / radio type */}
-              {data.type === "multiple" && (
-                <div className="space-y-3">
-                  {data.examples.selectionRule && (
-                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-                      <div className="font-medium text-blue-900 mb-1">💡 Tip:</div>
-                      <div className="text-blue-800">{data.examples.selectionRule}</div>
-                    </div>
-                  )}
-                  {data.examples.selection && (
-                    <div className="bg-slate-50 p-4 rounded-lg">
-                      <div className="font-medium text-slate-900 mb-1">Example selection:</div>
-                      <div className="text-slate-700">{data.examples.selection}</div>
-                    </div>
-                  )}
-                  {data.examples.other && (
-                    <div className="bg-slate-50 p-4 rounded-lg">
-                      <div className="font-medium text-slate-900 mb-1">"Other" example:</div>
-                      <div className="text-slate-700 italic">{data.examples.other}</div>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="space-y-3">
+                {data.examples.selections && (
+                  <div className="bg-slate-50 p-4 rounded-lg">
+                    <div className="font-medium text-slate-900 mb-1">Example selections:</div>
+                    <div className="text-slate-700">{data.examples.selections.join(", ")}</div>
+                  </div>
+                )}
+                {data.examples.mixed && (
+                  <div className="bg-slate-50 p-4 rounded-lg">
+                    <div className="font-medium text-slate-900 mb-1">Alternative mix:</div>
+                    <div className="text-slate-700">{data.examples.mixed.join(", ")}</div>
+                  </div>
+                )}
+                {data.examples.other && (
+                  <div className="bg-slate-50 p-4 rounded-lg">
+                    <div className="font-medium text-slate-900 mb-1">"Other" example:</div>
+                    <div className="text-slate-700 italic">{data.examples.other}</div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
