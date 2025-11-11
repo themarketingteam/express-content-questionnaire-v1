@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MapPin, X } from "lucide-react";
+import { MapPin, X, Info } from "lucide-react";
 
 export default function GeographicQuestion({
   questionNumber = 4,
@@ -7,7 +7,8 @@ export default function GeographicQuestion({
   selectedMeta,
   onChange,
   onSelect,
-  onClear
+  onClear,
+  onInfoClick
 }) {
   const inputRef = useRef(null);
   const autocompleteRef = useRef(null);
@@ -75,14 +76,28 @@ export default function GeographicQuestion({
 
   return (
     <div className="space-y-4">
-      <label className="block">
-        <span className="text-lg font-semibold text-slate-900">
-          {questionNumber}. What geographic area do you primarily serve?
-        </span>
-        <span className="text-sm text-slate-500 italic mt-1 block">
-          Start typing (e.g., "Denver, CO" or "Auckland, NZ") and choose a validated result.
-        </span>
-      </label>
+      <div className="flex items-start gap-3">
+        <label className="block flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-semibold text-slate-900">
+              {questionNumber}. What geographic area do you primarily serve?
+            </span>
+            {onInfoClick && (
+              <button
+                type="button"
+                onClick={onInfoClick}
+                className="w-6 h-6 rounded-full border border-slate-300 hover:border-slate-400 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-all"
+                aria-label="More information"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <span className="text-sm text-slate-500 italic mt-1 block">
+            Start typing (e.g., "Denver, CO" or "Auckland, NZ") and choose a validated result.
+          </span>
+        </label>
+      </div>
 
       <div className="relative">
         <input
