@@ -35,6 +35,7 @@ export default function InfoModal({ data, onClose }) {
           <button
             onClick={onClose}
             className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
@@ -56,22 +57,41 @@ export default function InfoModal({ data, onClose }) {
             <div>
               <h4 className="font-semibold text-slate-900 mb-3">Examples</h4>
               <div className="space-y-3">
-                {data.examples.selections && (
+                {/* Checkbox/Multiple choice examples */}
+                {data.examples.selections && data.examples.selections.length > 0 && (
                   <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-1">Example selections:</div>
-                    <div className="text-slate-700">{data.examples.selections.join(", ")}</div>
+                    <div className="font-medium text-slate-900 mb-2">Example selections:</div>
+                    <ul className="list-disc list-inside space-y-1">
+                      {data.examples.selections.map((item, idx) => (
+                        <li key={idx} className="text-slate-700">{item}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-                {data.examples.mixed && (
+                
+                {data.examples.mixed && data.examples.mixed.length > 0 && (
                   <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-1">Alternative mix:</div>
-                    <div className="text-slate-700">{data.examples.mixed.join(", ")}</div>
+                    <div className="font-medium text-slate-900 mb-2">Alternative mix:</div>
+                    <ul className="list-disc list-inside space-y-1">
+                      {data.examples.mixed.map((item, idx) => (
+                        <li key={idx} className="text-slate-700">{item}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
+                
                 {data.examples.other && (
                   <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-1">"Other" example:</div>
+                    <div className="font-medium text-slate-900 mb-2">"Other" example:</div>
                     <div className="text-slate-700 italic">{data.examples.other}</div>
+                  </div>
+                )}
+
+                {/* Short answer examples */}
+                {data.examples.shortAnswer && (
+                  <div className="bg-slate-50 p-4 rounded-lg">
+                    <div className="font-medium text-slate-900 mb-2">Example answer:</div>
+                    <div className="text-slate-700 italic">{data.examples.shortAnswer}</div>
                   </div>
                 )}
               </div>
