@@ -1,5 +1,5 @@
 import React from "react";
-import { Info } from "lucide-react";
+import { Info, RotateCcw } from "lucide-react";
 import OtherField from "./OtherField";
 
 export default function RadioQuestion({
@@ -44,6 +44,15 @@ export default function RadioQuestion({
     }
   };
 
+  const handleClearSelection = () => {
+    onSelect("");
+    if (onOtherChange) {
+      onOtherChange("");
+    }
+  };
+
+  const hasAnySelection = hasRadioSelection || hasOtherValue;
+
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
@@ -62,13 +71,24 @@ export default function RadioQuestion({
                 <Info className="w-3.5 h-3.5" />
               </button>
             )}
+            {hasAnySelection && (
+              <button
+                type="button"
+                onClick={handleClearSelection}
+                className="ml-auto flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all"
+                title="Clear selection"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </button>
+            )}
           </div>
           {hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
         </label>
       </div>
 
       {hasOtherValue && (
-        <div className="text-sm text-amber-600 font-medium">
+        <div className="text-sm text-amber-600 font-medium bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Using custom "Other" option • Radio buttons disabled
         </div>
       )}
@@ -107,7 +127,7 @@ export default function RadioQuestion({
           value={otherValue}
           onChange={handleOtherChange}
           disabled={isOtherDisabled()}
-          countsAsSelection={false}
+          message={isOtherDisabled() ? "A radio option is selected. Click 'Reset' above to use 'Other'." : null}
         />
       )}
     </div>
