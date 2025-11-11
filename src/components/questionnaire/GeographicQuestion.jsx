@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MapPin, X, Info } from "lucide-react";
 
+// TEMPORARY: API key for testing - REMOVE before production!
+const TEMP_API_KEY = "AIzaSyDyQuexeP2lIif4UEYVe845bIYrytVp6O0";
+
 export default function GeographicQuestion({
   questionNumber = 4,
   value,
@@ -31,8 +34,7 @@ export default function GeographicQuestion({
     }
 
     // Load Google Maps Places API
-    // Access the API key from Base44 environment
-    const apiKey = window.ENV?.GOOGLE_PLACES_API_KEY || import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+    const apiKey = TEMP_API_KEY || window.ENV?.GOOGLE_PLACES_API_KEY || import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
     
     if (!apiKey) {
       console.warn("Google Places API key not configured");
