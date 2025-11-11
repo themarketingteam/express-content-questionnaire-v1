@@ -31,8 +31,10 @@ export default function GeographicQuestion({
     }
 
     // Load Google Maps Places API
+    // Get API key from environment or use placeholder
+    const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || 'YOUR_GOOGLE_PLACES_API_KEY';
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_PLACES_API_KEY&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
@@ -98,6 +100,40 @@ export default function GeographicQuestion({
 
   return (
     <div className="space-y-4">
+      <style>{`
+        /* Ensure Google Places autocomplete dropdown is visible and styled */
+        .pac-container {
+          z-index: 9999 !important;
+          border-radius: 12px !important;
+          margin-top: 4px !important;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15) !important;
+          border: 1px solid #e2e8f0 !important;
+          font-family: inherit !important;
+        }
+        .pac-item {
+          padding: 12px 16px !important;
+          cursor: pointer !important;
+          font-size: 14px !important;
+          border-top: 1px solid #f1f5f9 !important;
+        }
+        .pac-item:first-child {
+          border-top: none !important;
+        }
+        .pac-item:hover {
+          background-color: #f8fafc !important;
+        }
+        .pac-item-selected {
+          background-color: #eff6ff !important;
+        }
+        .pac-matched {
+          font-weight: 600 !important;
+          color: #2563eb !important;
+        }
+        .pac-icon {
+          margin-right: 12px !important;
+        }
+      `}</style>
+
       <div className="flex items-start gap-3">
         <label className="block flex-1">
           <div className="flex items-center gap-2">
@@ -117,7 +153,7 @@ export default function GeographicQuestion({
           </div>
           <span className="text-sm text-slate-500 italic mt-1 block">
             {isScriptLoaded 
-              ? "Start typing and select from suggestions, or type freely" 
+              ? "Start typing to see location suggestions" 
               : loadError 
               ? "Type your geographic area (city, region, state, country)" 
               : "Loading location search..."}
@@ -132,14 +168,15 @@ export default function GeographicQuestion({
           placeholder="e.g., Denver, CO or Auckland, NZ"
           value={hasSelection ? selectedMeta.label : value}
           onChange={handleInputChange}
+          autoComplete="off"
           className="w-full p-4 pr-12 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
-        <MapPin className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <MapPin className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
       </div>
 
       {isScriptLoaded && !loadError && (
         <div className="text-sm text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
-          💡 Select a suggestion from the dropdown for validated location data, or continue typing to enter manually.
+          💡 Type to see location suggestions. Select one from the dropdown for validated location data.
         </div>
       )}
 
