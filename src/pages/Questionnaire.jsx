@@ -730,7 +730,7 @@ export default function Questionnaire() {
               <TextAreaQuestion
                 questionNumber={12}
                 title="Briefly describe your ideal client."
-                hint="Short answer"
+                hint="Include who they are, the problems they're facing, and why they value your partnership."
                 value={formData.idealClient}
                 onChange={(value) => updateField("idealClient", value)}
                 minLength={0}
