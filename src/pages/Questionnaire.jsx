@@ -138,7 +138,7 @@ const HELPER_COPY = {
   q11: {
     title: "What outcomes do your clients want most from working with you?",
     why: "Benefits sell better than features. We'll highlight outcomes in headlines and case studies to show what clients get—not just what you do.",
-    guidance: "Pick up to two results clients consistently achieve with you. Think of what they thank you for after a few months together.",
+    guidance: "Pick up to three results clients consistently achieve with you. Think of what they thank you for after a few months together.",
     type: "checkbox",
     examples: {
       selections: ["Predictable monthly IT costs", "Peace of mind about security", "Fewer day-to-day IT problems"],
@@ -148,7 +148,7 @@ const HELPER_COPY = {
     }
   },
   q12: {
-    title: "Briefly describe your ideal client.",
+    title: "If you could describe your ideal client in one sentence, what would you say?",
     why: "This defines who your site should speak to, so you attract more of the right clients. It also helps filter out poor fit leads early.",
     guidance: "Write one sentence that includes size, industry, location, and mindset. Imagine describing your favorite client to a friend.",
     type: "short",
@@ -189,7 +189,7 @@ export default function Questionnaire() {
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [infoModalData, setInfoModalData(null)];
+  const [infoModalData, setInfoModalData] = useState(null);
 
   // Load saved data
   useEffect(() => {
@@ -626,7 +626,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={11}
               title="What outcomes do your clients want most from working with you?"
-              hint="Select up to two."
+              hint="Select up to three."
               options={[
                 "Faster response and resolution",
                 "Peace of mind about security",
@@ -636,16 +636,16 @@ export default function Questionnaire() {
                 "Fewer day-to-day IT problems"
               ]}
               selected={formData.clientOutcomes}
-              onToggle={(value) => updateArrayField("clientOutcomes", value, 2, "clientOutcomesOther")}
+              onToggle={(value) => updateArrayField("clientOutcomes", value, 3, "clientOutcomesOther")}
               otherValue={formData.clientOutcomesOther}
               onOtherChange={(value) => updateField("clientOutcomesOther", value)}
-              limit={2}
+              limit={3}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q11)}
             />
 
             <TextAreaQuestion
               questionNumber={12}
-              title="Briefly describe your ideal client."
+              title="If you could describe your ideal client in one sentence, what would you say?"
               hint="Short answer"
               value={formData.idealClient}
               onChange={(value) => updateField("idealClient", value)}
