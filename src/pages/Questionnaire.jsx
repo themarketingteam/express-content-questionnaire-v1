@@ -425,7 +425,7 @@ export default function Questionnaire() {
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Website Content Questionnaire</h1>
-            <p className="text-slate-600 mt-1">Tell us about your IT business</p>
+            <p className="text-slate-600 mt-1">Help us get to know your business.</p>
           </div>
           <AnimatePresence>
             {showSaveIndicator && (
