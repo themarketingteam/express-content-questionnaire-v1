@@ -138,7 +138,7 @@ const HELPER_COPY = {
   q11: {
     title: "What outcomes do your clients want most from working with you?",
     why: "Benefits sell better than features. We'll highlight outcomes in headlines and case studies to show what clients get—not just what you do.",
-    guidance: "Pick up to three results clients consistently achieve with you. Think of what they thank you for after a few months together.",
+    guidance: "Pick up to two results clients consistently achieve with you. Think of what they thank you for after a few months together.",
     type: "checkbox",
     examples: {
       selections: ["Predictable monthly IT costs", "Peace of mind about security", "Fewer day-to-day IT problems"],
@@ -626,7 +626,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={11}
               title="What outcomes do your clients want most from working with you?"
-              hint="Select up to three."
+              hint="Select up to two."
               options={[
                 "Faster response and resolution",
                 "Peace of mind about security",
@@ -636,10 +636,10 @@ export default function Questionnaire() {
                 "Fewer day-to-day IT problems"
               ]}
               selected={formData.clientOutcomes}
-              onToggle={(value) => updateArrayField("clientOutcomes", value, 3, "clientOutcomesOther")}
+              onToggle={(value) => updateArrayField("clientOutcomes", value, 2, "clientOutcomesOther")}
               otherValue={formData.clientOutcomesOther}
               onOtherChange={(value) => updateField("clientOutcomesOther", value)}
-              limit={3}
+              limit={2}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q11)}
             />
 
