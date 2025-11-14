@@ -319,20 +319,9 @@ export default function Questionnaire() {
         const nextQuestion = openQuestion + 1;
         if (nextQuestion <= 12) {
           setOpenQuestion(nextQuestion);
-          setTimeout(() => {
-            const element = questionRefs.current[nextQuestion];
-            if (element) {
-                const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-                const offsetPosition = elementPosition - 100; // Offset for sticky header
-                window.scrollTo({
-                    top: offsetPosition,
-                    behavior: 'smooth'
-                });
-            }
-          }, 100); // Small delay to allow state update and render before scroll
         }
         setAutoAdvancing(false);
-      }, 1500); // 1.5 seconds delay before auto-advancing
+      }, 1500);
 
       return () => clearTimeout(timer);
     }
@@ -341,17 +330,6 @@ export default function Questionnaire() {
   const handleQuestionClick = (questionNum) => {
     if (questionNum !== openQuestion) {
       setOpenQuestion(questionNum);
-      setTimeout(() => {
-        const element = questionRefs.current[questionNum];
-        if (element) {
-          const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-          const offsetPosition = elementPosition - 100; // Offset for sticky header
-          window.scrollTo({
-            top: offsetPosition,
-            behavior: 'smooth'
-          });
-        }
-      }, 100);
     }
   };
 
