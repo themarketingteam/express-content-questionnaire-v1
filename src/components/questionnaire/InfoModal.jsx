@@ -54,47 +54,44 @@ export default function InfoModal({ data, onClose }) {
           </div>
 
           {data.examples && (
-            <div>
-              <h4 className="font-semibold text-slate-900 mb-3">Examples</h4>
-              <div className="space-y-3">
-                {/* Checkbox/Multiple choice examples */}
-                {data.examples.selections && data.examples.selections.length > 0 && (
-                  <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-2">Example selections:</div>
-                    <ul className="list-disc list-inside space-y-1">
-                      {data.examples.selections.map((item, idx) => (
-                        <li key={idx} className="text-slate-700">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {data.examples.mixed && data.examples.mixed.length > 0 && (
-                  <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-2">Alternative mix:</div>
-                    <ul className="list-disc list-inside space-y-1">
-                      {data.examples.mixed.map((item, idx) => (
-                        <li key={idx} className="text-slate-700">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {data.examples.other && (
-                  <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-2">"Other" example:</div>
-                    <div className="text-slate-700 italic">{data.examples.other}</div>
-                  </div>
-                )}
+            <div className="space-y-3">
+              {/* Checkbox/Multiple choice examples */}
+              {data.examples.selections && data.examples.selections.length > 0 && (
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <div className="font-medium text-slate-900 mb-2">Example selections:</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {data.examples.selections.map((item, idx) => (
+                      <li key={idx} className="text-slate-700">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {data.examples.mixed && data.examples.mixed.length > 0 && (
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <div className="font-medium text-slate-900 mb-2">Alternative mix:</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {data.examples.mixed.map((item, idx) => (
+                      <li key={idx} className="text-slate-700">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {data.examples.other && (
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <div className="font-medium text-slate-900 mb-2">"Other" example:</div>
+                  <div className="text-slate-700 italic">{data.examples.other}</div>
+                </div>
+              )}
 
-                {/* Short answer examples */}
-                {data.examples.shortAnswer && (
-                  <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="font-medium text-slate-900 mb-2">Example answer:</div>
-                    <div className="text-slate-700 italic">{data.examples.shortAnswer}</div>
-                  </div>
-                )}
-              </div>
+              {/* Short answer examples */}
+              {data.examples.shortAnswer && (
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <div className="font-medium text-slate-900 mb-2">Example answer:</div>
+                  <div className="text-slate-700 italic">{data.examples.shortAnswer}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
