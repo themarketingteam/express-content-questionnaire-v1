@@ -225,7 +225,7 @@ export default function Questionnaire() {
 
   const submitMutation = useMutation({
     mutationFn: async (data) => {
-      // Send to Zapier webhook
+      // Send to Zapier webhook using form-encoded data to avoid CORS
       const hookId = import.meta.env.VITE_API_HOOK_ID || '23529934';
       const hookKey = import.meta.env.VITE_API_HOOK_KEY || 'u85gwuy';
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
@@ -234,12 +234,13 @@ export default function Questionnaire() {
       console.log('Sending data to:', zapierUrl);
       console.log('Payload structure:', JSON.stringify(data, null, 2));
 
+      // Convert data to URL-encoded form data
+      const formData = new URLSearchParams();
+      formData.append('data', JSON.stringify(data));
+
       const response = await fetch(zapierUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
+        body: formData
       });
 
       console.log('Zapier response status:', response.status);
