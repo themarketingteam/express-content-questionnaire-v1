@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -215,7 +216,27 @@ export default function Questionnaire() {
 
   const submitMutation = useMutation({
     mutationFn: async (data) => {
-      return base44.entities.FormSubmission.create(data);
+      // Send to Zapier webhook
+      const hookId = import.meta.env.VITE_API_HOOK_ID;
+      const hookKey = import.meta.env.VITE_API_HOOK_KEY;
+      const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
+      
+      const response = await fetch(zapierUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to submit to Zapier');
+      }
+
+      // Also save to Base44 for backup
+      await base44.entities.FormSubmission.create(data);
+      
+      return response.json();
     },
     onSuccess: () => {
       setShowSuccess(true);
