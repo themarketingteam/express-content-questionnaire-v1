@@ -512,10 +512,13 @@ export default function Questionnaire() {
               questionNumber={7}
               title="What tone best describes how you want your brand to sound on your website?"
               options={[
-                "Professional and corporate",
-                "Friendly and approachable",
-                "Technical and expert-driven",
-                "Bold and sales-focused"
+                "Professional & Corporate",
+                "Friendly & Approachable",
+                "Technical & Expert-Driven",
+                "Modern & Innovative",
+                "Confident & Authoritative Expert",
+                "High-End & Premium",
+                "Story-Driven & Mission-Focused"
               ]}
               selected={formData.brandTone}
               onSelect={(value) => updateField("brandTone", value)}
