@@ -339,7 +339,7 @@ export default function Questionnaire() {
       setTimeout(() => {
         questionRefs.current[questionNum]?.scrollIntoView({
           behavior: 'smooth',
-          block: 'center'
+          block: 'start'
         });
       }, 100);
     }
