@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -79,7 +78,7 @@ const HELPER_COPY = {
     title: "What are your company's biggest goals over the next year?",
     why: "Your goals guide UX, copy, and CTA strategy. If you want leads, we optimize for conversions; if rebranding or recruiting, we emphasize tone and credibility.",
     guidance: "Select up to three priorities that truly reflect your next 12 months. We'll align page structure and messaging to support those outcomes.",
-    type: "checkbox", // This remains checkbox in HELPER_COPY as per instructions, even if component changes.
+    type: "checkbox",
     examples: {
       selections: ["Acquire more clients", "Improve recurring revenue", "Expand into new markets"],
       mixed: ["Acquire more clients", "Strengthen cybersecurity offering", "Rebrand / modernize web presence"],
@@ -138,7 +137,7 @@ const HELPER_COPY = {
   q11: {
     title: "What outcomes do your clients want most from working with you?",
     why: "Benefits sell better than features. We'll highlight outcomes in headlines and case studies to show what clients get—not just what you do.",
-    guidance: "Pick up to three results clients consistently achieve with you. Think of what they thank you for after a few months together.",
+    guidance: "Pick up to two results clients consistently achieve with you. Think of what they thank you for after a few months together.",
     type: "checkbox",
     examples: {
       selections: ["Predictable monthly IT costs", "Peace of mind about security", "Fewer day-to-day IT problems"],
@@ -148,7 +147,7 @@ const HELPER_COPY = {
     }
   },
   q12: {
-    title: "If you could describe your ideal client in one sentence, what would you say?",
+    title: "Briefly describe your ideal client.",
     why: "This defines who your site should speak to, so you attract more of the right clients. It also helps filter out poor fit leads early.",
     guidance: "Write one sentence that includes size, industry, location, and mindset. Imagine describing your favorite client to a friend.",
     type: "short",
@@ -172,13 +171,13 @@ export default function Questionnaire() {
     geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
     pricingPackaging: "",
     pricingPackagingOther: "",
-    companyGoals: "", // Changed from array to string for RadioQuestion
+    companyGoals: "",
     companyGoalsOther: "",
     brandTone: "",
     brandToneOther: "",
     targetIndustries: [],
     targetIndustriesOther: "",
-    clientSize: "1-50 employees", // MODIFIED
+    clientSize: "1-50 employees",
     clientChallenges: [],
     clientChallengesOther: "",
     clientOutcomes: [],
@@ -275,35 +274,32 @@ export default function Questionnaire() {
   };
 
   const isFormValid = () => {
-    // Helper: check if checkbox/other has at least 1 selection or other text
     const hasAnswer = (field, otherField) => {
       const selected = (formData[field] || []).length;
       const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
       return selected > 0 || hasOther;
     };
 
-    // Helper: check if radio has a selection or other text
     const hasRadioAnswer = (field, otherField) => {
       const selected = (formData[field] || "").trim().length > 0;
       const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
       return selected || hasOther;
     };
 
-    // Helper: check if text field has any content (not empty after trim)
     const hasText = (val) => (val || "").trim().length > 0;
 
-    return hasAnswer("itCompanyType", "itCompanyTypeOther") &&                    // Q1
-           hasAnswer("serviceOfferings", "serviceOfferingsOther") &&              // Q2
-           hasText(formData.differentiation) &&                                    // Q3
-           hasText(formData.geographicAreas) &&                                    // Q4
-           hasRadioAnswer("pricingPackaging", "pricingPackagingOther") &&         // Q5
-           hasRadioAnswer("companyGoals", "companyGoalsOther") &&                 // Q6 - Changed to hasRadioAnswer
-           hasRadioAnswer("brandTone", "brandToneOther") &&                       // Q7
-           hasAnswer("targetIndustries", "targetIndustriesOther") &&              // Q8
-           hasText(formData.clientSize) &&                                        // Q9 (no other) - MODIFIED
-           hasAnswer("clientChallenges", "clientChallengesOther") &&              // Q10
-           hasAnswer("clientOutcomes", "clientOutcomesOther") &&                  // Q11
-           hasText(formData.idealClient);                                          // Q12
+    return hasAnswer("itCompanyType", "itCompanyTypeOther") &&
+           hasAnswer("serviceOfferings", "serviceOfferingsOther") &&
+           hasText(formData.differentiation) &&
+           hasText(formData.geographicAreas) &&
+           hasRadioAnswer("pricingPackaging", "pricingPackagingOther") &&
+           hasRadioAnswer("companyGoals", "companyGoalsOther") &&
+           hasRadioAnswer("brandTone", "brandToneOther") &&
+           hasAnswer("targetIndustries", "targetIndustriesOther") &&
+           hasText(formData.clientSize) &&
+           hasAnswer("clientChallenges", "clientChallengesOther") &&
+           hasAnswer("clientOutcomes", "clientOutcomesOther") &&
+           hasText(formData.idealClient);
   };
 
   const handleSubmit = (e) => {
@@ -316,7 +312,6 @@ export default function Questionnaire() {
   };
 
   const handleConfirmSubmit = (businessName, domain) => {
-    // Structure the payload with metadata and userdata sections
     const payload = {
       metadata: {
         business_name: businessName,
@@ -364,13 +359,13 @@ export default function Questionnaire() {
       geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
       pricingPackaging: "",
       pricingPackagingOther: "",
-      companyGoals: "", // Changed from array to string for RadioQuestion
+      companyGoals: "",
       companyGoalsOther: "",
       brandTone: "",
       brandToneOther: "",
       targetIndustries: [],
       targetIndustriesOther: "",
-      clientSize: "1-50 employees", // MODIFIED
+      clientSize: "1-50 employees",
       clientChallenges: [],
       clientChallengesOther: "",
       clientOutcomes: [],
@@ -379,7 +374,6 @@ export default function Questionnaire() {
     });
   };
 
-  // Get URL parameters for business name and domain
   const urlParams = new URLSearchParams(window.location.search);
   const initialBusinessName = urlParams.get("businessName") || "";
   const domainSL = urlParams.get("domainSL") || "";
@@ -519,7 +513,7 @@ export default function Questionnaire() {
               onInfoClick={() => setInfoModalData(HELPER_COPY.q5)}
             />
 
-            <RadioQuestion // Changed from CheckboxQuestion to RadioQuestion
+            <RadioQuestion
               questionNumber={6}
               title="What are your company's biggest goals over the next year?"
               options={[
@@ -531,7 +525,7 @@ export default function Questionnaire() {
                 "Recruit or retain top technical staff"
               ]}
               selected={formData.companyGoals}
-              onSelect={(value) => updateField("companyGoals", value)} // Changed from updateArrayField to updateField
+              onSelect={(value) => updateField("companyGoals", value)}
               otherValue={formData.companyGoalsOther}
               onOtherChange={(value) => updateField("companyGoalsOther", value)}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q6)}
@@ -592,7 +586,7 @@ export default function Questionnaire() {
               onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
             />
 
-            <NumericRangeQuestion // MODIFIED
+            <NumericRangeQuestion
               questionNumber={9}
               title="What is the typical size of your client companies?"
               hint="Enter the range of employee count"
@@ -626,7 +620,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={11}
               title="What outcomes do your clients want most from working with you?"
-              hint="Select up to three."
+              hint="Select up to two."
               options={[
                 "Faster response and resolution",
                 "Peace of mind about security",
@@ -636,16 +630,16 @@ export default function Questionnaire() {
                 "Fewer day-to-day IT problems"
               ]}
               selected={formData.clientOutcomes}
-              onToggle={(value) => updateArrayField("clientOutcomes", value, 3, "clientOutcomesOther")}
+              onToggle={(value) => updateArrayField("clientOutcomes", value, 2, "clientOutcomesOther")}
               otherValue={formData.clientOutcomesOther}
               onOtherChange={(value) => updateField("clientOutcomesOther", value)}
-              limit={3}
+              limit={2}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q11)}
             />
 
             <TextAreaQuestion
               questionNumber={12}
-              title="If you could describe your ideal client in one sentence, what would you say?"
+              title="Briefly describe your ideal client."
               hint="Short answer"
               value={formData.idealClient}
               onChange={(value) => updateField("idealClient", value)}
