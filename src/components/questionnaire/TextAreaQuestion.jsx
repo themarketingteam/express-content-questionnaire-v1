@@ -15,11 +15,17 @@ export default function TextAreaQuestion({
   const charCount = (value || "").length;
   const isValid = charCount >= minLength;
 
+  const handleQuestionClick = () => {
+    if (!isOpen && onClick) {
+      onClick();
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div 
         className={`flex items-start gap-3 ${!isOpen ? 'cursor-pointer' : ''}`}
-        onClick={!isOpen ? onClick : undefined}
+        onClick={handleQuestionClick}
       >
         <label className="block flex-1">
           <div className="flex items-center gap-2">
