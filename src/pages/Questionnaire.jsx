@@ -78,7 +78,7 @@ const HELPER_COPY = {
     title: "What are your company's biggest goals over the next year?",
     why: "Your goals guide UX, copy, and CTA strategy. If you want leads, we optimize for conversions; if rebranding or recruiting, we emphasize tone and credibility.",
     guidance: "Select up to three priorities that truly reflect your next 12 months. We'll align page structure and messaging to support those outcomes.",
-    type: "checkbox",
+    type: "checkbox", // This remains checkbox in HELPER_COPY as per instructions, even if component changes.
     examples: {
       selections: ["Acquire more clients", "Strengthen cybersecurity offering", "Rebrand / modernize web presence"],
       mixed: ["Improve recurring revenue", "Expand into new markets", "Recruit or retain top technical staff"],
@@ -171,7 +171,7 @@ export default function Questionnaire() {
     geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
     pricingPackaging: "",
     pricingPackagingOther: "",
-    companyGoals: [],
+    companyGoals: "", // Changed from array to string for RadioQuestion
     companyGoalsOther: "",
     brandTone: "",
     brandToneOther: "",
@@ -292,7 +292,7 @@ export default function Questionnaire() {
            hasText(formData.differentiation) &&                                    // Q3
            hasText(formData.geographicAreas) &&                                    // Q4
            hasRadioAnswer("pricingPackaging", "pricingPackagingOther") &&         // Q5
-           hasAnswer("companyGoals", "companyGoalsOther") &&                      // Q6
+           hasRadioAnswer("companyGoals", "companyGoalsOther") &&                 // Q6 - Changed to hasRadioAnswer
            hasRadioAnswer("brandTone", "brandToneOther") &&                       // Q7
            hasAnswer("targetIndustries", "targetIndustriesOther") &&              // Q8
            hasRadioAnswer("clientSize", null) &&                                  // Q9 (no other)
@@ -359,7 +359,7 @@ export default function Questionnaire() {
       geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
       pricingPackaging: "",
       pricingPackagingOther: "",
-      companyGoals: [],
+      companyGoals: "", // Changed from array to string for RadioQuestion
       companyGoalsOther: "",
       brandTone: "",
       brandToneOther: "",
@@ -514,10 +514,9 @@ export default function Questionnaire() {
               onInfoClick={() => setInfoModalData(HELPER_COPY.q5)}
             />
 
-            <CheckboxQuestion
+            <RadioQuestion // Changed from CheckboxQuestion to RadioQuestion
               questionNumber={6}
               title="What are your company's biggest goals over the next year?"
-              hint="Select up to three."
               options={[
                 "Acquire more clients",
                 "Improve recurring revenue",
@@ -527,10 +526,9 @@ export default function Questionnaire() {
                 "Recruit or retain top technical staff"
               ]}
               selected={formData.companyGoals}
-              onToggle={(value) => updateArrayField("companyGoals", value, 3, "companyGoalsOther")}
+              onSelect={(value) => updateField("companyGoals", value)} // Changed from updateArrayField to updateField
               otherValue={formData.companyGoalsOther}
               onOtherChange={(value) => updateField("companyGoalsOther", value)}
-              limit={3}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q6)}
             />
 
