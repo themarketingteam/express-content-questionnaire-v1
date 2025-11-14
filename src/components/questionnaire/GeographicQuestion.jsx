@@ -104,12 +104,6 @@ export default function GeographicQuestion({
     }
   };
 
-  const handleQuestionClick = () => {
-    if (!isOpen && onClick) {
-      onClick();
-    }
-  };
-
   return (
     <div className="space-y-4">
       <style>{`
@@ -145,11 +139,15 @@ export default function GeographicQuestion({
         }
       `}</style>
 
-      <div 
-        className={`flex items-start gap-3 ${!isOpen ? 'cursor-pointer' : ''}`}
-        onClick={handleQuestionClick}
-      >
-        <label className="block flex-1">
+      <div className="flex items-start gap-3">
+        <div 
+          className={`block flex-1 ${!isOpen ? 'cursor-pointer' : ''}`}
+          onClick={() => {
+            if (!isOpen && onClick) {
+              onClick();
+            }
+          }}
+        >
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-slate-900">
               {questionNumber}. What geographic area do you primarily serve?
@@ -180,7 +178,7 @@ export default function GeographicQuestion({
                 : "Loading location search..."}
             </span>
           )}
-        </label>
+        </div>
       </div>
 
       {isOpen && (

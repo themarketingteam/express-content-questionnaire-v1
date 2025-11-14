@@ -15,19 +15,17 @@ export default function TextAreaQuestion({
   const charCount = (value || "").length;
   const isValid = charCount >= minLength;
 
-  const handleQuestionClick = () => {
-    if (!isOpen && onClick) {
-      onClick();
-    }
-  };
-
   return (
     <div className="space-y-4">
-      <div 
-        className={`flex items-start gap-3 ${!isOpen ? 'cursor-pointer' : ''}`}
-        onClick={handleQuestionClick}
-      >
-        <label className="block flex-1">
+      <div className="flex items-start gap-3">
+        <div 
+          className={`block flex-1 ${!isOpen ? 'cursor-pointer' : ''}`}
+          onClick={() => {
+            if (!isOpen && onClick) {
+              onClick();
+            }
+          }}
+        >
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-slate-900">
               {questionNumber}. {title}
@@ -50,7 +48,7 @@ export default function TextAreaQuestion({
             )}
           </div>
           {isOpen && hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
-        </label>
+        </div>
       </div>
 
       {isOpen && (

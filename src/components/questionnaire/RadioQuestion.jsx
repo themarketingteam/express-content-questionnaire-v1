@@ -48,21 +48,19 @@ export default function RadioQuestion({
     }
   };
 
-  const handleQuestionClick = () => {
-    if (!isOpen && onClick) {
-      onClick();
-    }
-  };
-
   const hasAnySelection = hasRadioSelection || hasOtherValue;
 
   return (
     <div className="space-y-4">
-      <div 
-        className={`flex items-start justify-between gap-3 ${!isOpen ? 'cursor-pointer' : ''}`}
-        onClick={handleQuestionClick}
-      >
-        <div className="flex-1">
+      <div className="flex items-start justify-between gap-3">
+        <div 
+          className={`flex-1 ${!isOpen ? 'cursor-pointer' : ''}`}
+          onClick={() => {
+            if (!isOpen && onClick) {
+              onClick();
+            }
+          }}
+        >
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-slate-900">
               {questionNumber}. {title}
