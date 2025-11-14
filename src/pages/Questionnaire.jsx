@@ -320,10 +320,15 @@ export default function Questionnaire() {
         if (nextQuestion <= 12) {
           setOpenQuestion(nextQuestion);
           setTimeout(() => {
-            questionRefs.current[nextQuestion]?.scrollIntoView({
-              behavior: 'smooth',
-              block: 'center'
-            });
+            const element = questionRefs.current[nextQuestion];
+            if (element) {
+                const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+                const offsetPosition = elementPosition - 100; // Offset for sticky header
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: 'smooth'
+                });
+            }
           }, 100); // Small delay to allow state update and render before scroll
         }
         setAutoAdvancing(false);
@@ -337,10 +342,15 @@ export default function Questionnaire() {
     if (questionNum !== openQuestion) {
       setOpenQuestion(questionNum);
       setTimeout(() => {
-        questionRefs.current[questionNum]?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
+        const element = questionRefs.current[questionNum];
+        if (element) {
+          const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+          const offsetPosition = elementPosition - 100; // Offset for sticky header
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
       }, 100);
     }
   };
