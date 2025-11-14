@@ -80,8 +80,8 @@ const HELPER_COPY = {
     guidance: "Select up to three priorities that truly reflect your next 12 months. We'll align page structure and messaging to support those outcomes.",
     type: "checkbox", // This remains checkbox in HELPER_COPY as per instructions, even if component changes.
     examples: {
-      selections: ["Acquire more clients", "Strengthen cybersecurity offering", "Rebrand / modernize web presence"],
-      mixed: ["Improve recurring revenue", "Expand into new markets", "Recruit or retain top technical staff"],
+      selections: ["Acquire more clients", "Improve recurring revenue", "Expand into new markets"],
+      mixed: ["Acquire more clients", "Strengthen cybersecurity offering", "Rebrand / modernize web presence"],
       other: "Launch a managed cloud division targeting medical practices",
       shortAnswer: ""
     }
@@ -564,7 +564,7 @@ export default function Questionnaire() {
             <CheckboxQuestion
               questionNumber={8}
               title="What types of businesses do you primarily serve?"
-              hint="Check all that apply."
+              hint="Check all that apply. Maximum 3 selections."
               options={[
                 "Healthcare / Medical",
                 "Dental Practices",
@@ -573,13 +573,21 @@ export default function Questionnaire() {
                 "Manufacturing / Construction",
                 "Nonprofits / Education",
                 "Professional Services (Marketing, Real Estate, etc.)",
-                "Retail / Hospitality"
+                "Retail / Hospitality",
+                "Government / Municipalities",
+                "Real Estate / Property Management",
+                "Transportation / Logistics",
+                "Engineering / Architecture Firms",
+                "Energy / Oil & Gas",
+                "Insurance Agencies",
+                "Technology / SaaS Companies",
+                "Agriculture / Farming"
               ]}
               selected={formData.targetIndustries}
-              onToggle={(value) => updateArrayField("targetIndustries", value, 999, "targetIndustriesOther")}
+              onToggle={(value) => updateArrayField("targetIndustries", value, 3, "targetIndustriesOther")}
               otherValue={formData.targetIndustriesOther}
               onOtherChange={(value) => updateField("targetIndustriesOther", value)}
-              limit={999}
+              limit={3}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
             />
 
