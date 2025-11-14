@@ -453,15 +453,15 @@ export default function Questionnaire() {
               title="What are your primary service offerings?"
               hint="Select your core services. Maximum 3 selections."
               options={[
-                "Cloud Services", "CMMC Compliance Services", "Co-Managed IT", "Co-Managed IT Services",
-                "Cybersecurity Services", "Data Backup & Recovery", "Data Backup & Recovery Services",
-                "Disaster Recovery Planning", "FTC Compliance Services", "Hardware as a Service",
-                "HIPAA Compliance Services", "Hourly IT Support", "Hybrid Cloud Services", "Internet Services",
-                "IT Compliance Services", "IT Consulting", "IT Help Desk", "Managed IT Services",
-                "Managed Print Services", "Microsoft 365 Services", "NIST Framework Compliance",
-                "Outsourced IT Help Desk", "PCI Compliance Services", "Printer & Office Machine Services",
+                "Cloud Services", "CMMC Compliance", "Co-Managed IT",
+                "Cybersecurity", "Data Backup & Recovery",
+                "Disaster Recovery Planning", "FTC Compliance", "Hardware as a Service",
+                "HIPAA Compliance", "Hourly IT Support", "Hybrid Cloud Services", "Internet Services",
+                "IT Compliance", "IT Consulting", "IT Help Desk", "Managed IT",
+                "Microsoft 365", "NIST Framework Compliance",
+                "Outsourced IT Help Desk", "PCI Compliance", "Printer & Office Machine",
                 "Private Cloud Services", "Ransomware Removal", "Security Awareness Training",
-                "SOC2 Compliance Services", "Structured Cabling Services", "Video Surveillance Solutions",
+                "SOC2 Compliance", "Structured Cabling", "Video Surveillance Solutions",
                 "VoIP Phone Systems"
               ]}
               selected={formData.serviceOfferings}
