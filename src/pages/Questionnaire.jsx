@@ -522,7 +522,7 @@ export default function Questionnaire() {
               <TextAreaQuestion
                 questionNumber={3}
                 title="What makes your company different from other MSPs in your area?"
-                hint="Short answer"
+                hint="Focus on the unique value clients get from working with you—your responsiveness, customer experience, tools, or results they consistently praise."
                 value={formData.differentiation}
                 onChange={(value) => updateField("differentiation", value)}
                 minLength={0}
