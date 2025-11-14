@@ -230,6 +230,10 @@ export default function Questionnaire() {
       const hookKey = import.meta.env.VITE_API_HOOK_KEY;
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
 
+      console.log('=== FORM SUBMISSION DEBUG ===');
+      console.log('Sending data to:', zapierUrl);
+      console.log('Payload structure:', JSON.stringify(data, null, 2));
+
       const response = await fetch(zapierUrl, {
         method: 'POST',
         headers: {
@@ -238,23 +242,35 @@ export default function Questionnaire() {
         body: JSON.stringify(data)
       });
 
+      console.log('Zapier response status:', response.status);
+      console.log('Zapier response OK:', response.ok);
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Zapier error response:', errorText);
         throw new Error('Failed to submit to Zapier');
       }
 
-      // Also save to Base44 for backup
-      await base44.entities.FormSubmission.create(data);
+      const zapierResult = await response.json();
+      console.log('Zapier success response:', zapierResult);
 
-      return { response: await response.json(), businessName: data.metadata.business_name };
+      // Also save to Base44 for backup
+      console.log('Saving backup to Base44...');
+      const base44Result = await base44.entities.FormSubmission.create(data);
+      console.log('Base44 backup saved successfully:', base44Result);
+      console.log('=== END SUBMISSION DEBUG ===');
+
+      return { response: zapierResult, businessName: data.metadata.business_name };
     },
     onSuccess: (data) => {
+      console.log('✅ Form submission successful! Redirecting to thank you page...');
       localStorage.removeItem(STORAGE_KEY);
       // Redirect to thank you page with business name
       window.location.href = `/ThankYou?business=${encodeURIComponent(data.businessName)}`;
     },
     onError: (error) => {
+      console.error('❌ Form submission failed:', error);
       alert('There was an error submitting your form. Please try again or contact support.');
-      console.error('Submission error:', error);
     }
   });
 
