@@ -148,7 +148,7 @@ const HELPER_COPY = {
     }
   },
   q12: {
-    title: "If you could describe your ideal client in one sentence, what would you say?",
+    title: "Briefly describe your ideal client.",
     why: "This defines who your site should speak to, so you attract more of the right clients. It also helps filter out poor fit leads early.",
     guidance: "Write one sentence that includes size, industry, location, and mindset. Imagine describing your favorite client to a friend.",
     type: "short",
@@ -189,7 +189,7 @@ export default function Questionnaire() {
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [infoModalData, setInfoModalData] = useState(null);
+  const [infoModalData, setInfoModalData(null)];
 
   // Load saved data
   useEffect(() => {
@@ -645,7 +645,7 @@ export default function Questionnaire() {
 
             <TextAreaQuestion
               questionNumber={12}
-              title="If you could describe your ideal client in one sentence, what would you say?"
+              title="Briefly describe your ideal client."
               hint="Short answer"
               value={formData.idealClient}
               onChange={(value) => updateField("idealClient", value)}
