@@ -1,5 +1,5 @@
 import React from "react";
-import { Info, RotateCcw } from "lucide-react";
+import { Info, RotateCcw, ChevronDown } from "lucide-react";
 import OtherField from "./OtherField";
 
 export default function RadioQuestion({
@@ -11,7 +11,9 @@ export default function RadioQuestion({
   onSelect,
   otherValue = "",
   onOtherChange,
-  onInfoClick
+  onInfoClick,
+  isOpen = true,
+  onClick
 }) {
   const hasOtherValue = (otherValue || "").trim().length > 0;
   const hasRadioSelection = selected && selected.trim().length > 0;
@@ -38,7 +40,8 @@ export default function RadioQuestion({
     }
   };
 
-  const handleClearSelection = () => {
+  const handleClearSelection = (e) => {
+    e.stopPropagation();
     onSelect("");
     if (onOtherChange) {
       onOtherChange("");
@@ -49,7 +52,10 @@ export default function RadioQuestion({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
+      <div 
+        className={`flex items-start justify-between gap-3 ${!isOpen ? 'cursor-pointer' : ''}`}
+        onClick={!isOpen ? onClick : undefined}
+      >
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-slate-900">
@@ -58,17 +64,23 @@ export default function RadioQuestion({
             {onInfoClick && (
               <button
                 type="button"
-                onClick={onInfoClick}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInfoClick();
+                }}
                 className="w-6 h-6 rounded-full border border-slate-300 hover:border-slate-400 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-all"
                 aria-label="More information"
               >
                 <Info className="w-3.5 h-3.5" />
               </button>
             )}
+            {!isOpen && (
+              <ChevronDown className="w-5 h-5 text-slate-400" />
+            )}
           </div>
-          {hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
+          {isOpen && hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
         </div>
-        {hasAnySelection && (
+        {isOpen && hasAnySelection && (
           <button
             type="button"
             onClick={handleClearSelection}
@@ -81,48 +93,52 @@ export default function RadioQuestion({
         )}
       </div>
 
-      {hasOtherValue && (
-        <div className="text-sm text-amber-600 font-medium bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Using custom "Other" option • Radio buttons disabled
-        </div>
-      )}
+      {isOpen && (
+        <>
+          {hasOtherValue && (
+            <div className="text-sm text-amber-600 font-medium bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Using custom "Other" option • Radio buttons disabled
+            </div>
+          )}
 
-      <div className="space-y-2.5">
-        {options.map((option) => {
-          const isSelected = selected === option;
-          const disabled = isRadioDisabled(option);
+          <div className="space-y-2.5">
+            {options.map((option) => {
+              const isSelected = selected === option;
+              const disabled = isRadioDisabled(option);
 
-          return (
-            <label
-              key={option}
-              className={`flex items-center gap-3 p-4 border rounded-xl transition-all ${
-                isSelected
-                  ? "border-blue-500 bg-blue-50"
-                  : disabled
-                  ? "border-slate-200 bg-slate-50 opacity-50 cursor-not-allowed"
-                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-              }`}
-            >
-              <input
-                type="radio"
-                checked={isSelected}
-                onChange={() => handleRadioSelect(option)}
-                disabled={disabled}
-                className="w-5 h-5 accent-blue-600 cursor-pointer disabled:cursor-not-allowed"
-              />
-              <span className="text-slate-700 select-none">{option}</span>
-            </label>
-          );
-        })}
-      </div>
+              return (
+                <label
+                  key={option}
+                  className={`flex items-center gap-3 p-4 border rounded-xl transition-all ${
+                    isSelected
+                      ? "border-blue-500 bg-blue-50"
+                      : disabled
+                      ? "border-slate-200 bg-slate-50 opacity-50 cursor-not-allowed"
+                      : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    checked={isSelected}
+                    onChange={() => handleRadioSelect(option)}
+                    disabled={disabled}
+                    className="w-5 h-5 accent-blue-600 cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <span className="text-slate-700 select-none">{option}</span>
+                </label>
+              );
+            })}
+          </div>
 
-      {onOtherChange && (
-        <OtherField
-          value={otherValue}
-          onChange={handleOtherChange}
-          disabled={isOtherDisabled()}
-          message={isOtherDisabled() ? "A radio option is selected. Click 'Reset' above to use 'Other'." : null}
-        />
+          {onOtherChange && (
+            <OtherField
+              value={otherValue}
+              onChange={handleOtherChange}
+              disabled={isOtherDisabled()}
+              message={isOtherDisabled() ? "A radio option is selected. Click 'Reset' above to use 'Other'." : null}
+            />
+          )}
+        </>
       )}
     </div>
   );

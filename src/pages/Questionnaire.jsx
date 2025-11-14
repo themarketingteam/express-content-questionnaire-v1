@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+
+import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -189,6 +190,10 @@ export default function Questionnaire() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [infoModalData, setInfoModalData] = useState(null);
+  const [openQuestion, setOpenQuestion] = useState(1);
+  const [autoAdvancing, setAutoAdvancing] = useState(false);
+
+  const questionRefs = useRef({});
 
   // Load saved data
   useEffect(() => {
@@ -224,7 +229,7 @@ export default function Questionnaire() {
       const hookId = import.meta.env.VITE_API_HOOK_ID;
       const hookKey = import.meta.env.VITE_API_HOOK_KEY;
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
-      
+
       const response = await fetch(zapierUrl, {
         method: 'POST',
         headers: {
@@ -239,7 +244,7 @@ export default function Questionnaire() {
 
       // Also save to Base44 for backup
       await base44.entities.FormSubmission.create(data);
-      
+
       return response.json();
     },
     onSuccess: () => {
@@ -260,10 +265,10 @@ export default function Questionnaire() {
     setFormData(prev => {
       const current = prev[field] || [];
       const index = current.indexOf(value);
-      
+
       const hasOtherText = otherField && (prev[otherField] || "").trim().length > 0;
       const totalSelections = current.length + (hasOtherText ? 1 : 0);
-      
+
       if (index > -1) {
         return { ...prev, [field]: current.filter(v => v !== value) };
       } else {
@@ -273,7 +278,7 @@ export default function Questionnaire() {
     });
   };
 
-  const isFormValid = () => {
+  const isQuestionComplete = (questionNum) => {
     const hasAnswer = (field, otherField) => {
       const selected = (formData[field] || []).length;
       const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
@@ -288,18 +293,57 @@ export default function Questionnaire() {
 
     const hasText = (val) => (val || "").trim().length > 0;
 
-    return hasAnswer("itCompanyType", "itCompanyTypeOther") &&
-           hasAnswer("serviceOfferings", "serviceOfferingsOther") &&
-           hasText(formData.differentiation) &&
-           hasText(formData.geographicAreas) &&
-           hasRadioAnswer("pricingPackaging", "pricingPackagingOther") &&
-           hasRadioAnswer("companyGoals", "companyGoalsOther") &&
-           hasRadioAnswer("brandTone", "brandToneOther") &&
-           hasAnswer("targetIndustries", "targetIndustriesOther") &&
-           hasText(formData.clientSize) &&
-           hasAnswer("clientChallenges", "clientChallengesOther") &&
-           hasAnswer("clientOutcomes", "clientOutcomesOther") &&
-           hasText(formData.idealClient);
+    switch(questionNum) {
+      case 1: return hasAnswer("itCompanyType", "itCompanyTypeOther");
+      case 2: return hasAnswer("serviceOfferings", "serviceOfferingsOther");
+      case 3: return hasText(formData.differentiation);
+      case 4: return hasText(formData.geographicAreas);
+      case 5: return hasRadioAnswer("pricingPackaging", "pricingPackagingOther");
+      case 6: return hasRadioAnswer("companyGoals", "companyGoalsOther");
+      case 7: return hasRadioAnswer("brandTone", "brandToneOther");
+      case 8: return hasAnswer("targetIndustries", "targetIndustriesOther");
+      case 9: return hasText(formData.clientSize);
+      case 10: return hasAnswer("clientChallenges", "clientChallengesOther");
+      case 11: return hasAnswer("clientOutcomes", "clientOutcomesOther");
+      case 12: return hasText(formData.idealClient);
+      default: return false;
+    }
+  };
+
+  useEffect(() => {
+    if (autoAdvancing || openQuestion > 12) return;
+
+    if (isQuestionComplete(openQuestion)) {
+      setAutoAdvancing(true);
+      const timer = setTimeout(() => {
+        const nextQuestion = openQuestion + 1;
+        if (nextQuestion <= 12) {
+          setOpenQuestion(nextQuestion);
+          setTimeout(() => {
+            questionRefs.current[nextQuestion]?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center'
+            });
+          }, 100); // Small delay to allow state update and render before scroll
+        }
+        setAutoAdvancing(false);
+      }, 1500); // 1.5 seconds delay before auto-advancing
+
+      return () => clearTimeout(timer);
+    }
+  }, [formData, openQuestion, autoAdvancing]);
+
+  const handleQuestionClick = (questionNum) => {
+    if (questionNum !== openQuestion) {
+      setOpenQuestion(questionNum);
+    }
+  };
+
+  const isFormValid = () => {
+    for (let i = 1; i <= 12; i++) {
+      if (!isQuestionComplete(i)) return false;
+    }
+    return true;
   };
 
   const handleSubmit = (e) => {
@@ -372,6 +416,7 @@ export default function Questionnaire() {
       clientOutcomesOther: "",
       idealClient: ""
     });
+    setOpenQuestion(1); // Reset to first question
   };
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -427,128 +472,156 @@ export default function Questionnaire() {
               <h2 className="text-2xl font-bold text-slate-900">Section 1: About Your Business</h2>
             </div>
 
-            <CheckboxQuestion
-              questionNumber={1}
-              title="What type of IT company are you?"
-              hint="Check all that apply. Maximum 3 selections."
-              options={[
-                "Managed Services Provider (MSP)",
-                "IT Consulting / Project-Based Services",
-                "Cybersecurity Provider",
-                "Cloud / Hosting Provider",
-                "Co-Managed IT Partner",
-                "Break-Fix / On-Demand Support"
-              ]}
-              selected={formData.itCompanyType}
-              onToggle={(value) => updateArrayField("itCompanyType", value, 3, "itCompanyTypeOther")}
-              otherValue={formData.itCompanyTypeOther}
-              onOtherChange={(value) => updateField("itCompanyTypeOther", value)}
-              limit={3}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q1)}
-            />
+            <div ref={el => questionRefs.current[1] = el}>
+              <CheckboxQuestion
+                questionNumber={1}
+                title="What type of IT company are you?"
+                hint="Check all that apply. Maximum 3 selections."
+                options={[
+                  "Managed Services Provider (MSP)",
+                  "IT Consulting / Project-Based Services",
+                  "Cybersecurity Provider",
+                  "Cloud / Hosting Provider",
+                  "Co-Managed IT Partner",
+                  "Break-Fix / On-Demand Support"
+                ]}
+                selected={formData.itCompanyType}
+                onToggle={(value) => updateArrayField("itCompanyType", value, 3, "itCompanyTypeOther")}
+                otherValue={formData.itCompanyTypeOther}
+                onOtherChange={(value) => updateField("itCompanyTypeOther", value)}
+                limit={3}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q1)}
+                isOpen={openQuestion === 1}
+                onClick={() => handleQuestionClick(1)}
+              />
+            </div>
 
-            <CheckboxQuestion
-              questionNumber={2}
-              title="What are your primary service offerings?"
-              hint="Select your core services. Maximum 3 selections."
-              options={[
-                "Cloud Services", "CMMC Compliance", "Co-Managed IT",
-                "Cybersecurity", "Data Backup & Recovery",
-                "Disaster Recovery Planning", "FTC Compliance", "Hardware as a Service",
-                "HIPAA Compliance", "Hourly IT Support", "Hybrid Cloud Services", "Internet Services",
-                "IT Compliance", "IT Consulting", "IT Help Desk", "Managed IT",
-                "Microsoft 365", "NIST Framework Compliance",
-                "Outsourced IT Help Desk", "PCI Compliance", "Printer & Office Machine",
-                "Private Cloud Services", "Ransomware Removal", "Security Awareness Training",
-                "SOC2 Compliance", "Structured Cabling", "Video Surveillance Solutions",
-                "VoIP Phone Systems"
-              ]}
-              selected={formData.serviceOfferings}
-              onToggle={(value) => updateArrayField("serviceOfferings", value, 3, "serviceOfferingsOther")}
-              otherValue={formData.serviceOfferingsOther}
-              onOtherChange={(value) => updateField("serviceOfferingsOther", value)}
-              limit={3}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q2)}
-            />
+            <div ref={el => questionRefs.current[2] = el}>
+              <CheckboxQuestion
+                questionNumber={2}
+                title="What are your primary service offerings?"
+                hint="Select your core services. Maximum 3 selections."
+                options={[
+                  "Cloud Services", "CMMC Compliance", "Co-Managed IT",
+                  "Cybersecurity", "Data Backup & Recovery",
+                  "Disaster Recovery Planning", "FTC Compliance", "Hardware as a Service",
+                  "HIPAA Compliance", "Hourly IT Support", "Hybrid Cloud Services", "Internet Services",
+                  "IT Compliance", "IT Consulting", "IT Help Desk", "Managed IT",
+                  "Microsoft 365", "NIST Framework Compliance",
+                  "Outsourced IT Help Desk", "PCI Compliance", "Printer & Office Machine",
+                  "Private Cloud Services", "Ransomware Removal", "Security Awareness Training",
+                  "SOC2 Compliance", "Structured Cabling", "Video Surveillance Solutions",
+                  "VoIP Phone Systems"
+                ]}
+                selected={formData.serviceOfferings}
+                onToggle={(value) => updateArrayField("serviceOfferings", value, 3, "serviceOfferingsOther")}
+                otherValue={formData.serviceOfferingsOther}
+                onOtherChange={(value) => updateField("serviceOfferingsOther", value)}
+                limit={3}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q2)}
+                isOpen={openQuestion === 2}
+                onClick={() => handleQuestionClick(2)}
+              />
+            </div>
 
-            <TextAreaQuestion
-              questionNumber={3}
-              title="What makes your company different from other MSPs in your area?"
-              hint="Short answer"
-              value={formData.differentiation}
-              onChange={(value) => updateField("differentiation", value)}
-              minLength={0}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q3)}
-            />
+            <div ref={el => questionRefs.current[3] = el}>
+              <TextAreaQuestion
+                questionNumber={3}
+                title="What makes your company different from other MSPs in your area?"
+                hint="Short answer"
+                value={formData.differentiation}
+                onChange={(value) => updateField("differentiation", value)}
+                minLength={0}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q3)}
+                isOpen={openQuestion === 3}
+                onClick={() => handleQuestionClick(3)}
+              />
+            </div>
 
-            <GeographicQuestion
-              questionNumber={4}
-              value={formData.geographicAreas}
-              selectedMeta={formData.geographicAreaMeta}
-              onChange={(value) => updateField("geographicAreas", value)}
-              onSelect={(meta) => {
-                updateField("geographicAreaMeta", meta);
-                updateField("geographicAreas", meta.label);
-              }}
-              onClear={() => {
-                updateField("geographicAreas", "");
-                updateField("geographicAreaMeta", { label: "", lat: null, lon: null, place_id: null, source: "google" });
-              }}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q4)}
-            />
+            <div ref={el => questionRefs.current[4] = el}>
+              <GeographicQuestion
+                questionNumber={4}
+                value={formData.geographicAreas}
+                selectedMeta={formData.geographicAreaMeta}
+                onChange={(value) => updateField("geographicAreas", value)}
+                onSelect={(meta) => {
+                  updateField("geographicAreaMeta", meta);
+                  updateField("geographicAreas", meta.label);
+                }}
+                onClear={() => {
+                  updateField("geographicAreas", "");
+                  updateField("geographicAreaMeta", { label: "", lat: null, lon: null, place_id: null, source: "google" });
+                }}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q4)}
+                isOpen={openQuestion === 4}
+                onClick={() => handleQuestionClick(4)}
+              />
+            </div>
 
-            <RadioQuestion
-              questionNumber={5}
-              title="How do you typically price or package your services?"
-              options={[
-                "Flat-rate monthly (fully managed)",
-                "Per-device / per-user pricing",
-                "Hourly or project-based",
-                "Hybrid (mix of the above)"
-              ]}
-              selected={formData.pricingPackaging}
-              onSelect={(value) => updateField("pricingPackaging", value)}
-              otherValue={formData.pricingPackagingOther}
-              onOtherChange={(value) => updateField("pricingPackagingOther", value)}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q5)}
-            />
+            <div ref={el => questionRefs.current[5] = el}>
+              <RadioQuestion
+                questionNumber={5}
+                title="How do you typically price or package your services?"
+                options={[
+                  "Flat-rate monthly (fully managed)",
+                  "Per-device / per-user pricing",
+                  "Hourly or project-based",
+                  "Hybrid (mix of the above)"
+                ]}
+                selected={formData.pricingPackaging}
+                onSelect={(value) => updateField("pricingPackaging", value)}
+                otherValue={formData.pricingPackagingOther}
+                onOtherChange={(value) => updateField("pricingPackagingOther", value)}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q5)}
+                isOpen={openQuestion === 5}
+                onClick={() => handleQuestionClick(5)}
+              />
+            </div>
 
-            <RadioQuestion
-              questionNumber={6}
-              title="What are your company's biggest goals over the next year?"
-              options={[
-                "Acquire more clients",
-                "Improve recurring revenue",
-                "Strengthen cybersecurity offering",
-                "Expand into new markets",
-                "Rebrand / modernize web presence",
-                "Recruit or retain top technical staff"
-              ]}
-              selected={formData.companyGoals}
-              onSelect={(value) => updateField("companyGoals", value)}
-              otherValue={formData.companyGoalsOther}
-              onOtherChange={(value) => updateField("companyGoalsOther", value)}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q6)}
-            />
+            <div ref={el => questionRefs.current[6] = el}>
+              <RadioQuestion
+                questionNumber={6}
+                title="What are your company's biggest goals over the next year?"
+                options={[
+                  "Acquire more clients",
+                  "Improve recurring revenue",
+                  "Strengthen cybersecurity offering",
+                  "Expand into new markets",
+                  "Rebrand / modernize web presence",
+                  "Recruit or retain top technical staff"
+                ]}
+                selected={formData.companyGoals}
+                onSelect={(value) => updateField("companyGoals", value)}
+                otherValue={formData.companyGoalsOther}
+                onOtherChange={(value) => updateField("companyGoalsOther", value)}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q6)}
+                isOpen={openQuestion === 6}
+                onClick={() => handleQuestionClick(6)}
+              />
+            </div>
 
-            <RadioQuestion
-              questionNumber={7}
-              title="What tone best describes how you want your brand to sound on your website?"
-              options={[
-                "Professional & Corporate",
-                "Friendly & Approachable",
-                "Technical & Expert-Driven",
-                "Modern & Innovative",
-                "Confident & Authoritative Expert",
-                "High-End & Premium",
-                "Story-Driven & Mission-Focused"
-              ]}
-              selected={formData.brandTone}
-              onSelect={(value) => updateField("brandTone", value)}
-              otherValue={formData.brandToneOther}
-              onOtherChange={(value) => updateField("brandToneOther", value)}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q7)}
-            />
+            <div ref={el => questionRefs.current[7] = el}>
+              <RadioQuestion
+                questionNumber={7}
+                title="What tone best describes how you want your brand to sound on your website?"
+                options={[
+                  "Professional & Corporate",
+                  "Friendly & Approachable",
+                  "Technical & Expert-Driven",
+                  "Modern & Innovative",
+                  "Confident & Authoritative Expert",
+                  "High-End & Premium",
+                  "Story-Driven & Mission-Focused"
+                ]}
+                selected={formData.brandTone}
+                onSelect={(value) => updateField("brandTone", value)}
+                otherValue={formData.brandToneOther}
+                onOtherChange={(value) => updateField("brandToneOther", value)}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q7)}
+                isOpen={openQuestion === 7}
+                onClick={() => handleQuestionClick(7)}
+              />
+            </div>
           </section>
 
           <section className="space-y-8">
@@ -556,96 +629,116 @@ export default function Questionnaire() {
               <h2 className="text-2xl font-bold text-slate-900">Section 2: About Your Target Clients</h2>
             </div>
 
-            <CheckboxQuestion
-              questionNumber={8}
-              title="What types of businesses do you primarily serve?"
-              hint="Check all that apply. Maximum 3 selections."
-              options={[
-                "Healthcare / Medical",
-                "Dental Practices",
-                "Financial / Accounting / CPA",
-                "Legal Firms",
-                "Manufacturing / Construction",
-                "Nonprofits / Education",
-                "Professional Services (Marketing, Real Estate, etc.)",
-                "Retail / Hospitality",
-                "Government / Municipalities",
-                "Real Estate / Property Management",
-                "Transportation / Logistics",
-                "Engineering / Architecture Firms",
-                "Energy / Oil & Gas",
-                "Insurance Agencies",
-                "Technology / SaaS Companies",
-                "Agriculture / Farming"
-              ]}
-              selected={formData.targetIndustries}
-              onToggle={(value) => updateArrayField("targetIndustries", value, 3, "targetIndustriesOther")}
-              otherValue={formData.targetIndustriesOther}
-              onOtherChange={(value) => updateField("targetIndustriesOther", value)}
-              limit={3}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
-            />
+            <div ref={el => questionRefs.current[8] = el}>
+              <CheckboxQuestion
+                questionNumber={8}
+                title="What types of businesses do you primarily serve?"
+                hint="Check all that apply. Maximum 3 selections."
+                options={[
+                  "Healthcare / Medical",
+                  "Dental Practices",
+                  "Financial / Accounting / CPA",
+                  "Legal Firms",
+                  "Manufacturing / Construction",
+                  "Nonprofits / Education",
+                  "Professional Services (Marketing, Real Estate, etc.)",
+                  "Retail / Hospitality",
+                  "Government / Municipalities",
+                  "Real Estate / Property Management",
+                  "Transportation / Logistics",
+                  "Engineering / Architecture Firms",
+                  "Energy / Oil & Gas",
+                  "Insurance Agencies",
+                  "Technology / SaaS Companies",
+                  "Agriculture / Farming"
+                ]}
+                selected={formData.targetIndustries}
+                onToggle={(value) => updateArrayField("targetIndustries", value, 3, "targetIndustriesOther")}
+                otherValue={formData.targetIndustriesOther}
+                onOtherChange={(value) => updateField("targetIndustriesOther", value)}
+                limit={3}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
+                isOpen={openQuestion === 8}
+                onClick={() => handleQuestionClick(8)}
+              />
+            </div>
 
-            <NumericRangeQuestion
-              questionNumber={9}
-              title="What is the typical size of your client companies?"
-              hint="Enter the range of employee count"
-              minValue={1}
-              maxValue={50}
-              onChange={(value) => updateField("clientSize", value)}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q9)}
-            />
+            <div ref={el => questionRefs.current[9] = el}>
+              <NumericRangeQuestion
+                questionNumber={9}
+                title="What is the typical size of your client companies?"
+                hint="Enter the range of employee count"
+                minValue={1}
+                maxValue={50}
+                onChange={(value) => updateField("clientSize", value)}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q9)}
+                isOpen={openQuestion === 9}
+                onClick={() => handleQuestionClick(9)}
+              />
+            </div>
 
-            <CheckboxQuestion
-              questionNumber={10}
-              title="What are the main IT challenges your clients come to you for help with?"
-              hint="Select up to three."
-              options={[
-                "Frequent downtime or slow networks",
-                "Cybersecurity concerns or breaches",
-                "Compliance and data protection needs",
-                "Lack of internal IT expertise",
-                "Unreliable backups or disaster recovery",
-                "Difficulty scaling with growth",
-                "Outdated or inefficient systems"
-              ]}
-              selected={formData.clientChallenges}
-              onToggle={(value) => updateArrayField("clientChallenges", value, 3, "clientChallengesOther")}
-              otherValue={formData.clientChallengesOther}
-              onOtherChange={(value) => updateField("clientChallengesOther", value)}
-              limit={3}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q10)}
-            />
+            <div ref={el => questionRefs.current[10] = el}>
+              <CheckboxQuestion
+                questionNumber={10}
+                title="What are the main IT challenges your clients come to you for help with?"
+                hint="Select up to three."
+                options={[
+                  "Frequent downtime or slow networks",
+                  "Cybersecurity concerns or breaches",
+                  "Compliance and data protection needs",
+                  "Lack of internal IT expertise",
+                  "Unreliable backups or disaster recovery",
+                  "Difficulty scaling with growth",
+                  "Outdated or inefficient systems"
+                ]}
+                selected={formData.clientChallenges}
+                onToggle={(value) => updateArrayField("clientChallenges", value, 3, "clientChallengesOther")}
+                otherValue={formData.clientChallengesOther}
+                onOtherChange={(value) => updateField("clientChallengesOther", value)}
+                limit={3}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q10)}
+                isOpen={openQuestion === 10}
+                onClick={() => handleQuestionClick(10)}
+              />
+            </div>
 
-            <CheckboxQuestion
-              questionNumber={11}
-              title="What outcomes do your clients want most from working with you?"
-              hint="Select up to two."
-              options={[
-                "Faster response and resolution",
-                "Peace of mind about security",
-                "Predictable monthly IT costs",
-                "Strategic technology guidance",
-                "Compliance confidence",
-                "Fewer day-to-day IT problems"
-              ]}
-              selected={formData.clientOutcomes}
-              onToggle={(value) => updateArrayField("clientOutcomes", value, 2, "clientOutcomesOther")}
-              otherValue={formData.clientOutcomesOther}
-              onOtherChange={(value) => updateField("clientOutcomesOther", value)}
-              limit={2}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q11)}
-            />
+            <div ref={el => questionRefs.current[11] = el}>
+              <CheckboxQuestion
+                questionNumber={11}
+                title="What outcomes do your clients want most from working with you?"
+                hint="Select up to two."
+                options={[
+                  "Faster response and resolution",
+                  "Peace of mind about security",
+                  "Predictable monthly IT costs",
+                  "Strategic technology guidance",
+                  "Compliance confidence",
+                  "Fewer day-to-day IT problems"
+                ]}
+                selected={formData.clientOutcomes}
+                onToggle={(value) => updateArrayField("clientOutcomes", value, 2, "clientOutcomesOther")}
+                otherValue={formData.clientOutcomesOther}
+                onOtherChange={(value) => updateField("clientOutcomesOther", value)}
+                limit={2}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q11)}
+                isOpen={openQuestion === 11}
+                onClick={() => handleQuestionClick(11)}
+              />
+            </div>
 
-            <TextAreaQuestion
-              questionNumber={12}
-              title="Briefly describe your ideal client."
-              hint="Short answer"
-              value={formData.idealClient}
-              onChange={(value) => updateField("idealClient", value)}
-              minLength={0}
-              onInfoClick={() => setInfoModalData(HELPER_COPY.q12)}
-            />
+            <div ref={el => questionRefs.current[12] = el}>
+              <TextAreaQuestion
+                questionNumber={12}
+                title="Briefly describe your ideal client."
+                hint="Short answer"
+                value={formData.idealClient}
+                onChange={(value) => updateField("idealClient", value)}
+                minLength={0}
+                onInfoClick={() => setInfoModalData(HELPER_COPY.q12)}
+                isOpen={openQuestion === 12}
+                onClick={() => handleQuestionClick(12)}
+              />
+            </div>
           </section>
 
           <div className="flex gap-4 pt-8 border-t border-slate-200">

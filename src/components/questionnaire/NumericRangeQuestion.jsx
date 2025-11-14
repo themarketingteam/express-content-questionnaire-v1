@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Info } from "lucide-react";
+import { Info, ChevronDown } from "lucide-react";
 
 export default function NumericRangeQuestion({
   questionNumber,
@@ -8,13 +8,14 @@ export default function NumericRangeQuestion({
   minValue = 1,
   maxValue = 50,
   onChange,
-  onInfoClick
+  onInfoClick,
+  isOpen = true,
+  onClick
 }) {
   const [smallest, setSmallest] = useState(minValue);
   const [largest, setLargest] = useState(maxValue);
 
   useEffect(() => {
-    // Format and send the value
     const largestDisplay = largest > 250 ? "250+" : largest;
     const value = `${smallest}-${largestDisplay} employees`;
     onChange(value);
@@ -32,7 +33,10 @@ export default function NumericRangeQuestion({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-3">
+      <div 
+        className={`flex items-start gap-3 ${!isOpen ? 'cursor-pointer' : ''}`}
+        onClick={!isOpen ? onClick : undefined}
+      >
         <label className="block flex-1">
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-slate-900">
@@ -41,61 +45,69 @@ export default function NumericRangeQuestion({
             {onInfoClick && (
               <button
                 type="button"
-                onClick={onInfoClick}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInfoClick();
+                }}
                 className="w-6 h-6 rounded-full border border-slate-300 hover:border-slate-400 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-all"
                 aria-label="More information"
               >
                 <Info className="w-3.5 h-3.5" />
               </button>
             )}
+            {!isOpen && (
+              <ChevronDown className="w-5 h-5 text-slate-400 ml-auto" />
+            )}
           </div>
-          {hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
+          {isOpen && hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
         </label>
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Smallest company size
-            </label>
-            <input
-              type="number"
-              min="1"
-              value={smallest}
-              onChange={handleSmallestChange}
-              className="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+      {isOpen && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-6">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Smallest company size
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={smallest}
+                onChange={handleSmallestChange}
+                className="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="text-2xl text-slate-400 font-bold pt-6">—</div>
+
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Largest company size
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={largest > 250 ? "" : largest}
+                onChange={handleLargestChange}
+                placeholder={largest > 250 ? "250+" : ""}
+                className="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="pt-6">
+              <span className="text-slate-600 font-medium">employees</span>
+            </div>
           </div>
 
-          <div className="text-2xl text-slate-400 font-bold pt-6">—</div>
-
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Largest company size
-            </label>
-            <input
-              type="number"
-              min="1"
-              value={largest > 250 ? "" : largest}
-              onChange={handleLargestChange}
-              placeholder={largest > 250 ? "250+" : ""}
-              className="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          <div className="pt-6">
-            <span className="text-slate-600 font-medium">employees</span>
+          <div className="mt-4 text-sm text-slate-600">
+            <span className="font-medium">Result: </span>
+            <span className="text-slate-900">
+              {smallest}-{largest > 250 ? "250+" : largest} employees
+            </span>
           </div>
         </div>
-
-        <div className="mt-4 text-sm text-slate-600">
-          <span className="font-medium">Result: </span>
-          <span className="text-slate-900">
-            {smallest}-{largest > 250 ? "250+" : largest} employees
-          </span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
