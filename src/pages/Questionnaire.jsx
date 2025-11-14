@@ -196,6 +196,10 @@ export default function Questionnaire() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // Migrate old array format to string for companyGoals if needed
+        if (Array.isArray(parsed.companyGoals)) {
+          parsed.companyGoals = parsed.companyGoals.length > 0 ? parsed.companyGoals[0] : "";
+        }
         setFormData(prev => ({ ...prev, ...parsed }));
       } catch (e) {
         console.error("Failed to parse saved data", e);
