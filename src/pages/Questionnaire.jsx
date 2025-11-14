@@ -336,6 +336,12 @@ export default function Questionnaire() {
   const handleQuestionClick = (questionNum) => {
     if (questionNum !== openQuestion) {
       setOpenQuestion(questionNum);
+      setTimeout(() => {
+        questionRefs.current[questionNum]?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }, 100);
     }
   };
 
