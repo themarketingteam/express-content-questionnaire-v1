@@ -13,24 +13,19 @@ export default function RadioQuestion({
   onOtherChange,
   onInfoClick
 }) {
-  // For radio buttons, if a regular option is selected, "Other" should be cleared
-  // and if "Other" has content, no radio should be selected
   const hasOtherValue = (otherValue || "").trim().length > 0;
   const hasRadioSelection = selected && selected.trim().length > 0;
 
   const isRadioDisabled = (option) => {
-    // Disable radio buttons if "Other" field has content
     return hasOtherValue;
   };
 
   const isOtherDisabled = () => {
-    // Disable "Other" field if a radio button is selected
     return hasRadioSelection;
   };
 
   const handleRadioSelect = (option) => {
     onSelect(option);
-    // Clear "Other" when selecting a radio button
     if (onOtherChange && hasOtherValue) {
       onOtherChange("");
     }
@@ -38,7 +33,6 @@ export default function RadioQuestion({
 
   const handleOtherChange = (value) => {
     onOtherChange(value);
-    // Clear radio selection when typing in "Other"
     if (value.trim().length > 0 && hasRadioSelection) {
       onSelect("");
     }
@@ -55,8 +49,8 @@ export default function RadioQuestion({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-3">
-        <label className="block flex-1">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-slate-900">
               {questionNumber}. {title}
@@ -71,20 +65,20 @@ export default function RadioQuestion({
                 <Info className="w-3.5 h-3.5" />
               </button>
             )}
-            {hasAnySelection && (
-              <button
-                type="button"
-                onClick={handleClearSelection}
-                className="ml-auto flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all"
-                title="Clear selection"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset
-              </button>
-            )}
           </div>
           {hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
-        </label>
+        </div>
+        {hasAnySelection && (
+          <button
+            type="button"
+            onClick={handleClearSelection}
+            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all"
+            title="Clear selection"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset
+          </button>
+        )}
       </div>
 
       {hasOtherValue && (
