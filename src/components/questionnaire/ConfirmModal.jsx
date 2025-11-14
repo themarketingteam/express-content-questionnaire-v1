@@ -1,8 +1,11 @@
-import React, { useEffect } from "react";
-import { X, CheckCircle } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, CheckCircle, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
-export default function ConfirmModal({ formData, onConfirm, onCancel }) {
+export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain }) {
+  const [businessName, setBusinessName] = useState(initialBusinessName || "");
+  const [domain, setDomain] = useState(initialDomain || "");
+
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === "Escape") onCancel();
@@ -25,6 +28,14 @@ export default function ConfirmModal({ formData, onConfirm, onCancel }) {
       return value.label || "Not answered";
     }
     return value || "Not answered";
+  };
+
+  const isFormValid = businessName.trim().length > 0 && domain.trim().length > 0;
+
+  const handleConfirm = () => {
+    if (isFormValid) {
+      onConfirm(businessName, domain);
+    }
   };
 
   const sections = [
@@ -137,6 +148,54 @@ export default function ConfirmModal({ formData, onConfirm, onCancel }) {
 
         {/* Body */}
         <div className="p-6 space-y-8">
+          {/* Business Details Section */}
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 space-y-4">
+            <h4 className="text-lg font-bold text-blue-900 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Verify Your Business Details
+            </h4>
+            <p className="text-sm text-blue-800">Please confirm or enter your business information below (required)</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-900 mb-2">
+                  Business Name *
+                </label>
+                <input
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  placeholder="Enter your business name"
+                  className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-900 mb-2">
+                  Website Domain *
+                </label>
+                <input
+                  type="text"
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="example.com"
+                  className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+                <p className="text-xs text-slate-600 mt-1">Format: yourdomain.com</p>
+              </div>
+            </div>
+
+            {!isFormValid && (
+              <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <AlertCircle className="w-4 h-4" />
+                <span>Both business name and domain are required to submit</span>
+              </div>
+            )}
+          </div>
+
+          {/* Questionnaire Answers */}
           {sections.map((section, sectionIdx) => (
             <div key={sectionIdx} className="space-y-6">
               <h4 className="text-lg font-bold text-slate-900 border-b-2 border-slate-200 pb-2">
@@ -168,8 +227,9 @@ export default function ConfirmModal({ formData, onConfirm, onCancel }) {
         {/* Footer */}
         <div className="sticky bottom-0 bg-white border-t border-slate-200 p-6 flex gap-3">
           <button
-            onClick={onConfirm}
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
+            onClick={handleConfirm}
+            disabled={!isFormValid}
+            className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
           >
             <CheckCircle className="w-5 h-5" />
             Confirm & Submit

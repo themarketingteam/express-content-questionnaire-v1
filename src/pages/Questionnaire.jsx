@@ -310,14 +310,12 @@ export default function Questionnaire() {
     }
   };
 
-  const handleConfirmSubmit = () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const businessName = urlParams.get("business_name") || "";
-
+  const handleConfirmSubmit = (businessName, domain) => {
     // Structure the payload with metadata and userdata sections
     const payload = {
       metadata: {
         business_name: businessName,
+        businessDomain: domain,
         submission_datetime: new Date().toISOString(),
         service_type: "express"
       },
@@ -375,6 +373,13 @@ export default function Questionnaire() {
       idealClient: ""
     });
   };
+
+  // Get URL parameters for business name and domain
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialBusinessName = urlParams.get("businessName") || "";
+  const domainSL = urlParams.get("domainSL") || "";
+  const domainTL = urlParams.get("domainTL") || "";
+  const initialDomain = (domainSL && domainTL) ? `${domainSL}.${domainTL}` : "";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
@@ -688,6 +693,8 @@ export default function Questionnaire() {
           formData={formData}
           onConfirm={handleConfirmSubmit}
           onCancel={() => setShowConfirmModal(false)}
+          initialBusinessName={initialBusinessName}
+          initialDomain={initialDomain}
         />
       )}
     </div>
