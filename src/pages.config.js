@@ -1,8 +1,10 @@
 import Questionnaire from './pages/Questionnaire';
+import ThankYou from './pages/ThankYou';
 
 
 export const PAGES = {
     "Questionnaire": Questionnaire,
+    "ThankYou": ThankYou,
 }
 
 export const pagesConfig = {

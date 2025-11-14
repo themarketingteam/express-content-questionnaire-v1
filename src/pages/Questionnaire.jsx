@@ -10,7 +10,7 @@ import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
 import NumericRangeQuestion from "../components/questionnaire/NumericRangeQuestion";
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
-import { Save, CheckCircle2 } from "lucide-react";
+import { Save } from "lucide-react"; // Removed CheckCircle2 as it's no longer used
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
 
@@ -187,7 +187,7 @@ export default function Questionnaire() {
   });
 
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
+  // const [showSuccess, setShowSuccess] = useState(false); // Removed, as we are redirecting on success
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [infoModalData, setInfoModalData] = useState(null);
   const [openQuestion, setOpenQuestion] = useState(1);
@@ -245,15 +245,16 @@ export default function Questionnaire() {
       // Also save to Base44 for backup
       await base44.entities.FormSubmission.create(data);
 
-      return response.json();
+      return { response: await response.json(), businessName: data.metadata.business_name };
     },
-    onSuccess: () => {
-      setShowSuccess(true);
+    onSuccess: (data) => {
       localStorage.removeItem(STORAGE_KEY);
-      setTimeout(() => {
-        setShowSuccess(false);
-        handleReset();
-      }, 3000);
+      // Redirect to thank you page with business name
+      window.location.href = `/ThankYou?business=${encodeURIComponent(data.businessName)}`;
+    },
+    onError: (error) => {
+      alert('There was an error submitting your form. Please try again or contact support.');
+      console.error('Submission error:', error);
     }
   });
 
@@ -443,21 +444,7 @@ export default function Questionnaire() {
         </div>
       </header>
 
-      <AnimatePresence>
-        {showSuccess && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="max-w-4xl mx-auto px-6 mt-6"
-          >
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
-              <span className="text-green-800 font-medium">Thank you! Your information has been received.</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* The AnimatePresence block for showSuccess is removed as redirection replaces its functionality */}
 
       <main className="max-w-4xl mx-auto px-6 py-12">
         <form onSubmit={handleSubmit} className="space-y-16">
