@@ -7,6 +7,7 @@ import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
 import TextAreaQuestion from "../components/questionnaire/TextAreaQuestion";
 import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
+import NumericRangeQuestion from "../components/questionnaire/NumericRangeQuestion";
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import { Save, CheckCircle2 } from "lucide-react";
@@ -177,7 +178,7 @@ export default function Questionnaire() {
     brandToneOther: "",
     targetIndustries: [],
     targetIndustriesOther: "",
-    clientSize: "",
+    clientSize: "1-50 employees", // MODIFIED
     clientChallenges: [],
     clientChallengesOther: "",
     clientOutcomes: [],
@@ -299,7 +300,7 @@ export default function Questionnaire() {
            hasRadioAnswer("companyGoals", "companyGoalsOther") &&                 // Q6 - Changed to hasRadioAnswer
            hasRadioAnswer("brandTone", "brandToneOther") &&                       // Q7
            hasAnswer("targetIndustries", "targetIndustriesOther") &&              // Q8
-           hasRadioAnswer("clientSize", null) &&                                  // Q9 (no other)
+           hasText(formData.clientSize) &&                                        // Q9 (no other) - MODIFIED
            hasAnswer("clientChallenges", "clientChallengesOther") &&              // Q10
            hasAnswer("clientOutcomes", "clientOutcomesOther") &&                  // Q11
            hasText(formData.idealClient);                                          // Q12
@@ -369,7 +370,7 @@ export default function Questionnaire() {
       brandToneOther: "",
       targetIndustries: [],
       targetIndustriesOther: "",
-      clientSize: "",
+      clientSize: "1-50 employees", // MODIFIED
       clientChallenges: [],
       clientChallengesOther: "",
       clientOutcomes: [],
@@ -591,19 +592,13 @@ export default function Questionnaire() {
               onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
             />
 
-            <RadioQuestion
+            <NumericRangeQuestion // MODIFIED
               questionNumber={9}
               title="What is the typical size of your client companies?"
-              options={[
-                "1–9 employees",
-                "10–25 employees",
-                "26–50 employees",
-                "51–100 employees",
-                "100–250 employees",
-                "250+ employees"
-              ]}
-              selected={formData.clientSize}
-              onSelect={(value) => updateField("clientSize", value)}
+              hint="Enter the range of employee count"
+              minValue={1}
+              maxValue={50}
+              onChange={(value) => updateField("clientSize", value)}
               onInfoClick={() => setInfoModalData(HELPER_COPY.q9)}
             />
 
