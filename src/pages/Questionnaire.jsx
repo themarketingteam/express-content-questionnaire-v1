@@ -348,6 +348,21 @@ export default function Questionnaire() {
   const handleQuestionClick = (questionNum) => {
     if (questionNum !== openQuestion) {
       setOpenQuestion(questionNum);
+      
+      // Scroll to question with appropriate offset
+      setTimeout(() => {
+        const questionElement = questionRefs.current[questionNum];
+        if (questionElement) {
+          const offset = questionNum === 1 ? 0 : 100;
+          const elementPosition = questionElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - offset;
+
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+      }, 0);
     }
   };
 
