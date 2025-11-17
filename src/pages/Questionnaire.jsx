@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -10,7 +9,7 @@ import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
 import NumericRangeQuestion from "../components/questionnaire/NumericRangeQuestion";
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
-import { Save } from "lucide-react"; // Removed CheckCircle2 as it's no longer used
+import { Save } from "lucide-react";
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
 
@@ -187,11 +186,9 @@ export default function Questionnaire() {
   });
 
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
-  // const [showSuccess, setShowSuccess] = useState(false); // Removed, as we are redirecting on success
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [infoModalData, setInfoModalData] = useState(null);
-  const [openQuestion, setOpenQuestion] = useState(1);
-  const [autoAdvancing, setAutoAdvancing] = useState(false);
+  const [openQuestions, setOpenQuestions] = useState([1]);
 
   const questionRefs = useRef({});
 
@@ -328,42 +325,29 @@ export default function Questionnaire() {
     }
   };
 
-  useEffect(() => {
-    if (autoAdvancing || openQuestion > 12) return;
-
-    if (isQuestionComplete(openQuestion)) {
-      setAutoAdvancing(true);
-      const timer = setTimeout(() => {
-        const nextQuestion = openQuestion + 1;
-        if (nextQuestion <= 12) {
-          setOpenQuestion(nextQuestion);
-        }
-        setAutoAdvancing(false);
-      }, 1500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [formData, openQuestion, autoAdvancing]);
-
   const handleQuestionClick = (questionNum) => {
-    if (questionNum !== openQuestion) {
-      setOpenQuestion(questionNum);
-      
-      // Scroll to question with appropriate offset
-      setTimeout(() => {
-        const questionElement = questionRefs.current[questionNum];
-        if (questionElement) {
-          const offset = questionNum === 1 ? 0 : 100;
-          const elementPosition = questionElement.getBoundingClientRect().top;
-          const offsetPosition = elementPosition + window.pageYOffset - offset;
+    setOpenQuestions(prev => {
+      if (prev.includes(questionNum)) {
+        return prev.filter(q => q !== questionNum);
+      } else {
+        return [...prev, questionNum];
+      }
+    });
+    
+    // Scroll to question with appropriate offset
+    setTimeout(() => {
+      const questionElement = questionRefs.current[questionNum];
+      if (questionElement) {
+        const offset = questionNum === 1 ? 0 : 100;
+        const elementPosition = questionElement.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - offset;
 
-          window.scrollTo({
-            top: offsetPosition,
-            behavior: 'smooth'
-          });
-        }
-      }, 0);
-    }
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+      }
+    }, 0);
   };
 
   const isFormValid = () => {
@@ -443,7 +427,7 @@ export default function Questionnaire() {
       clientOutcomesOther: "",
       idealClient: ""
     });
-    setOpenQuestion(1); // Reset to first question
+    setOpenQuestions([1]);
   };
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -476,8 +460,6 @@ export default function Questionnaire() {
         </div>
       </header>
 
-      {/* The AnimatePresence block for showSuccess is removed as redirection replaces its functionality */}
-
       <main className="max-w-4xl mx-auto px-6 py-12">
         <form onSubmit={handleSubmit} className="space-y-16">
           <section className="space-y-8">
@@ -504,7 +486,7 @@ export default function Questionnaire() {
                 onOtherChange={(value) => updateField("itCompanyTypeOther", value)}
                 limit={3}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q1)}
-                isOpen={openQuestion === 1}
+                isOpen={openQuestions.includes(1)}
                 onClick={() => handleQuestionClick(1)}
               />
             </div>
@@ -532,7 +514,7 @@ export default function Questionnaire() {
                 onOtherChange={(value) => updateField("serviceOfferingsOther", value)}
                 limit={3}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q2)}
-                isOpen={openQuestion === 2}
+                isOpen={openQuestions.includes(2)}
                 onClick={() => handleQuestionClick(2)}
               />
             </div>
@@ -546,7 +528,7 @@ export default function Questionnaire() {
                 onChange={(value) => updateField("differentiation", value)}
                 minLength={0}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q3)}
-                isOpen={openQuestion === 3}
+                isOpen={openQuestions.includes(3)}
                 onClick={() => handleQuestionClick(3)}
               />
             </div>
@@ -566,7 +548,7 @@ export default function Questionnaire() {
                   updateField("geographicAreaMeta", { label: "", lat: null, lon: null, place_id: null, source: "google" });
                 }}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q4)}
-                isOpen={openQuestion === 4}
+                isOpen={openQuestions.includes(4)}
                 onClick={() => handleQuestionClick(4)}
               />
             </div>
@@ -586,7 +568,7 @@ export default function Questionnaire() {
                 otherValue={formData.pricingPackagingOther}
                 onOtherChange={(value) => updateField("pricingPackagingOther", value)}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q5)}
-                isOpen={openQuestion === 5}
+                isOpen={openQuestions.includes(5)}
                 onClick={() => handleQuestionClick(5)}
               />
             </div>
@@ -608,7 +590,7 @@ export default function Questionnaire() {
                 otherValue={formData.companyGoalsOther}
                 onOtherChange={(value) => updateField("companyGoalsOther", value)}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q6)}
-                isOpen={openQuestion === 6}
+                isOpen={openQuestions.includes(6)}
                 onClick={() => handleQuestionClick(6)}
               />
             </div>
@@ -631,7 +613,7 @@ export default function Questionnaire() {
                 otherValue={formData.brandToneOther}
                 onOtherChange={(value) => updateField("brandToneOther", value)}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q7)}
-                isOpen={openQuestion === 7}
+                isOpen={openQuestions.includes(7)}
                 onClick={() => handleQuestionClick(7)}
               />
             </div>
@@ -671,7 +653,7 @@ export default function Questionnaire() {
                 onOtherChange={(value) => updateField("targetIndustriesOther", value)}
                 limit={3}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
-                isOpen={openQuestion === 8}
+                isOpen={openQuestions.includes(8)}
                 onClick={() => handleQuestionClick(8)}
               />
             </div>
@@ -685,7 +667,7 @@ export default function Questionnaire() {
                 maxValue={50}
                 onChange={(value) => updateField("clientSize", value)}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q9)}
-                isOpen={openQuestion === 9}
+                isOpen={openQuestions.includes(9)}
                 onClick={() => handleQuestionClick(9)}
               />
             </div>
@@ -710,7 +692,7 @@ export default function Questionnaire() {
                 onOtherChange={(value) => updateField("clientChallengesOther", value)}
                 limit={3}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q10)}
-                isOpen={openQuestion === 10}
+                isOpen={openQuestions.includes(10)}
                 onClick={() => handleQuestionClick(10)}
               />
             </div>
@@ -734,7 +716,7 @@ export default function Questionnaire() {
                 onOtherChange={(value) => updateField("clientOutcomesOther", value)}
                 limit={2}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q11)}
-                isOpen={openQuestion === 11}
+                isOpen={openQuestions.includes(11)}
                 onClick={() => handleQuestionClick(11)}
               />
             </div>
@@ -748,7 +730,7 @@ export default function Questionnaire() {
                 onChange={(value) => updateField("idealClient", value)}
                 minLength={0}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q12)}
-                isOpen={openQuestion === 12}
+                isOpen={openQuestions.includes(12)}
                 onClick={() => handleQuestionClick(12)}
               />
             </div>
