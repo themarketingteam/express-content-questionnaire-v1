@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
@@ -161,7 +160,6 @@ const HELPER_COPY = {
 };
 
 export default function Questionnaire() {
-  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     itCompanyType: [],
     itCompanyTypeOther: "",
@@ -246,7 +244,7 @@ export default function Questionnaire() {
     },
     onSuccess: (data) => {
       localStorage.removeItem(STORAGE_KEY);
-      navigate(`/thank-you?business=${encodeURIComponent(data.businessName)}`);
+      window.location.href = `/thank-you?business=${encodeURIComponent(data.businessName)}`;
     },
     onError: (error) => {
       alert('There was an error submitting your form. Please try again or contact support.');
