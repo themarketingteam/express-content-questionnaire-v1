@@ -224,8 +224,8 @@ export default function Questionnaire() {
   const submitMutation = useMutation({
     mutationFn: async (data) => {
       // Send to Zapier webhook using form-encoded data to avoid CORS
-      const hookId = import.meta.env.VITE_API_HOOK_ID || '23529934';
-      const hookKey = import.meta.env.VITE_API_HOOK_KEY || 'u85gwuy';
+      const hookId = import.meta.env.VITE_API_HOOK_ID;
+      const hookKey = import.meta.env.VITE_API_HOOK_KEY;
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
 
       console.log('=== FORM SUBMISSION DEBUG ===');
