@@ -244,7 +244,8 @@ export default function Questionnaire() {
     },
     onSuccess: (data) => {
       localStorage.removeItem(STORAGE_KEY);
-      window.location.href = `/thank-you?business=${encodeURIComponent(data.businessName)}`;
+      alert(`Thank you! Your questionnaire for ${data.businessName} has been submitted successfully. We'll be in touch soon.`);
+      handleReset();
     },
     onError: (error) => {
       alert('There was an error submitting your form. Please try again or contact support.');
