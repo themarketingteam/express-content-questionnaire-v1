@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
@@ -160,6 +161,7 @@ const HELPER_COPY = {
 };
 
 export default function Questionnaire() {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     itCompanyType: [],
     itCompanyTypeOther: "",
@@ -243,13 +245,10 @@ export default function Questionnaire() {
       return { response: zapierResult, businessName: data.metadata.business_name };
     },
     onSuccess: (data) => {
-      console.log('✅ Form submission successful! Redirecting to thank you page...');
       localStorage.removeItem(STORAGE_KEY);
-      // Redirect to thank you page with business name
-      window.location.href = `/ThankYou?business=${encodeURIComponent(data.businessName)}`;
+      navigate(`/thank-you?business=${encodeURIComponent(data.businessName)}`);
     },
     onError: (error) => {
-      console.error('❌ Form submission failed:', error);
       alert('There was an error submitting your form. Please try again or contact support.');
     }
   });
