@@ -35,9 +35,9 @@ export default function NumericRangeQuestion({
     <div className="space-y-4">
       <div className="flex items-start gap-3">
         <div 
-          className={`block flex-1 ${!isOpen ? 'cursor-pointer' : ''}`}
+          className="block flex-1 cursor-pointer"
           onClick={() => {
-            if (!isOpen && onClick) {
+            if (onClick) {
               onClick();
             }
           }}
