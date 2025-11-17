@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -357,6 +358,14 @@ export default function Questionnaire() {
     return true;
   };
 
+  const handleExpandAll = () => {
+    setOpenQuestions([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  };
+
+  const handleCollapseAll = () => {
+    setOpenQuestions([]);
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (isFormValid()) {
@@ -461,6 +470,23 @@ export default function Questionnaire() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-12">
+        <div className="flex gap-3 mb-8">
+          <button
+            type="button"
+            onClick={handleExpandAll}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+          >
+            Expand All
+          </button>
+          <button
+            type="button"
+            onClick={handleCollapseAll}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+          >
+            Collapse All
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-16">
           <section className="space-y-8">
             <div className="pb-6 border-b-2 border-slate-200">
