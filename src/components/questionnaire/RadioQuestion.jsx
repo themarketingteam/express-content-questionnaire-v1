@@ -1,3 +1,4 @@
+
 import React from "react";
 import { Info, RotateCcw, ChevronDown } from "lucide-react";
 import OtherField from "./OtherField";
@@ -78,12 +79,12 @@ export default function RadioQuestion({
                 <Info className="w-3.5 h-3.5" />
               </button>
             )}
-            {!isOpen && (
-              <ChevronDown className="w-5 h-5 text-slate-400" />
-            )}
           </div>
           {isOpen && hint && <span className="text-sm text-slate-500 italic mt-1 block">{hint}</span>}
         </div>
+        {!isOpen && (
+          <ChevronDown className="w-5 h-5 text-slate-400" />
+        )}
         {isOpen && hasAnySelection && (
           <button
             type="button"
