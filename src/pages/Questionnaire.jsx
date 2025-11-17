@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
@@ -228,10 +227,6 @@ export default function Questionnaire() {
       const hookKey = import.meta.env.VITE_API_HOOK_KEY;
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
 
-      console.log('=== FORM SUBMISSION DEBUG ===');
-      console.log('Sending data to:', zapierUrl);
-      console.log('Payload structure:', JSON.stringify(data, null, 2));
-
       // Convert data to URL-encoded form data
       const formData = new URLSearchParams();
       formData.append('data', JSON.stringify(data));
@@ -241,24 +236,11 @@ export default function Questionnaire() {
         body: formData
       });
 
-      console.log('Zapier response status:', response.status);
-      console.log('Zapier response OK:', response.ok);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Zapier error response:', errorText);
-        throw new Error('Failed to submit to Zapier');
+        throw new Error('Failed to submit form');
       }
 
       const zapierResult = await response.json();
-      console.log('Zapier success response:', zapierResult);
-
-      // Also save to Base44 for backup
-      console.log('Saving backup to Base44...');
-      const base44Result = await base44.entities.FormSubmission.create(data);
-      console.log('Base44 backup saved successfully:', base44Result);
-      console.log('=== END SUBMISSION DEBUG ===');
-
       return { response: zapierResult, businessName: data.metadata.business_name };
     },
     onSuccess: (data) => {
