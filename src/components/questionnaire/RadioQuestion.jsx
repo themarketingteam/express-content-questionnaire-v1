@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Info, RotateCcw, ChevronDown } from "lucide-react";
 import OtherField from "./OtherField";
@@ -55,9 +54,9 @@ export default function RadioQuestion({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div 
-          className={`flex-1 ${!isOpen ? 'cursor-pointer' : ''}`}
+          className="flex-1 cursor-pointer"
           onClick={() => {
-            if (!isOpen && onClick) {
+            if (onClick) {
               onClick();
             }
           }}
