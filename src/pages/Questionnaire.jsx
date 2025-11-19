@@ -426,7 +426,7 @@ export default function Questionnaire() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <header className="sticky top-0 z-40 shadow-sm" style={{
+      <header className="shadow-sm" style={{
         backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/aa4706777_banner.jpg)',
         backgroundSize: 'cover',
         backgroundPosition: 'center'
