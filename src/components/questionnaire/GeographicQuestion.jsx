@@ -168,16 +168,15 @@ export default function GeographicQuestion({
             <ChevronDown className="w-5 h-5 text-slate-400 ml-auto" />
           )}
         </div>
-          {isOpen && (
-            <span className="text-sm text-slate-500 italic mt-1 block">
-              {isScriptLoaded 
-                ? "Start typing to see location suggestions" 
-                : loadError 
-                ? "Type your geographic area (city, region, state, country)" 
-                : "Loading location search..."}
-            </span>
-          )}
-        </div>
+        {isOpen && (
+          <span className="text-sm text-slate-500 italic mt-1 block">
+            {isScriptLoaded 
+              ? "Start typing to see location suggestions" 
+              : loadError 
+              ? "Type your geographic area (city, region, state, country)" 
+              : "Loading location search..."}
+          </span>
+        )}
       </div>
 
       {isOpen && (
