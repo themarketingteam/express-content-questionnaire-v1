@@ -773,7 +773,7 @@ export default function Questionnaire() {
 
       <footer className="border-t border-slate-200 bg-white mt-16">
         <div className="max-w-4xl mx-auto px-6 py-8 text-center text-slate-600 text-sm">
-          <p>© 2024 MSP Questionnaire. Built with modern web technologies.</p>
+          <p>© 2025 Kaseya Limited. Express Website Questionnaire.</p>
         </div>
       </footer>
 
