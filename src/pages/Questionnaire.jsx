@@ -426,11 +426,15 @@ export default function Questionnaire() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+      <header className="sticky top-0 z-40 shadow-sm" style={{
+        backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/aa4706777_banner.jpg)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center'
+      }}>
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Website Content Questionnaire</h1>
-            <p className="text-slate-600 mt-1">Help us get to know your business.</p>
+            <h1 className="text-3xl font-bold text-white tracking-tight drop-shadow-lg">Website Content Questionnaire</h1>
+            <p className="text-white mt-1 drop-shadow-md">Help us get to know your business.</p>
           </div>
           <AnimatePresence>
             {showSaveIndicator && (
