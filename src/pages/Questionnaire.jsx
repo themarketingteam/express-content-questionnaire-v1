@@ -433,8 +433,8 @@ export default function Questionnaire() {
       }}>
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '50px' }}>Website Content Questionnaire</h1>
-            <p className="text-white mt-1 drop-shadow-md" style={{ paddingBottom: '50px' }}>Help us get to know your business.</p>
+            <h1 className="text-3xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px' }}>Website Content Questionnaire</h1>
+            <p className="text-white mt-1 drop-shadow-md" style={{ paddingBottom: '75px' }}>Help us get to know your business.</p>
           </div>
           <AnimatePresence>
             {showSaveIndicator && (
