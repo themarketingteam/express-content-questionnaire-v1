@@ -138,7 +138,7 @@ export default function NumericRangeQuestion({
           <div className="mt-4 text-sm text-slate-600">
             <span className="font-medium">Result: </span>
             <span className="text-slate-900">
-              {smallest}-{largest > 250 ? "250+" : largest} employees
+              {smallest}-{largest > 1000 ? "1000+" : largest} employees
             </span>
           </div>
         </div>
