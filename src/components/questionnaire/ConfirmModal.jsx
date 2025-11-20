@@ -34,6 +34,16 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
     const trimmed = domainStr.trim();
     if (trimmed.length === 0) return false;
     
+    // Reject if contains http:// or https://
+    if (trimmed.toLowerCase().startsWith('http://') || trimmed.toLowerCase().startsWith('https://')) {
+      return false;
+    }
+    
+    // Reject if starts with www.
+    if (trimmed.toLowerCase().startsWith('www.')) {
+      return false;
+    }
+    
     // Must contain at least one dot and no spaces
     if (!trimmed.includes('.') || trimmed.includes(' ')) return false;
     
@@ -205,7 +215,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
                 {domain.trim().length > 0 && !isDomainValid && (
                   <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
-                    Please enter a valid domain (e.g., example.com)
+                    Please enter a valid domain without http://, https://, or www. (e.g., example.com or support.example.com)
                   </p>
                 )}
                 {domain.trim().length > 0 && isDomainValid && (
@@ -215,7 +225,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
                   </p>
                 )}
                 {domain.trim().length === 0 && (
-                  <p className="text-xs text-slate-600 mt-1">Format: yourdomain.com</p>
+                  <p className="text-xs text-slate-600 mt-1">Format: yourdomain.com or subdomain.yourdomain.com (no www. or https://)</p>
                 )}
               </div>
             </div>
