@@ -793,7 +793,7 @@ export default function Questionnaire() {
         <div className="mt-16 bg-blue-50 border border-blue-200 rounded-xl p-6">
           <h3 className="font-semibold text-blue-900 mb-2">💾 Auto-Save</h3>
           <p className="text-blue-800 text-sm">
-            Your responses are automatically saved to your browser. If you accidentally close this page, your data will be restored when you return.
+            Your responses are automatically saved as a secure cookie. Your progress is preserved even if you close this page or return later.
           </p>
         </div>
       </main>
