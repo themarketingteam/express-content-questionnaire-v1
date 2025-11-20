@@ -123,9 +123,9 @@ export default function NumericRangeQuestion({
               <input
                 type="number"
                 min="1"
-                value={largest > 250 ? "" : largest}
+                value={largest > 1000 ? "" : largestInput}
                 onChange={handleLargestChange}
-                placeholder={largest > 250 ? "250+" : ""}
+                placeholder={largest > 1000 ? "1000+" : ""}
                 className="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
