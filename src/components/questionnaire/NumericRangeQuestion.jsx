@@ -14,9 +14,11 @@ export default function NumericRangeQuestion({
 }) {
   const [smallest, setSmallest] = useState(minValue);
   const [largest, setLargest] = useState(maxValue);
+  const [largestInput, setLargestInput] = useState(maxValue.toString());
+  const emptyTimerRef = React.useRef(null);
 
   useEffect(() => {
-    const largestDisplay = largest > 250 ? "250+" : largest;
+    const largestDisplay = largest > 1000 ? "1000+" : largest;
     const value = `${smallest}-${largestDisplay} employees`;
     onChange(value);
   }, [smallest, largest, onChange]);
@@ -27,9 +29,38 @@ export default function NumericRangeQuestion({
   };
 
   const handleLargestChange = (e) => {
-    const value = parseInt(e.target.value) || 50;
-    setLargest(Math.max(1, value));
+    const inputValue = e.target.value;
+    setLargestInput(inputValue);
+
+    // Clear any existing timer
+    if (emptyTimerRef.current) {
+      clearTimeout(emptyTimerRef.current);
+      emptyTimerRef.current = null;
+    }
+
+    if (inputValue === "" || inputValue === null) {
+      // Start 5-second timer to restore default
+      emptyTimerRef.current = setTimeout(() => {
+        setLargestInput(maxValue.toString());
+        setLargest(maxValue);
+      }, 5000);
+    } else {
+      const parsedValue = parseInt(inputValue);
+      if (!isNaN(parsedValue)) {
+        const clampedValue = Math.max(1, parsedValue);
+        setLargest(clampedValue > 1000 ? 1001 : clampedValue);
+      }
+    }
   };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (emptyTimerRef.current) {
+        clearTimeout(emptyTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
