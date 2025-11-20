@@ -214,9 +214,19 @@ export default function Questionnaire() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
       setShowSaveIndicator(true);
       setTimeout(() => setShowSaveIndicator(false), 3000);
-    }, 1000);
+    }, 300);
 
     return () => clearTimeout(saveTimer);
+  }, [formData]);
+
+  // Save before page unload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [formData]);
 
   const submitMutation = useMutation({
