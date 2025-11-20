@@ -44,6 +44,11 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
       return false;
     }
     
+    // Reject if contains forward slash (no subdirectories)
+    if (trimmed.includes('/')) {
+      return false;
+    }
+    
     // Must contain at least one dot and no spaces
     if (!trimmed.includes('.') || trimmed.includes(' ')) return false;
     
