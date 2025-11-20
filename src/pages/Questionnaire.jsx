@@ -239,7 +239,7 @@ export default function Questionnaire() {
   // Save before page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+      setCookie(STORAGE_KEY, JSON.stringify(formData));
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
