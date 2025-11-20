@@ -270,7 +270,7 @@ export default function Questionnaire() {
       return { response: zapierResult, businessName: data.metadata.business_name };
     },
     onSuccess: (data) => {
-      localStorage.removeItem(STORAGE_KEY);
+      deleteCookie(STORAGE_KEY);
       alert(`Thank you! Your questionnaire for ${data.businessName} has been submitted successfully. We'll be in touch soon.`);
       handleReset();
     },
