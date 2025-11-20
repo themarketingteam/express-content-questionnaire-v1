@@ -228,7 +228,7 @@ export default function Questionnaire() {
   // Auto-save
   useEffect(() => {
     const saveTimer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+      setCookie(STORAGE_KEY, JSON.stringify(formData));
       setShowSaveIndicator(true);
       setTimeout(() => setShowSaveIndicator(false), 3000);
     }, 300);
