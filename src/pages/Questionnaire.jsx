@@ -307,6 +307,13 @@ export default function Questionnaire() {
       return selected > 0 || hasOther;
     };
 
+    const hasMinimumAnswer = (field, otherField, minRequired) => {
+      const selected = (formData[field] || []).length;
+      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
+      const total = selected + (hasOther ? 1 : 0);
+      return total >= minRequired;
+    };
+
     const hasRadioAnswer = (field, otherField) => {
       const selected = (formData[field] || "").trim().length > 0;
       const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
@@ -317,7 +324,7 @@ export default function Questionnaire() {
 
     switch(questionNum) {
       case 1: return hasAnswer("itCompanyType", "itCompanyTypeOther");
-      case 2: return hasAnswer("serviceOfferings", "serviceOfferingsOther");
+      case 2: return hasMinimumAnswer("serviceOfferings", "serviceOfferingsOther", 3);
       case 3: return hasText(formData.differentiation);
       case 4: return hasText(formData.geographicAreas);
       case 5: return hasRadioAnswer("pricingPackaging", "pricingPackagingOther");
@@ -531,7 +538,7 @@ export default function Questionnaire() {
               <CheckboxQuestion
                 questionNumber={2}
                 title="What are your primary service offerings?"
-                hint="Select your core services. Maximum 3 selections."
+                hint="Select at least 3 core services. Maximum 6 selections."
                 options={[
                   "Cloud Services", "CMMC Compliance", "Co-Managed IT",
                   "Cybersecurity", "Data Backup & Recovery",
@@ -545,10 +552,10 @@ export default function Questionnaire() {
                   "VoIP Phone Systems"
                 ]}
                 selected={formData.serviceOfferings}
-                onToggle={(value) => updateArrayField("serviceOfferings", value, 3, "serviceOfferingsOther")}
+                onToggle={(value) => updateArrayField("serviceOfferings", value, 6, "serviceOfferingsOther")}
                 otherValue={formData.serviceOfferingsOther}
                 onOtherChange={(value) => updateField("serviceOfferingsOther", value)}
-                limit={3}
+                limit={6}
                 onInfoClick={() => setInfoModalData(HELPER_COPY.q2)}
                 isOpen={openQuestions.includes(2)}
                 onClick={() => handleQuestionClick(2)}
