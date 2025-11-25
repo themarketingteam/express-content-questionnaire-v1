@@ -208,6 +208,11 @@ export default function Questionnaire() {
 
   const questionRefs = useRef({});
 
+  // Set page title
+  useEffect(() => {
+    document.title = "Kaseya - Express Website Content Form";
+  }, []);
+
   // Load saved data
   useEffect(() => {
     const saved = getCookie(STORAGE_KEY);
