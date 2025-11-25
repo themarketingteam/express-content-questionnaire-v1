@@ -75,6 +75,17 @@ export default function GeographicQuestion({
           return;
         }
 
+        // Check if this is a continent by examining address components
+        const addressComponents = place.address_components || [];
+        const isContinent = addressComponents.length === 1 && 
+                           addressComponents[0].types.includes('continent');
+        
+        if (isContinent) {
+          alert("Please select a more specific location such as a city, county, or region. Continents are not allowed.");
+          onClear();
+          return;
+        }
+
         const meta = {
           label: place.formatted_address || place.name,
           lat: place.geometry.location.lat(),
@@ -149,7 +160,7 @@ export default function GeographicQuestion({
       >
         <div className="flex items-center gap-2">
           <span className="text-lg font-semibold text-slate-900">
-            {questionNumber}. What geographic area do you primarily serve?
+            {questionNumber}. What is your primary city of service or geological region of service?
           </span>
           {onInfoClick && (
             <button
@@ -171,9 +182,9 @@ export default function GeographicQuestion({
         {isOpen && (
           <span className="text-sm text-slate-500 italic mt-1 block">
             {isScriptLoaded 
-              ? "Start typing to see location suggestions" 
+              ? "Start typing a city or town name for best results" 
               : loadError 
-              ? "Type your geographic area (city, region, state, country)" 
+              ? "Type your city, county, or region (continents not allowed)" 
               : "Loading location search..."}
           </span>
         )}
@@ -185,7 +196,7 @@ export default function GeographicQuestion({
             <input
               ref={inputRef}
               type="text"
-              placeholder="e.g., Denver, CO or Auckland, NZ"
+              placeholder="e.g., Nashville, TN or Davidson County, TN"
               value={hasSelection ? selectedMeta.label : value}
               onChange={handleInputChange}
               autoComplete="off"
@@ -196,7 +207,7 @@ export default function GeographicQuestion({
 
           {isScriptLoaded && !loadError && (
             <div className="text-sm text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
-              💡 Type to see location suggestions. Select one from the dropdown for validated location data.
+              💡 Best practice: Select a specific city or town. Broader selections (state/country) are less effective for local SEO.
             </div>
           )}
 

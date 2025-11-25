@@ -67,15 +67,15 @@ const HELPER_COPY = {
     }
   },
   q4: {
-    title: "What geographic area do you primarily serve?",
-    why: "Your service region shapes local SEO and credibility. Listing a validated city/county/region helps nearby businesses find you and signals that you're truly local.",
-    guidance: "Enter a city, county, region, state/province, country, or continent (no street addresses). Choose a validated option from the list so we can store it accurately.",
+    title: "What is your primary city of service or geological region of service?",
+    why: "Your service region shapes local SEO and credibility. Listing a specific city or county helps nearby businesses find you and signals that you're truly local to the area.",
+    guidance: "We recommend selecting a specific city or town for best results. If you serve a broader area, you may select a county or region. State and country selections are less effective for local SEO. Choose a validated option from the dropdown list.",
     type: "short",
     examples: {
       selections: [],
       mixed: [],
       other: "",
-      shortAnswer: "Davidson County, Tennessee and the Greater Nashville metro area."
+      shortAnswer: "Nashville, Tennessee or Davidson County, Tennessee"
     }
   },
   q5: {
