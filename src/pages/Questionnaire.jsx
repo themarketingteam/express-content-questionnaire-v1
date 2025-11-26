@@ -9,6 +9,7 @@ import NumericRangeQuestion from "../components/questionnaire/NumericRangeQuesti
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import { Save } from "lucide-react";
+import { createPageUrl } from "../utils";
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
 
@@ -284,8 +285,8 @@ export default function Questionnaire() {
     },
     onSuccess: (data) => {
       deleteCookie(STORAGE_KEY);
-      alert(`Thank you! Your questionnaire for ${data.businessName} has been submitted successfully. We'll be in touch soon.`);
       handleReset();
+      window.location.href = createPageUrl(`ThankYou?businessName=${encodeURIComponent(data.businessName)}`);
     },
     onError: (error) => {
       alert('There was an error submitting your form. Please try again or contact support.');
