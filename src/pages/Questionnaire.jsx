@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
+import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
 import TextAreaQuestion from "../components/questionnaire/TextAreaQuestion";
 import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
@@ -576,21 +577,31 @@ export default function Questionnaire() {
             </div>
 
             <div ref={el => questionRefs.current[2] = el}>
-              <CheckboxQuestion
+              <CategorizedCheckboxQuestion
                 questionNumber={2}
                 title="What are your primary service offerings?"
                 hint="Select at least 3 core services. Maximum 6 selections."
-                options={[
-                  "Cloud Services", "CMMC Compliance", "Co-Managed IT",
-                  "Cybersecurity", "Data Backup & Recovery",
-                  "Disaster Recovery Planning", "FTC Compliance", "Hardware as a Service",
-                  "HIPAA Compliance", "Hourly IT Support", "Hybrid Cloud Services", "Internet Services",
-                  "IT Compliance", "IT Consulting", "IT Help Desk", "Managed IT",
-                  "Microsoft 365", "NIST Framework Compliance",
-                  "Outsourced IT Help Desk", "PCI Compliance", "Printer & Office Machine",
-                  "Private Cloud Services", "Ransomware Removal", "Security Awareness Training",
-                  "SOC2 Compliance", "Structured Cabling", "Video Surveillance Solutions",
-                  "VoIP Phone Systems"
+                categories={[
+                  {
+                    name: "CLOUD & INFRASTRUCTURE",
+                    options: ["Cloud Services", "Hybrid Cloud Services", "Internet Services", "Microsoft 365", "Private Cloud Services", "Structured Cabling"]
+                  },
+                  {
+                    name: "COMPLIANCE",
+                    options: ["CMMC Compliance", "FTC Compliance", "HIPAA Compliance", "IT Compliance", "NIST Framework Compliance", "PCI Compliance", "SOC2 Compliance"]
+                  },
+                  {
+                    name: "IT SERVICES",
+                    options: ["Co-Managed IT", "Hourly IT Support", "IT Consulting", "IT Help Desk", "Managed IT", "Outsourced IT Help Desk"]
+                  },
+                  {
+                    name: "SECURITY",
+                    options: ["Cybersecurity", "Ransomware Removal", "Security Awareness Training", "Video Surveillance Solutions"]
+                  },
+                  {
+                    name: "HARDWARE & RECOVERY",
+                    options: ["Data Backup & Recovery", "Disaster Recovery Planning", "Hardware as a Service", "Printer & Office Machine", "VoIP Phone Systems"]
+                  }
                 ]}
                 selected={formData.serviceOfferings}
                 onToggle={(value) => updateArrayField("serviceOfferings", value, 6, "serviceOfferingsOther")}
