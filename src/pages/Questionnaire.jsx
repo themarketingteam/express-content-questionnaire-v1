@@ -208,6 +208,19 @@ export default function Questionnaire() {
 
   const questionRefs = useRef({});
 
+  // Load BugHerd script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src = 'https://www.bugherd.com/sidebarv2.js?apikey=pqtfc3umj0mlw2ipj9bsoq';
+    script.async = true;
+    document.head.appendChild(script);
+
+    return () => {
+      document.head.removeChild(script);
+    };
+  }, []);
+
   // Load saved data
   useEffect(() => {
     const saved = getCookie(STORAGE_KEY);
