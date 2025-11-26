@@ -209,6 +209,17 @@ export default function Questionnaire() {
 
   const questionRefs = useRef({});
 
+  // Set favicon and page title
+  useEffect(() => {
+    document.title = 'Kaseya - Express Website Content Form';
+    
+    const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
+    link.type = 'image/png';
+    link.rel = 'icon';
+    link.href = 'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/c380ae371_kaseya-logo.png';
+    document.head.appendChild(link);
+  }, []);
+
   // Load BugHerd script
   useEffect(() => {
     const script = document.createElement('script');
