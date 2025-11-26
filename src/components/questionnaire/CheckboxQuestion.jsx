@@ -71,7 +71,7 @@ export default function CheckboxQuestion({
 
       {isOpen && (
         <>
-          <div className="space-y-2.5">
+          <div className={questionNumber === 2 ? "space-y-2.5" : "grid grid-cols-1 md:grid-cols-2 gap-2.5"}>
             {options.map((option) => {
               const isChecked = selected.includes(option);
               const disabled = isCheckboxDisabled(option);
