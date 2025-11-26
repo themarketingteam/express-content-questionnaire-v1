@@ -486,14 +486,14 @@ export default function Questionnaire() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <header className="shadow-sm" style={{
-        backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/aa4706777_banner.jpg)',
+        background: 'linear-gradient(135deg, #004B87 0%, #009ADD 100%)',
         backgroundSize: 'cover',
         backgroundPosition: 'center'
       }}>
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px' }}>Website Content Questionnaire</h1>
-            <p className="text-white mt-1 drop-shadow-md" style={{ paddingBottom: '75px' }}>Help us get to know your business.</p>
+            <h1 className="text-5xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px', fontFamily: 'Raleway, sans-serif' }}>Website Content Questionnaire</h1>
+            <p className="text-white mt-1 drop-shadow-md text-lg" style={{ paddingBottom: '75px', fontFamily: 'Lato, sans-serif' }}>Help us get to know your business.</p>
           </div>
           <AnimatePresence>
             {showSaveIndicator && (
@@ -516,14 +516,30 @@ export default function Questionnaire() {
           <button
             type="button"
             onClick={handleExpandAll}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+            className="px-6 py-3 hover:opacity-90 font-bold transition-all text-sm tracking-wider uppercase"
+            style={{ 
+              backgroundColor: '#009ADD', 
+              color: 'white',
+              borderRadius: '2px',
+              height: '48px',
+              letterSpacing: '0.8px',
+              fontFamily: 'Lato, sans-serif'
+            }}
           >
             Expand All
           </button>
           <button
             type="button"
             onClick={handleCollapseAll}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+            className="px-6 py-3 hover:opacity-90 font-bold transition-all text-sm tracking-wider uppercase"
+            style={{ 
+              backgroundColor: '#7D868D', 
+              color: 'white',
+              borderRadius: '2px',
+              height: '48px',
+              letterSpacing: '0.8px',
+              fontFamily: 'Lato, sans-serif'
+            }}
           >
             Collapse All
           </button>
@@ -531,8 +547,8 @@ export default function Questionnaire() {
 
         <form onSubmit={handleSubmit} className="space-y-16">
           <section className="space-y-8">
-            <div className="pb-6 border-b-2 border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">Section 1: About Your Business</h2>
+            <div className="pb-6 border-b-2" style={{ borderColor: '#009ADD' }}>
+              <h2 className="text-2xl font-bold" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>Section 1: About Your Business</h2>
             </div>
 
             <div ref={el => questionRefs.current[1] = el}>
@@ -688,8 +704,8 @@ export default function Questionnaire() {
           </section>
 
           <section className="space-y-8">
-            <div className="pb-6 border-b-2 border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">Section 2: About Your Target Clients</h2>
+            <div className="pb-6 border-b-2" style={{ borderColor: '#009ADD' }}>
+              <h2 className="text-2xl font-bold" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>Section 2: About Your Target Clients</h2>
             </div>
 
             <div ref={el => questionRefs.current[8] = el}>
@@ -804,34 +820,51 @@ export default function Questionnaire() {
             </div>
           </section>
 
-          <div className="flex gap-4 pt-8 border-t border-slate-200">
+          <div className="flex gap-4 pt-8 border-t" style={{ borderColor: '#009ADD' }}>
             <button
               type="submit"
               disabled={!isFormValid()}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg shadow-blue-600/20 hover:shadow-xl hover:shadow-blue-600/30"
+              className="flex-1 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-all tracking-wider uppercase"
+              style={{
+                backgroundColor: isFormValid() ? '#8DC641' : '#7D868D',
+                borderRadius: '2px',
+                height: '48px',
+                letterSpacing: '0.8px',
+                fontSize: '18px',
+                fontFamily: 'Lato, sans-serif'
+              }}
             >
               Submit Questionnaire
             </button>
             <button
               type="button"
               onClick={handleReset}
-              className="px-6 py-4 border-2 border-slate-300 hover:border-slate-400 text-slate-700 font-semibold rounded-xl transition-all duration-200"
+              className="px-6 font-bold hover:opacity-90 transition-all tracking-wider uppercase"
+              style={{
+                border: '2px solid #004B87',
+                color: '#004B87',
+                borderRadius: '2px',
+                height: '48px',
+                letterSpacing: '0.8px',
+                fontSize: '18px',
+                fontFamily: 'Lato, sans-serif'
+              }}
             >
               Clear All
             </button>
           </div>
         </form>
 
-        <div className="mt-16 bg-blue-50 border border-blue-200 rounded-xl p-6">
-          <h3 className="font-semibold text-blue-900 mb-2">💾 Auto-Save</h3>
-          <p className="text-blue-800 text-sm">
+        <div className="mt-16 rounded-xl p-6" style={{ backgroundColor: '#E6F4FF', border: '1px solid #009ADD' }}>
+          <h3 className="font-semibold mb-2" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>💾 Auto-Save</h3>
+          <p className="text-sm" style={{ color: '#3D5A73', fontFamily: 'Lato, sans-serif' }}>
             Your responses are automatically saved as a secure cookie. Your progress is preserved even if you close this page or return later.
           </p>
         </div>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white mt-16">
-        <div className="max-w-4xl mx-auto px-6 py-8 text-center text-slate-600 text-sm">
+      <footer className="border-t bg-white mt-16" style={{ borderColor: '#009ADD' }}>
+        <div className="max-w-4xl mx-auto px-6 py-8 text-center text-sm" style={{ color: '#7D868D', fontFamily: 'Lato, sans-serif' }}>
           <p>© 2025 Kaseya Limited. Express Website Questionnaire.</p>
         </div>
       </footer>
