@@ -3,6 +3,17 @@ import { MapPin, X, Info, ChevronDown } from "lucide-react";
 
 const TEMP_API_KEY = "AIzaSyDyQuexeP2lIif4UEYVe845bIYrytVp6O0";
 
+const US_STATES = [
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 
+  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 
+  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 
+  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 
+  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 
+  'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 
+  'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 
+  'Wisconsin', 'Wyoming'
+];
+
 export default function GeographicQuestion({
   questionNumber = 4,
   value,
@@ -281,20 +292,27 @@ export default function GeographicQuestion({
                 </button>
               </div>
 
-              {selectedMeta.isCity && (
-                <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all hover:bg-slate-50 border-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={isGreaterArea}
-                    onChange={handleGreaterAreaToggle}
-                    className="w-5 h-5 accent-blue-600 cursor-pointer"
-                  />
-                  <div>
-                    <span className="text-slate-700 font-medium">Use "Greater {extractCityName(selectedMeta.originalLabel || selectedMeta.label)} Area"</span>
-                    <p className="text-sm text-slate-500 mt-0.5">Select this to include surrounding suburbs and nearby communities</p>
-                  </div>
-                </label>
-              )}
+              {(() => {
+                const locationName = selectedMeta.originalLabel || selectedMeta.label || '';
+                const hasCounty = locationName.toLowerCase().includes('county');
+                const hasState = US_STATES.some(state => locationName.includes(state));
+                const showCheckbox = !hasCounty && !hasState;
+
+                return showCheckbox ? (
+                  <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all hover:bg-slate-50 border-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={isGreaterArea}
+                      onChange={handleGreaterAreaToggle}
+                      className="w-5 h-5 accent-blue-600 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-slate-700 font-medium">Use "Greater {extractCityName(selectedMeta.originalLabel || selectedMeta.label)} Area"</span>
+                      <p className="text-sm text-slate-500 mt-0.5">Select this to include surrounding suburbs and nearby communities</p>
+                    </div>
+                  </label>
+                ) : null;
+              })()}
             </div>
           )}
         </>
