@@ -115,6 +115,44 @@ export default function GeographicQuestion({
     }
   };
 
+  const extractCityName = (label) => {
+    if (!label) return null;
+    // Extract city name from formatted address (e.g., "Nashville, TN, USA" -> "Nashville")
+    const parts = label.split(',');
+    if (parts.length > 0) {
+      return parts[0].trim();
+    }
+    return label;
+  };
+
+  const handleGreaterAreaToggle = () => {
+    if (!selectedMeta || !selectedMeta.label) return;
+    
+    const cityName = extractCityName(selectedMeta.label);
+    const isAlreadyGreater = selectedMeta.label.startsWith("Greater ");
+    
+    if (isAlreadyGreater) {
+      // Remove "Greater ... Area" and restore original
+      const originalLabel = selectedMeta.originalLabel || selectedMeta.label.replace(/^Greater /, '').replace(/ Area$/, '');
+      onSelect({
+        ...selectedMeta,
+        label: originalLabel,
+        isGreaterArea: false,
+        originalLabel: undefined
+      });
+    } else {
+      // Add "Greater ... Area"
+      onSelect({
+        ...selectedMeta,
+        label: `Greater ${cityName} Area`,
+        isGreaterArea: true,
+        originalLabel: selectedMeta.label
+      });
+    }
+  };
+
+  const isGreaterArea = selectedMeta?.isGreaterArea || false;
+
   return (
     <div className="space-y-4">
       <style>{`
