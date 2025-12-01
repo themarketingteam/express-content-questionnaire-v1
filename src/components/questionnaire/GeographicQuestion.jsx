@@ -281,18 +281,20 @@ export default function GeographicQuestion({
                 </button>
               </div>
 
-              <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all hover:bg-slate-50 border-slate-200">
-                <input
-                  type="checkbox"
-                  checked={isGreaterArea}
-                  onChange={handleGreaterAreaToggle}
-                  className="w-5 h-5 accent-blue-600 cursor-pointer"
-                />
-                <div>
-                  <span className="text-slate-700 font-medium">Use "Greater {extractCityName(selectedMeta.originalLabel || selectedMeta.label)} Area"</span>
-                  <p className="text-sm text-slate-500 mt-0.5">Select this to include surrounding suburbs and nearby communities</p>
-                </div>
-              </label>
+              {selectedMeta.isCity && (
+                <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all hover:bg-slate-50 border-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={isGreaterArea}
+                    onChange={handleGreaterAreaToggle}
+                    className="w-5 h-5 accent-blue-600 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-slate-700 font-medium">Use "Greater {extractCityName(selectedMeta.originalLabel || selectedMeta.label)} Area"</span>
+                    <p className="text-sm text-slate-500 mt-0.5">Select this to include surrounding suburbs and nearby communities</p>
+                  </div>
+                </label>
+              )}
             </div>
           )}
         </>
