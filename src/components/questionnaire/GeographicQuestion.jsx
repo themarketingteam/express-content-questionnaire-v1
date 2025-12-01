@@ -79,19 +79,25 @@ export default function GeographicQuestion({
         const addressComponents = place.address_components || [];
         const isContinent = addressComponents.length === 1 && 
                            addressComponents[0].types.includes('continent');
-        
+
         if (isContinent) {
           alert("Please select a more specific location such as a city, county, or region. Continents are not allowed.");
           onClear();
           return;
         }
 
+        // Check if this is a city/town/municipality (eligible for "Greater Area")
+        const placeTypes = place.types || [];
+        const cityTypes = ['locality', 'sublocality', 'postal_town', 'administrative_area_level_3'];
+        const isCity = placeTypes.some(type => cityTypes.includes(type));
+
         const meta = {
           label: place.formatted_address || place.name,
           lat: place.geometry.location.lat(),
           lon: place.geometry.location.lng(),
           place_id: place.place_id,
-          source: "google"
+          source: "google",
+          isCity: isCity
         };
 
         onSelect(meta);
