@@ -256,22 +256,37 @@ export default function GeographicQuestion({
           )}
 
           {hasSelection && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <div>
-                  <span className="font-medium text-green-900">Validated: </span>
-                  <span className="text-green-800">{selectedMeta.label}</span>
+            <div className="space-y-3">
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <div>
+                    <span className="font-medium text-green-900">Validated: </span>
+                    <span className="text-green-800">{selectedMeta.label}</span>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={onClear}
+                  className="px-4 py-2 text-sm bg-white border border-green-300 hover:border-green-400 hover:bg-green-50 rounded-lg flex items-center gap-2 transition-colors text-green-800 font-medium"
+                >
+                  <X className="w-4 h-4" />
+                  Clear
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={onClear}
-                className="px-4 py-2 text-sm bg-white border border-green-300 hover:border-green-400 hover:bg-green-50 rounded-lg flex items-center gap-2 transition-colors text-green-800 font-medium"
-              >
-                <X className="w-4 h-4" />
-                Clear
-              </button>
+
+              <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all hover:bg-slate-50 border-slate-200">
+                <input
+                  type="checkbox"
+                  checked={isGreaterArea}
+                  onChange={handleGreaterAreaToggle}
+                  className="w-5 h-5 accent-blue-600 cursor-pointer"
+                />
+                <div>
+                  <span className="text-slate-700 font-medium">Use "Greater {extractCityName(selectedMeta.originalLabel || selectedMeta.label)} Area"</span>
+                  <p className="text-sm text-slate-500 mt-0.5">Select this to include surrounding suburbs and nearby communities</p>
+                </div>
+              </label>
             </div>
           )}
         </>
