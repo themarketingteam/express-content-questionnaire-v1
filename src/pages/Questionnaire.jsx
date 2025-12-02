@@ -487,10 +487,10 @@ export default function Questionnaire() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <header className="shadow-sm" style={{
-        background: 'linear-gradient(135deg, #004B87 0%, #009ADD 100%)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center'
-      }}>
+                    backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                  }}>
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-5xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px', fontFamily: 'Raleway, sans-serif' }}>Website Content Questionnaire</h1>
