@@ -2,8 +2,20 @@ import React, { useEffect, useState } from "react";
 import { X, CheckCircle, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
+const capitalizeBusinessName = (name) => {
+  return name
+    .split(/\s+/)
+    .map(word => {
+      if (word.toLowerCase() === 'it') {
+        return 'IT';
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+};
+
 export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain }) {
-  const [businessName, setBusinessName] = useState(initialBusinessName || "");
+  const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
 
   useEffect(() => {
