@@ -480,7 +480,7 @@ export default function Questionnaire() {
                   }}>
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
-            <h1 className="text-5xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px', fontFamily: 'Raleway, sans-serif' }}>Website Content Questionnaire</h1>
+            <h1 className="text-5xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px', fontFamily: 'Raleway, sans-serif' }}>MSP Success - Express | Website Content Questionnaire</h1>
             <p className="text-white mt-1 drop-shadow-md text-lg" style={{ paddingBottom: '75px', fontFamily: 'Lato, sans-serif' }}>Help us get to know your business.</p>
           </div>
           <AnimatePresence>
