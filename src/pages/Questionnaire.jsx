@@ -212,7 +212,7 @@ export default function Questionnaire() {
 
   // Set favicon and page title
   useEffect(() => {
-    document.title = 'Kaseya - Express Website Content Form';
+    document.title = 'MSP Success - Express | Website Content Questionnaire';
     
     const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
     link.type = 'image/png';
