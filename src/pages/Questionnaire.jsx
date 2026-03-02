@@ -281,7 +281,7 @@ export default function Questionnaire() {
           geographic_area_meta: data.userdata.geographic_area_meta,
           pricing_packaging: data.userdata.pricing_packaging,
           pricing_packaging_other: data.userdata.pricing_packaging_other,
-          company_goals: data.userdata.company_goals,
+          company_goals: Array.isArray(data.userdata.company_goals) ? data.userdata.company_goals : (data.userdata.company_goals ? [data.userdata.company_goals] : []),
           company_goals_other: data.userdata.company_goals_other,
           brand_tone: data.userdata.brand_tone,
           brand_tone_other: data.userdata.brand_tone_other,
