@@ -266,13 +266,9 @@ export default function Questionnaire() {
       // Send to Zapier webhook using form-encoded data to avoid CORS
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/23529934/u8jdjkc`;
 
-      // Convert data to URL-encoded form data
-      const formData = new URLSearchParams();
-      formData.append('data', JSON.stringify(data));
-
       const response = await fetch(zapierUrl, {
         method: 'POST',
-        body: formData
+        body: JSON.stringify(data)
       });
 
       if (!response.ok) {
