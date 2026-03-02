@@ -263,19 +263,38 @@ export default function Questionnaire() {
 
   const submitMutation = useMutation({
     mutationFn: async (data) => {
-      // Send to Zapier webhook using form-encoded data to avoid CORS
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/23529934/u8jdjkc`;
 
-      const response = await fetch(zapierUrl, {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
+      const [zapierResult] = await Promise.all([
+        fetch(zapierUrl, { method: 'POST', body: JSON.stringify(data) }).then(r => r.json()),
+        base44.entities.FormSubmission.create({
+          business_name: data.metadata.business_name,
+          submission_datetime: data.metadata.submission_datetime,
+          service_type: data.metadata.service_type,
+          it_company_type: data.userdata.it_company_type,
+          it_company_type_other: data.userdata.it_company_type_other,
+          service_offerings: data.userdata.service_offerings,
+          service_offerings_other: data.userdata.service_offerings_other,
+          differentiation: data.userdata.differentiation,
+          geographic_areas: data.userdata.geographic_areas,
+          geographic_area_meta: data.userdata.geographic_area_meta,
+          pricing_packaging: data.userdata.pricing_packaging,
+          pricing_packaging_other: data.userdata.pricing_packaging_other,
+          company_goals: data.userdata.company_goals,
+          company_goals_other: data.userdata.company_goals_other,
+          brand_tone: data.userdata.brand_tone,
+          brand_tone_other: data.userdata.brand_tone_other,
+          target_industries: data.userdata.target_industries,
+          target_industries_other: data.userdata.target_industries_other,
+          client_size: data.userdata.client_size,
+          client_challenges: data.userdata.client_challenges,
+          client_challenges_other: data.userdata.client_challenges_other,
+          client_outcomes: data.userdata.client_outcomes,
+          client_outcomes_other: data.userdata.client_outcomes_other,
+          ideal_client: data.userdata.ideal_client
+        })
+      ]);
 
-      if (!response.ok) {
-        throw new Error('Failed to submit form');
-      }
-
-      const zapierResult = await response.json();
       return { response: zapierResult, businessName: data.metadata.business_name };
     },
     onSuccess: (data) => {
