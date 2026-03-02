@@ -21,7 +21,8 @@ export default function NumericRangeQuestion({
     const largestDisplay = largest > 1000 ? "1000+" : largest;
     const value = `${smallest}-${largestDisplay} employees`;
     onChange(value);
-  }, [smallest, largest, onChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smallest, largest]);
 
   const handleSmallestChange = (e) => {
     const value = parseInt(e.target.value) || 1;
