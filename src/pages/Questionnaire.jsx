@@ -264,9 +264,7 @@ export default function Questionnaire() {
   const submitMutation = useMutation({
     mutationFn: async (data) => {
       // Send to Zapier webhook using form-encoded data to avoid CORS
-      const hookId = import.meta.env.VITE_API_HOOK_ID;
-      const hookKey = import.meta.env.VITE_API_HOOK_KEY;
-      const zapierUrl = `https://hooks.zapier.com/hooks/catch/${hookId}/${hookKey}`;
+      const zapierUrl = `https://hooks.zapier.com/hooks/catch/23529934/u8jdjkc`;
 
       // Convert data to URL-encoded form data
       const formData = new URLSearchParams();
