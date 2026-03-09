@@ -302,8 +302,9 @@ export default function Questionnaire() {
     },
     onSuccess: (data) => {
       deleteCookie(STORAGE_KEY);
+      setSubmittedData({ businessName: data.businessName, domain: data.domain, formData: data.formData });
       handleReset();
-      window.location.href = createPageUrl(`ThankYou?businessName=${encodeURIComponent(data.businessName)}`);
+      setShowThankYouModal(true);
     },
     onError: (error) => {
       alert('There was an error submitting your form. Please try again or contact support.');
