@@ -910,6 +910,7 @@ export default function Questionnaire() {
           formData={submittedData.formData}
         />
       )}
+      <Toaster richColors position="top-center" />
     </div>
   );
 }
