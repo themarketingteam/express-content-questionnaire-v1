@@ -422,6 +422,7 @@ export default function Questionnaire() {
 
   const handleConfirmSubmit = (businessName, domain) => {
     const payload = {
+      _rawFormData: { ...formData },
       metadata: {
         business_name: businessName,
         businessDomain: domain,
