@@ -901,6 +901,14 @@ export default function Questionnaire() {
           initialDomain={initialDomain}
         />
       )}
+
+      {showThankYouModal && submittedData && (
+        <ThankYouModal
+          businessName={submittedData.businessName}
+          domain={submittedData.domain}
+          formData={submittedData.formData}
+        />
+      )}
     </div>
   );
 }
