@@ -12,6 +12,7 @@ import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import { Save } from "lucide-react";
+import { Toaster } from "sonner";
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
 
