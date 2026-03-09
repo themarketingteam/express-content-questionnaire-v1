@@ -206,6 +206,8 @@ export default function Questionnaire() {
 
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showThankYouModal, setShowThankYouModal] = useState(false);
+  const [submittedData, setSubmittedData] = useState(null);
   const [infoModalData, setInfoModalData] = useState(null);
   const [openQuestions, setOpenQuestions] = useState([1]);
 
