@@ -50,12 +50,14 @@
 import Home from './pages/Home';
 import Questionnaire from './pages/Questionnaire';
 import ThankYou from './pages/ThankYou';
+import TestZapier from './pages/TestZapier';
 
 
 export const PAGES = {
     "Home": Home,
     "Questionnaire": Questionnaire,
     "ThankYou": ThankYou,
+    "TestZapier": TestZapier,
 }
 
 export const pagesConfig = {
