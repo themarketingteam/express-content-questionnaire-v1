@@ -298,7 +298,7 @@ export default function Questionnaire() {
         })
       ]);
 
-      return { response: zapierResult, businessName: data.metadata.business_name };
+      return { response: zapierResult, businessName: data.metadata.business_name, domain: data.metadata.businessDomain, formData: data._rawFormData };
     },
     onSuccess: (data) => {
       deleteCookie(STORAGE_KEY);
