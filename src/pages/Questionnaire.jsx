@@ -10,8 +10,8 @@ import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
 import NumericRangeQuestion from "../components/questionnaire/NumericRangeQuestion";
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
+import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import { Save } from "lucide-react";
-import { createPageUrl } from "../utils";
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
 
