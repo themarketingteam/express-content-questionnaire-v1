@@ -218,7 +218,11 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
                 <input
                   type="text"
                   value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
+                  onChange={(e) => {
+                    let val = e.target.value;
+                    val = val.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+                    setDomain(val);
+                  }}
                   placeholder="example.com"
                   className={`w-full p-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-colors ${
                     domain.trim().length === 0 
