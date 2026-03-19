@@ -203,15 +203,15 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
               </div>
             </div>
 
-            {!isFormValid && (businessName.trim().length === 0 || domain.trim().length === 0 || !isDomainValid) && (
+            {!isFormValid && (
               <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <AlertCircle className="w-4 h-4" />
                 <span>
-                  {businessName.trim().length === 0 && domain.trim().length === 0 
-                    ? 'Both business name and valid domain are required to submit'
-                    : businessName.trim().length === 0 
+                  {businessName.trim().length === 0 && domain.trim().length === 0
+                    ? 'Both business name and domain are required to submit'
+                    : businessName.trim().length === 0
                     ? 'Business name is required to submit'
-                    : 'A valid domain name is required to submit'}
+                    : 'Domain is required to submit'}
                 </span>
               </div>
             )}
