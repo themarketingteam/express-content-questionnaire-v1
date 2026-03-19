@@ -268,7 +268,13 @@ export default function Questionnaire() {
   const submitMutation = useMutation({
     mutationFn: async (data) => {
       const zapierUrl = `https://hooks.zapier.com/hooks/catch/23529934/u0ajvtt/`;
-      const { _rawFormData, ...zapierPayload } = data;
+      const zapierPayload = {
+        metadata: {
+          ...data.metadata,
+          businessDomain: data.metadata.businessDomain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim(),
+        },
+        userdata: data.userdata,
+      };
 
       const [zapierResult] = await Promise.all([
         fetch(zapierUrl, { method: 'POST', body: JSON.stringify(zapierPayload) }).then(r => r.json()),
