@@ -489,7 +489,8 @@ export default function Questionnaire() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const initialBusinessName = urlParams.get("businessName") || "";
-  const initialDomain = urlParams.get("domainName") || "";
+  const rawDomain = urlParams.get("domainName") || "";
+  const initialDomain = rawDomain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">

@@ -42,35 +42,11 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
     return value || "Not answered";
   };
 
-  const isValidDomain = (domainStr) => {
-    const trimmed = domainStr.trim();
-    if (trimmed.length === 0) return false;
-    
-    // Reject if contains http:// or https://
-    if (trimmed.toLowerCase().startsWith('http://') || trimmed.toLowerCase().startsWith('https://')) {
-      return false;
-    }
-    
-    // Reject if starts with www.
-    if (trimmed.toLowerCase().startsWith('www.')) {
-      return false;
-    }
-    
-    // Reject if contains forward slash (no subdirectories)
-    if (trimmed.includes('/')) {
-      return false;
-    }
-    
-    // Must contain at least one dot and no spaces
-    if (!trimmed.includes('.') || trimmed.includes(' ')) return false;
-    
-    // Basic domain regex: alphanumeric, hyphens, and dots, must end with valid TLD
-    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*)*\.[a-zA-Z]{2,}$/;
-    return domainRegex.test(trimmed);
+  const cleanDomain = (raw) => {
+    return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
 
-  const isDomainValid = isValidDomain(domain);
-  const isFormValid = businessName.trim().length > 0 && isDomainValid;
+  const isFormValid = businessName.trim().length > 0 && domain.trim().length > 0;
 
   const handleConfirm = () => {
     if (isFormValid) {
