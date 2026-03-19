@@ -50,7 +50,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
 
   const handleConfirm = () => {
     if (isFormValid) {
-      onConfirm(businessName, domain);
+      onConfirm(businessName, cleanDomain(domain));
     }
   };
 
@@ -194,36 +194,12 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
                 <input
                   type="text"
                   value={domain}
-                  onChange={(e) => {
-                    let val = e.target.value;
-                    val = val.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
-                    setDomain(val);
-                  }}
-                  placeholder="example.com"
-                  className={`w-full p-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-colors ${
-                    domain.trim().length === 0 
-                      ? 'border-slate-300 focus:ring-blue-500 focus:border-transparent'
-                      : isDomainValid 
-                      ? 'border-green-300 focus:ring-green-500 focus:border-transparent' 
-                      : 'border-red-300 focus:ring-red-500 focus:border-transparent'
-                  }`}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="example.com or https://www.example.com"
+                  className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 />
-                {domain.trim().length > 0 && !isDomainValid && (
-                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    Please enter a valid domain without http://, https://, or www. (e.g., example.com or support.example.com)
-                  </p>
-                )}
-                {domain.trim().length > 0 && isDomainValid && (
-                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" />
-                    Valid domain format
-                  </p>
-                )}
-                {domain.trim().length === 0 && (
-                  <p className="text-xs text-slate-600 mt-1">Format: yourdomain.com or subdomain.yourdomain.com (no www. or https://)</p>
-                )}
+                <p className="text-xs text-slate-500 mt-1">Any format accepted — we'll clean it up automatically.</p>
               </div>
             </div>
 
