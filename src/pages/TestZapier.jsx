@@ -46,6 +46,9 @@ export default function TestZapier() {
   const [showModal, setShowModal] = useState(false);
   const [submittedData, setSubmittedData] = useState(null);
 
+  const cleanDomain = (raw) =>
+    raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!businessName.trim() || !domain.trim()) {
@@ -56,10 +59,9 @@ export default function TestZapier() {
     setIsSubmitting(true);
     const formData = buildMockFormData(businessName, domain, differentiation, idealClient);
     const payload = {
-      _rawFormData: formData,
       metadata: {
         business_name: businessName,
-        businessDomain: domain,
+        businessDomain: cleanDomain(domain),
         submission_datetime: new Date().toISOString(),
         service_type: "express_test",
       },
