@@ -20,12 +20,12 @@ export function getDefaultExpandedQuestions() {
     "9": false,
     "10": false,
     "11": false,
-    "12": false,
+    "12": false
   };
 }
 
 /**
- * Get default persisted state object
+ * Get default persisted state
  * @returns {PersistedState}
  */
 export function getDefaultPersistedState() {
@@ -36,7 +36,7 @@ export function getDefaultPersistedState() {
     validationStatus: {},
     touchedQuestions: {},
     expandedQuestions: getDefaultExpandedQuestions(),
-    questionnaireSessionId: "",
+    questionnaireSessionId: ""
   };
 }
 
@@ -50,7 +50,7 @@ export function isPlainObject(value) {
 }
 
 /**
- * Normalize a string value
+ * Normalize string value
  * @param {*} value
  * @param {string} fallback
  * @returns {string}
@@ -63,15 +63,15 @@ export function normalizeString(value, fallback = "") {
 }
 
 /**
- * Normalize a string array value
+ * Normalize string array value
  * @param {*} value
  * @returns {string[]}
  */
 export function normalizeStringArray(value) {
   if (Array.isArray(value)) {
     return value
-      .filter((item) => typeof item === "string" && item.trim().length > 0)
-      .map((item) => item.trim());
+      .filter(v => typeof v === "string" && v.trim().length > 0)
+      .map(v => v.trim());
   }
   if (typeof value === "string" && value.trim().length > 0) {
     return [value.trim()];
@@ -92,7 +92,7 @@ export function normalizeGeographicAreaMeta(value, fallbackLabel = "") {
       lat: null,
       lon: null,
       place_id: null,
-      source: "google",
+      source: "google"
     };
   }
 
@@ -101,7 +101,7 @@ export function normalizeGeographicAreaMeta(value, fallbackLabel = "") {
     lat: typeof value.lat === "number" ? value.lat : null,
     lon: typeof value.lon === "number" ? value.lon : null,
     place_id: normalizeString(value.place_id, ""),
-    source: normalizeString(value.source, "google"),
+    source: normalizeString(value.source, "google")
   };
 }
 
@@ -141,41 +141,48 @@ export function normalizeExpressFormData(value) {
     clientChallengesOther: normalizeString(value.clientChallengesOther, ""),
     clientOutcomes: normalizeStringArray(value.clientOutcomes),
     clientOutcomesOther: normalizeString(value.clientOutcomesOther, ""),
-    idealClient: normalizeString(value.idealClient, ""),
+    idealClient: normalizeString(value.idealClient, "")
   };
 }
 
 /**
- * Normalize validation status object
+ * Normalize validation status
  * @param {*} value
  * @returns {Record<string, ValidationStatus>}
  */
 export function normalizeValidationStatus(value) {
-  const allowedStatuses = new Set([
-    "unknown",
-    "validating",
-    "complete",
-    "needs_work",
-    "incomplete",
-    "error",
-    "dirty",
-  ]);
+  const allowedStatuses = ["unknown", "validating", "complete", "needs_work", "incomplete", "error", "dirty"];
 
   if (!isPlainObject(value)) {
     return {};
   }
 
   const normalized = {};
-  for (const [fieldName, status] of Object.entries(value)) {
-    if (typeof status === "object" && status !== null) {
-      const statusValue = normalizeString(status.status, "unknown");
+  const validFields = [
+    "differentiation",
+    "idealClient",
+    "itCompanyType",
+    "serviceOfferings",
+    "geographicAreas",
+    "pricingPackaging",
+    "companyGoals",
+    "brandTone",
+    "targetIndustries",
+    "clientSize",
+    "clientChallenges",
+    "clientOutcomes"
+  ];
+
+  for (const fieldName of validFields) {
+    const status = value[fieldName];
+    if (isPlainObject(status)) {
       normalized[fieldName] = {
-        status: allowedStatuses.has(statusValue) ? statusValue : "unknown",
+        status: allowedStatuses.includes(status.status) ? status.status : "unknown",
         message: normalizeString(status.message, ""),
-        reason_codes: normalizeStringArray(status.reason_codes || []),
-        suggestions: normalizeStringArray(status.suggestions || []),
+        reason_codes: Array.isArray(status.reason_codes) ? status.reason_codes : [],
+        suggestions: Array.isArray(status.suggestions) ? status.suggestions : [],
         answerHash: normalizeString(status.answerHash, ""),
-        validatedAt: normalizeString(status.validatedAt, ""),
+        validatedAt: normalizeString(status.validatedAt, "")
       };
     } else {
       normalized[fieldName] = {
@@ -184,7 +191,7 @@ export function normalizeValidationStatus(value) {
         reason_codes: [],
         suggestions: [],
         answerHash: "",
-        validatedAt: "",
+        validatedAt: ""
       };
     }
   }
@@ -193,40 +200,41 @@ export function normalizeValidationStatus(value) {
 }
 
 /**
- * Normalize touched questions map
+ * Normalize touched questions
  * @param {*} value
  * @returns {Record<string, boolean>}
  */
 export function normalizeTouchedQuestions(value) {
-  const result = {};
+  if (!isPlainObject(value)) {
+    return {};
+  }
+
+  const normalized = {};
   for (let i = 1; i <= 12; i++) {
     const key = String(i);
-    if (isPlainObject(value) && typeof value[key] === "boolean") {
-      result[key] = value[key];
-    } else {
-      result[key] = false;
-    }
+    normalized[key] = value[key] === true;
   }
-  return result;
+  return normalized;
 }
 
 /**
- * Normalize expanded questions map
+ * Normalize expanded questions
  * @param {*} value
  * @returns {Record<string, boolean>}
  */
 export function normalizeExpandedQuestions(value) {
   const defaults = getDefaultExpandedQuestions();
-  const result = {};
+
+  if (!isPlainObject(value)) {
+    return defaults;
+  }
+
+  const normalized = {};
   for (let i = 1; i <= 12; i++) {
     const key = String(i);
-    if (isPlainObject(value) && typeof value[key] === "boolean") {
-      result[key] = value[key];
-    } else {
-      result[key] = defaults[key];
-    }
+    normalized[key] = value[key] === true;
   }
-  return result;
+  return normalized;
 }
 
 /**
@@ -235,71 +243,75 @@ export function normalizeExpandedQuestions(value) {
  * @returns {ParseResult}
  */
 export function parsePersistedStateCookie(rawValue) {
-  let parsed;
-  let parseError = null;
-
-  try {
-    parsed = JSON.parse(rawValue);
-  } catch (error) {
-    parseError = error;
+  if (!rawValue) {
     return {
       ok: false,
       state: getDefaultPersistedState(),
       migrated: false,
-      error: parseError,
+      error: new Error("No cookie value")
     };
   }
 
-  // Detect old format: raw form data (array or object without version)
-  if (!parsed.version) {
-    if (Array.isArray(parsed) || (isPlainObject(parsed) && !parsed.formData)) {
-      // Migrate old raw form data to versioned state
-      const migratedState = {
-        version: EXPRESS_PERSISTED_STATE_VERSION,
-        savedAt: new Date().toISOString(),
-        formData: normalizeExpressFormData(parsed),
-        validationStatus: {},
-        touchedQuestions: {},
-        expandedQuestions: getDefaultExpandedQuestions(),
-        questionnaireSessionId: "",
-      };
+  try {
+    const parsed = JSON.parse(rawValue);
 
+    // Check if this is old raw form data format (no version field)
+    if (!parsed.version) {
+      // Check if it looks like raw form data
+      if (parsed.itCompanyType !== undefined || parsed.differentiation !== undefined) {
+        // Migrate old format to versioned state
+        const migratedState = {
+          version: EXPRESS_PERSISTED_STATE_VERSION,
+          savedAt: new Date().toISOString(),
+          formData: normalizeExpressFormData(parsed),
+          validationStatus: {},
+          touchedQuestions: {},
+          expandedQuestions: getDefaultExpandedQuestions(),
+          questionnaireSessionId: ""
+        };
+        return {
+          ok: true,
+          state: migratedState,
+          migrated: true,
+          error: null
+        };
+      }
+
+      // Unknown format, return default
       return {
         ok: true,
-        state: migratedState,
-        migrated: true,
-        error: null,
+        state: getDefaultPersistedState(),
+        migrated: false,
+        error: null
       };
     }
-  }
 
-  // Handle versioned format
-  if (parsed.version && isPlainObject(parsed)) {
+    // Versioned format - normalize all sections
     const normalizedState = {
       version: EXPRESS_PERSISTED_STATE_VERSION,
       savedAt: normalizeString(parsed.savedAt, ""),
-      formData: normalizeExpressFormData(parsed.formData || {}),
+      formData: normalizeExpressFormData(parsed.formData || parsed),
       validationStatus: normalizeValidationStatus(parsed.validationStatus || {}),
       touchedQuestions: normalizeTouchedQuestions(parsed.touchedQuestions || {}),
       expandedQuestions: normalizeExpandedQuestions(parsed.expandedQuestions || {}),
-      questionnaireSessionId: normalizeString(parsed.questionnaireSessionId, ""),
+      questionnaireSessionId: normalizeString(parsed.questionnaireSessionId, "")
     };
 
     return {
       ok: true,
       state: normalizedState,
-      migrated: parsed.version !== EXPRESS_PERSISTED_STATE_VERSION,
-      error: null,
+      migrated: false,
+      error: null
+    };
+  } catch (error) {
+    // Corrupted JSON - return default state
+    return {
+      ok: false,
+      state: getDefaultPersistedState(),
+      migrated: false,
+      error
     };
   }
-
-  // Unknown format - return default
-  return {
-    ok: true,
-    state: getDefaultPersistedState(),
-    migrated: false,
-    error: null,
-  };
 }
 
 /**
@@ -315,12 +327,12 @@ export function serializePersistedState(state) {
     validationStatus: state.validationStatus,
     touchedQuestions: state.touchedQuestions,
     expandedQuestions: state.expandedQuestions,
-    questionnaireSessionId: state.questionnaireSessionId,
+    questionnaireSessionId: state.questionnaireSessionId
   });
 }
 
 /**
- * Build current versioned persisted state
+ * Build persisted state from current values
  * @param {Object} params
  * @param {ExpressFormData} params.formData
  * @param {Record<string, ValidationStatus>} params.validationStatus
@@ -334,7 +346,7 @@ export function buildPersistedState({
   validationStatus,
   touchedQuestions,
   expandedQuestions,
-  questionnaireSessionId,
+  questionnaireSessionId
 }) {
   return {
     version: EXPRESS_PERSISTED_STATE_VERSION,
@@ -343,6 +355,6 @@ export function buildPersistedState({
     validationStatus,
     touchedQuestions,
     expandedQuestions,
-    questionnaireSessionId,
+    questionnaireSessionId
   };
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
+import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions } from "@/lib/expressPersistedState";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
 import {
   createFindExistingDraftBySessionId,
@@ -40,7 +41,7 @@ import ValidationGuideModal from "../components/questionnaire/ValidationGuideMod
 import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
-const STORAGE_KEY = "msp_questionnaire_data_v2";
+const STORAGE_KEY = EXPRESS_COOKIE_KEY;
 
 // Cookie helpers
 const setCookie = (name, value, days = 365) => {
@@ -447,32 +448,41 @@ export default function Questionnaire() {
   // Load saved data and validation status
   useEffect(() => {
     const saved = getCookie(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        
-        // Handle both old format (form data only) and new format (object with formData + validationStatus)
-        const formDataToRestore = parsed.formData || parsed;
-        const validationStatusToRestore = parsed.validationStatus;
-        
-        // Migrate old array format to string for companyGoals if needed
-        if (Array.isArray(formDataToRestore.companyGoals)) {
-          formDataToRestore.companyGoals = formDataToRestore.companyGoals.length > 0 ? formDataToRestore.companyGoals[0] : "";
-        }
-        
-        // Restore form data
-        setFormData(prev => ({ ...prev, ...formDataToRestore }));
-        
-        // Restore validation status if available
-        if (validationStatusToRestore && typeof validationStatusToRestore === 'object') {
-          // Restore each field's validation status
-          Object.entries(validationStatusToRestore).forEach(([fieldName, status]) => {
-            textValidation.setFieldValidation(fieldName, status);
-          });
-        }
-      } catch (e) {
-        console.error("Failed to parse saved data", e);
+    const result = parsePersistedStateCookie(saved);
+    
+    if (result.ok) {
+      // Restore form data
+      setFormData(prev => ({ ...prev, ...result.state.formData }));
+      
+      // Restore validation status if available
+      if (result.state.validationStatus && typeof result.state.validationStatus === 'object') {
+        Object.entries(result.state.validationStatus).forEach(([fieldName, status]) => {
+          textValidation.setFieldValidation(fieldName, status);
+        });
       }
+      
+      // Restore touched questions
+      if (result.state.touchedQuestions && typeof result.state.touchedQuestions === 'object') {
+        setTouchedQuestions(result.state.touchedQuestions);
+      }
+      
+      // Restore expanded questions
+      if (result.state.expandedQuestions && typeof result.state.expandedQuestions === 'object') {
+        const expandedNums = [];
+        for (let i = 1; i <= 12; i++) {
+          if (result.state.expandedQuestions[String(i)]) {
+            expandedNums.push(i);
+          }
+        }
+        setOpenQuestions(expandedNums.length > 0 ? expandedNums : [1]);
+      }
+      
+      // Log migration if applicable
+      if (result.migrated) {
+        console.log("[persisted-state] Migrated old cookie format to versioned state");
+      }
+    } else if (result.error) {
+      console.warn("[persisted-state] Failed to parse cookie, using defaults:", result.error.message);
     }
   }, []);
 
@@ -484,17 +494,27 @@ export default function Questionnaire() {
 
     const saveTimer = setTimeout(() => {
       const validationStatus = textValidation.getAllFieldStatuses();
-      // Save in new format with both formData and validationStatus
-      setCookie(STORAGE_KEY, JSON.stringify({
+      const expandedQuestions = Object.fromEntries(
+        Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+      );
+      
+      // Build versioned persisted state
+      const persistedState = buildPersistedState({
         formData,
         validationStatus,
-      }));
+        touchedQuestions,
+        expandedQuestions,
+        questionnaireSessionId,
+      });
+      
+      // Save serialized versioned state
+      setCookie(STORAGE_KEY, serializePersistedState(persistedState));
       setShowSaveIndicator(true);
       setTimeout(() => setShowSaveIndicator(false), 3000);
     }, 300);
 
     return () => clearTimeout(saveTimer);
-  }, [formData, textValidation]);
+  }, [formData, textValidation, touchedQuestions, openQuestions, questionnaireSessionId]);
 
   // Save before page unload
   useEffect(() => {
@@ -502,20 +522,29 @@ export default function Questionnaire() {
       // Skip autosave after final submission
       if (hasFinalSubmittedRef.current) return;
       
-      // Existing cookie autosave
-      setCookie(STORAGE_KEY, JSON.stringify(formData));
+      // Save versioned persisted state
+      const validationStatus = textValidation.getAllFieldStatuses();
+      const expandedQuestions = Object.fromEntries(
+        Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+      );
+      const persistedState = buildPersistedState({
+        formData,
+        validationStatus,
+        touchedQuestions,
+        expandedQuestions,
+        questionnaireSessionId,
+      });
+      setCookie(STORAGE_KEY, serializePersistedState(persistedState));
+      
       // Local draft backup on unload
       try {
-        const expandedSnap = Object.fromEntries(
-          Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
-        );
         localStorage.setItem(
           `express_questionnaire_local_backup_${questionnaireSessionId}`,
           JSON.stringify({
             session_id: questionnaireSessionId,
             responses: formData,
             touchedQuestions,
-            expandedQuestions: expandedSnap,
+            expandedQuestions,
             savedAt: new Date().toISOString(),
           })
         );
@@ -526,7 +555,7 @@ export default function Questionnaire() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [formData, touchedQuestions, openQuestions, questionnaireSessionId]);
+  }, [formData, touchedQuestions, openQuestions, questionnaireSessionId, textValidation]);
 
 
 
@@ -942,6 +971,7 @@ export default function Questionnaire() {
     setFormData(getInitialExpressFormData());
     setTouchedQuestions({});
     setOpenQuestions([1]);
+    textValidation.resetAllFields();
     setSubmitError(null);
     setRecoveryCode("");
   };
