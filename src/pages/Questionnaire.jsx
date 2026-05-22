@@ -1808,16 +1808,18 @@ export default function Questionnaire() {
           <div className="flex gap-4 pt-8 border-t" style={{ borderColor: '#009ADD' }}>
             <button
               type="submit"
-              disabled={!isFormValid()}
-              className="flex-1 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-all tracking-wider uppercase"
+              className="flex-1 hover:opacity-90 text-white font-bold transition-all tracking-wider uppercase"
               style={{
                 backgroundColor: isFormValid() ? '#8DC641' : '#7D868D',
                 borderRadius: '2px',
                 height: '48px',
                 letterSpacing: '0.8px',
                 fontSize: '18px',
-                fontFamily: 'Lato, sans-serif'
+                fontFamily: 'Lato, sans-serif',
+                cursor: isFormValid() ? 'pointer' : 'not-allowed',
+                opacity: isFormValid() ? 1 : 0.7
               }}
+              title={!isFormValid() ? 'Complete the highlighted questions before submitting.' : ''}
             >
               Submit Questionnaire
             </button>
