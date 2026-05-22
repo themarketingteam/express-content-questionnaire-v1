@@ -10,7 +10,6 @@ import {
   serializeSubmitError,
   buildExpressPayloadFeatureSummary,
 } from "@/lib/expressSubmissionResilience";
-import { buildDraftEventRecord } from "@/lib/draftEvents";
 import { sendExpressZapierSafe, buildExpressZapierPayload } from "@/lib/expressZapierDelivery";
 
 // Custom error class for submit flow failures
@@ -70,10 +69,10 @@ export async function safeDraftSave(args) {
 
 // Safe draft event creation wrapper
 export async function createDraftEventSafe(args) {
-  const { createDraftEvent, eventRecord } = args;
+  const { createDraftEvent, event } = args;
   try {
     if (createDraftEvent) {
-      await createDraftEvent(eventRecord);
+      await createDraftEvent(event);
     }
     return true;
   } catch (eventErr) {
@@ -108,28 +107,38 @@ export async function submitExpressQuestionnaire(args) {
 
   // Step 2: Record submit_started event
   if (createDraftEvent) {
-    const submitStartedEvent = buildDraftEventRecord({
-      sessionId: questionnaireSessionId,
-      eventType: "submit_started",
-      businessName,
-      domain,
-      responses: { stage: "submit_started" },
-      createdAtIso: timestamp,
+    await createDraftEventSafe({
+      createDraftEvent,
+      event: {
+        eventType: "submit_started",
+        questionId: "",
+        questionType: "submit",
+        value: {
+          stage: "submit_started",
+          session_id: questionnaireSessionId,
+          business_name: businessName,
+          domain,
+        },
+      },
     });
-    await createDraftEventSafe({ createDraftEvent, eventRecord: submitStartedEvent });
   }
 
   // Step 3: Create draft event: submit_attempted
   if (createDraftEvent) {
-    const submitAttemptedEvent = buildDraftEventRecord({
-      sessionId: questionnaireSessionId,
-      eventType: "submit_attempted",
-      businessName,
-      domain,
-      responses: { stage: "submit_attempted" },
-      createdAtIso: timestamp,
+    await createDraftEventSafe({
+      createDraftEvent,
+      event: {
+        eventType: "submit_attempted",
+        questionId: "",
+        questionType: "submit",
+        value: {
+          stage: "submit_attempted",
+          session_id: questionnaireSessionId,
+          business_name: businessName,
+          domain,
+        },
+      },
     });
-    await createDraftEventSafe({ createDraftEvent, eventRecord: submitAttemptedEvent });
   }
 
   // Step 4: Save draft with status: submit_attempted
@@ -137,7 +146,10 @@ export async function submitExpressQuestionnaire(args) {
     saveDraftNow,
     draftData: {
       status: "submit_attempted",
-      submit_attempted_at: timestamp,
+      responsesSnapshot: responseSnapshot,
+      validationStatusSnapshot: validationStatus || {},
+      touchedQuestionsSnapshot: touchedQuestions || {},
+      expandedQuestionsSnapshot: expandedQuestions || {},
     },
     questionnaireSessionId,
   });
@@ -156,18 +168,21 @@ export async function submitExpressQuestionnaire(args) {
 
     // Record stage: payload_transform_failed
     if (createDraftEvent) {
-      const transformFailedEvent = buildDraftEventRecord({
-        sessionId: questionnaireSessionId,
-        eventType: "submit_failed",
-        businessName,
-        domain,
-        responses: {
-          stage: "payload_transform_failed",
-          error: serializedError,
+      await createDraftEventSafe({
+        createDraftEvent,
+        event: {
+          eventType: "submit_failed",
+          questionId: "",
+          questionType: "submit",
+          value: {
+            stage: "payload_transform_failed",
+            session_id: questionnaireSessionId,
+            business_name: businessName,
+            domain,
+            error: serializedError,
+          },
         },
-        createdAtIso: timestamp,
       });
-      await createDraftEventSafe({ createDraftEvent, eventRecord: transformFailedEvent });
     }
 
     // Save draft status: submit_failed
@@ -175,7 +190,11 @@ export async function submitExpressQuestionnaire(args) {
       saveDraftNow,
       draftData: {
         status: "submit_failed",
-        submit_error: serializedError,
+        submitError: safeJsonStringify(serializedError || {}),
+        responsesSnapshot: responseSnapshot,
+        validationStatusSnapshot: validationStatus || {},
+        touchedQuestionsSnapshot: touchedQuestions || {},
+        expandedQuestionsSnapshot: expandedQuestions || {},
       },
       questionnaireSessionId,
     });
@@ -320,33 +339,42 @@ export async function submitExpressQuestionnaire(args) {
         
         // Record zapier_sent event
         if (createDraftEvent) {
-          const zapierSentEvent = buildDraftEventRecord({
-            sessionId: questionnaireSessionId,
-            eventType: "zapier_sent",
-            businessName,
-            domain,
-            responses: { stage: "zapier_sent" },
-            createdAtIso: new Date().toISOString(),
+          await createDraftEventSafe({
+            createDraftEvent,
+            event: {
+              eventType: "zapier_sent",
+              questionId: "",
+              questionType: "submit",
+              value: {
+                stage: "zapier_sent",
+                session_id: questionnaireSessionId,
+                business_name: businessName,
+                domain,
+                zapierSent: true,
+              },
+            },
           });
-          await createDraftEventSafe({ createDraftEvent, eventRecord: zapierSentEvent });
         }
       } else {
         zapierError = zapierResult.error;
         
         // Record zapier_failed event
         if (createDraftEvent) {
-          const zapierFailedEvent = buildDraftEventRecord({
-            sessionId: questionnaireSessionId,
-            eventType: "zapier_failed",
-            businessName,
-            domain,
-            responses: {
-              stage: "zapier_failed",
-              error: serializeExpressError(new Error(zapierError)),
+          await createDraftEventSafe({
+            createDraftEvent,
+            event: {
+              eventType: "zapier_failed",
+              questionId: "",
+              questionType: "submit",
+              value: {
+                stage: "zapier_failed",
+                session_id: questionnaireSessionId,
+                business_name: businessName,
+                domain,
+                zapierError: serializeExpressError(new Error(zapierError)),
+              },
             },
-            createdAtIso: new Date().toISOString(),
           });
-          await createDraftEventSafe({ createDraftEvent, eventRecord: zapierFailedEvent });
         }
       }
     } catch (zapierErr) {
@@ -373,19 +401,22 @@ export async function submitExpressQuestionnaire(args) {
     // Record submit success stage
     if (createDraftEvent) {
       const successEventType = submitResult.receivedViaIntake ? "submit_received_via_intake" : "submit_succeeded";
-      const successEvent = buildDraftEventRecord({
-        sessionId: questionnaireSessionId,
-        eventType: successEventType,
-        businessName,
-        domain,
-        responses: {
-          stage: successEventType,
-          submissionId: submitResult.submissionId,
-          intakeId: submitResult.intakeId,
+      await createDraftEventSafe({
+        createDraftEvent,
+        event: {
+          eventType: successEventType,
+          questionId: "",
+          questionType: "submit",
+          value: {
+            stage: successEventType,
+            session_id: questionnaireSessionId,
+            business_name: businessName,
+            domain,
+            submissionId: submitResult.submissionId,
+            intakeId: submitResult.intakeId,
+          },
         },
-        createdAtIso: successTimestamp,
       });
-      await createDraftEventSafe({ createDraftEvent, eventRecord: successEvent });
     }
 
     // Save draft status
@@ -394,8 +425,18 @@ export async function submitExpressQuestionnaire(args) {
       saveDraftNow,
       draftData: {
         status: draftStatus,
-        submitted_at: submitResult.receivedViaIntake ? null : successTimestamp,
-        final_submission_id: submitResult.submissionId,
+        finalSubmissionId: submitResult.submissionId || "",
+        submitError: submitResult.receivedViaIntake
+          ? safeJsonStringify({
+              message: "Submission received via durable intake fallback",
+              intakeId: submitResult.intakeId || "",
+              recoveryCode,
+            })
+          : null,
+        responsesSnapshot: responseSnapshot,
+        validationStatusSnapshot: validationStatus || {},
+        touchedQuestionsSnapshot: touchedQuestions || {},
+        expandedQuestionsSnapshot: expandedQuestions || {},
       },
       questionnaireSessionId,
     });
@@ -432,18 +473,21 @@ export async function submitExpressQuestionnaire(args) {
 
   // Record submit failed stage
   if (createDraftEvent) {
-    const failedEvent = buildDraftEventRecord({
-      sessionId: questionnaireSessionId,
-      eventType: "submit_failed",
-      businessName,
-      domain,
-      responses: {
-        stage: "submit_failed",
-        error: serializedError,
+    await createDraftEventSafe({
+      createDraftEvent,
+      event: {
+        eventType: "submit_failed",
+        questionId: "",
+        questionType: "submit",
+        value: {
+          stage: "submit_failed",
+          session_id: questionnaireSessionId,
+          business_name: businessName,
+          domain,
+          error: serializedError,
+        },
       },
-      createdAtIso: failureTimestamp,
     });
-    await createDraftEventSafe({ createDraftEvent, eventRecord: failedEvent });
   }
 
   // Save draft status: submit_failed
@@ -451,7 +495,11 @@ export async function submitExpressQuestionnaire(args) {
     saveDraftNow,
     draftData: {
       status: "submit_failed",
-      submit_error: serializedError,
+      submitError: safeJsonStringify(serializedError || {}),
+      responsesSnapshot: responseSnapshot,
+      validationStatusSnapshot: validationStatus || {},
+      touchedQuestionsSnapshot: touchedQuestions || {},
+      expandedQuestionsSnapshot: expandedQuestions || {},
     },
     questionnaireSessionId,
   });
