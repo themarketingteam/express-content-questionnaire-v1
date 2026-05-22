@@ -41,6 +41,7 @@ import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
 import QuestionnaireErrorBoundary from "../components/questionnaire/QuestionnaireErrorBoundary";
 import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidator";
+import DestructiveActionConfirmModal from "@/components/questionnaire/DestructiveActionConfirmModal";
 import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
@@ -245,6 +246,8 @@ export default function Questionnaire() {
   const [submitValidationWarnings, setSubmitValidationWarnings] = useState([]);
   const [isSubmitValidatingText, setIsSubmitValidatingText] = useState(false);
   const [submitAttemptedWithIncomplete, setSubmitAttemptedWithIncomplete] = useState(false);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   // Memoized incomplete question summary
   const incompleteSummary = React.useMemo(() => {
@@ -1023,13 +1026,86 @@ export default function Questionnaire() {
     }
   }, [isSubmitting, formData, touchedQuestions, openQuestions, questionnaireSessionId, urlCredentials, domainParam, saveDraftNow, createDraftEvent]);
 
+  const performClearAllAnswers = useCallback(async () => {
+    setIsClearingAll(true);
+    
+    try {
+      // Reset form data to initial state
+      setFormData(getInitialExpressFormData());
+      
+      // Reset validation status
+      textValidation.resetAllFields();
+      
+      // Reset touched questions
+      setTouchedQuestions({});
+      
+      // Reset open questions to defaults
+      setOpenQuestions([1]);
+      
+      // Clear submit validation issues/warnings
+      setSubmitValidationIssues([]);
+      setSubmitValidationWarnings([]);
+      
+      // Clear submit error/recovery UI
+      setSubmitError(null);
+      setRecoveryCode("");
+      
+      // Queue draft save with cleared responses (if not finally submitted)
+      if (!hasFinalSubmittedRef.current) {
+        const clearedResponses = getInitialExpressFormData();
+        const expandedSnap = Object.fromEntries(
+          Array.from({ length: 12 }, (_, i) => [String(i + 1), [1].includes(i + 1)])
+        );
+        const validationStatus = textValidation.getAllFieldStatuses();
+        
+        // Save cleared state to draft
+        await saveDraftSnapshot({
+          sessionId: questionnaireSessionId,
+          responses: clearedResponses,
+          validationStatus,
+          touchedQuestions: {},
+          expandedQuestions: expandedSnap,
+          credentials: urlCredentials,
+          businessNameParam,
+          domainParam,
+          currentQuestionId: "",
+          lastChangedQuestionId: "",
+          status: "draft",
+          submitError: "",
+          finalSubmissionId: "",
+        });
+        
+        // Create draft event for destructive action
+        createDraftEvent({
+          eventType: "answers_cleared",
+          questionId: "",
+          questionType: "destructive_action",
+          value: { session_id: questionnaireSessionId },
+        });
+      }
+      
+      // Update cookie to reflect cleared form
+      const persistedState = buildPersistedState({
+        formData: getInitialExpressFormData(),
+        validationStatus: {},
+        touchedQuestions: {},
+        expandedQuestions: { "1": true },
+        questionnaireSessionId,
+      });
+      setCookie(STORAGE_KEY, serializePersistedState(persistedState));
+      
+      toast.success("All answers cleared");
+    } catch (err) {
+      console.error("[clear-all] failed:", err);
+      toast.error("Failed to clear answers. Please try again.");
+    } finally {
+      setIsClearingAll(false);
+      setShowClearAllConfirm(false);
+    }
+  }, [questionnaireSessionId, textValidation, saveDraftSnapshot, createDraftEvent, urlCredentials, businessNameParam, domainParam]);
+
   const handleReset = () => {
-    setFormData(getInitialExpressFormData());
-    setTouchedQuestions({});
-    setOpenQuestions([1]);
-    textValidation.resetAllFields();
-    setSubmitError(null);
-    setRecoveryCode("");
+    setShowClearAllConfirm(true);
   };
 
   const handleResetLocalState = () => {
@@ -1840,6 +1916,18 @@ export default function Questionnaire() {
       <ValidationGuideModal
         isOpen={showValidationGuide}
         onClose={() => setShowValidationGuide(false)}
+      />
+
+      <DestructiveActionConfirmModal
+        isOpen={showClearAllConfirm}
+        title="Clear all questionnaire answers?"
+        description="This will clear the answers currently shown in this browser. Server-side recovery records and local failed-submission backups will not be deleted."
+        confirmLabel="Clear All Answers"
+        cancelLabel="Keep Answers"
+        onConfirm={performClearAllAnswers}
+        onCancel={() => setShowClearAllConfirm(false)}
+        isWorking={isClearingAll}
+        requireTypedConfirmation={false}
       />
 
       <Toaster richColors position="top-center" />
