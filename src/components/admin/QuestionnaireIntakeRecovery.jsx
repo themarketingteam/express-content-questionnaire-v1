@@ -169,6 +169,7 @@ export default function QuestionnaireIntakeRecovery() {
     const bundle = {
       id: record.id,
       questionnaire_session_id: record.questionnaire_session_id,
+      submit_attempt_id: record.submit_attempt_id || "",
       business_name: record.business_name,
       business_domain: record.business_domain,
       user_email: record.user_email,
@@ -208,6 +209,11 @@ export default function QuestionnaireIntakeRecovery() {
     // Ensure questionnaire_session_id exists
     if (!payload.metadata.questionnaire_session_id) {
       payload.metadata.questionnaire_session_id = record.questionnaire_session_id || "";
+    }
+
+    // Ensure submit_attempt_id exists
+    if (!payload.metadata.submit_attempt_id && record.submit_attempt_id) {
+      payload.metadata.submit_attempt_id = record.submit_attempt_id;
     }
 
     // Fill in business name/domain from intake if missing
@@ -387,8 +393,8 @@ export default function QuestionnaireIntakeRecovery() {
                     <div className="col-span-2 text-sm text-slate-600">
                       {record.business_domain || "—"}
                     </div>
-                    <div className="col-span-2 text-xs font-mono text-slate-500">
-                      {record.questionnaire_session_id || "—"}
+                    <div className="col-span-2 text-xs font-mono text-slate-500" title={record.submit_attempt_id || ""}>
+                      {record.submit_attempt_id ? `Session: ${record.questionnaire_session_id} | Attempt: ${record.submit_attempt_id}` : record.questionnaire_session_id || "—"}
                     </div>
                     <div className="col-span-2 text-xs text-slate-500">
                       {formatDate(record.created_at_server || record.created_date)}
@@ -439,6 +445,10 @@ export default function QuestionnaireIntakeRecovery() {
                     <div>
                       <div className="text-xs text-slate-500 mb-1">User ID</div>
                       <div className="text-sm font-mono text-slate-600">{record.user_id || "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-1">Submit Attempt ID</div>
+                      <div className="text-sm font-mono text-slate-600">{record.submit_attempt_id || "—"}</div>
                     </div>
                     <div>
                       <div className="text-xs text-slate-500 mb-1">Intake Reason</div>

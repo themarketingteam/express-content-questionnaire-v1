@@ -62,7 +62,8 @@ export function buildDraftEventRecord({
   value,
   businessName,
   domain,
-  userId
+  userId,
+  submitAttemptId
 }) {
   return {
     session_id: sessionId,
@@ -76,6 +77,7 @@ export function buildDraftEventRecord({
     business_name: businessName || "",
     domain: domain || "",
     user_id: userId || "",
+    submit_attempt_id: submitAttemptId || "",
     created_at_iso: new Date().toISOString()
   };
 }

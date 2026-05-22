@@ -90,6 +90,7 @@ function DraftRow({ draft, isDuplicate }) {
   const handleCopyBundle = () => {
     const bundle = {
       session_id: draft.session_id,
+      submit_attempt_id: metadata?.submit_attempt_id || "",
       business_name: draft.business_name,
       domain: draft.domain,
       status: draft.status,
@@ -117,6 +118,10 @@ function DraftRow({ draft, isDuplicate }) {
     base.metadata.service_type = "express";
     if (!base.metadata.questionnaire_session_id) {
       base.metadata.questionnaire_session_id = draft.session_id || "";
+    }
+    // Preserve submit_attempt_id if present
+    if (metadata?.submit_attempt_id) {
+      base.metadata.submit_attempt_id = metadata.submit_attempt_id;
     }
     navigator.clipboard.writeText(JSON.stringify(base, null, 2));
     toast.success("Submit-intake payload copied.");
@@ -164,6 +169,7 @@ function DraftRow({ draft, isDuplicate }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
             <Detail label="User name" value={draft.user_name} />
             <Detail label="User ID" value={draft.user_id} mono />
+            <Detail label="Submit attempt ID" value={metadata?.submit_attempt_id || "—"} mono />
             <Detail label="Submit attempted" value={formatDate(draft.submit_attempted_at)} />
             <Detail label="Submitted at" value={formatDate(draft.submitted_at)} />
             <Detail label="Final submission ID" value={draft.final_submission_id} mono />

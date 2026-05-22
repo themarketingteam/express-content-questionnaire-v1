@@ -79,7 +79,8 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
     status = "draft",
     saveError = "",
     submitError = "",
-    finalSubmissionId = ""
+    finalSubmissionId = "",
+    submitAttemptId = ""
   }) {
     const creds = sanitizeCredentialsForDraft(credentials);
     const businessName = businessNameParam || creds.businessName || "";
@@ -89,7 +90,8 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       formData: responses || {},
       businessName,
       domain,
-      sessionId
+      sessionId,
+      submitAttemptId
     });
 
     const now = safeNowIso();
@@ -149,11 +151,13 @@ export function writeDraftFailureBackup({
   validationStatus,
   touchedQuestions,
   expandedQuestions,
-  error
+  error,
+  submitAttemptId
 }) {
   const key = `express_questionnaire_local_backup_${questionnaireSessionId}`;
   safeLocalStorageSet(key, {
     session_id: questionnaireSessionId,
+    submit_attempt_id: submitAttemptId || "",
     responses: responses || {},
     validationStatus: validationStatus || {},
     touchedQuestions: touchedQuestions || {},

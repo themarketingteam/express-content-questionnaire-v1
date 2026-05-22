@@ -9,6 +9,10 @@
       "type": "string",
       "description": "Questionnaire session identifier used for recovery and deduplication"
     },
+    "submit_attempt_id": {
+      "type": "string",
+      "description": "Client submit attempt id used for idempotency and support diagnostics"
+    },
     "business_name": {
       "type": "string",
       "description": "Business name from the submission"

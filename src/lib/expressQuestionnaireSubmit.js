@@ -11,6 +11,7 @@ import {
   buildExpressPayloadFeatureSummary,
 } from "@/lib/expressSubmissionResilience";
 import { sendExpressZapierSafe, buildExpressZapierPayload } from "@/lib/expressZapierDelivery";
+import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
 
 // Best-effort Zapier delivery status persistence
 export async function updateZapierDeliveryStatusSafe(args) {
@@ -253,6 +254,7 @@ export async function submitExpressQuestionnaire(args) {
             session_id: questionnaireSessionId,
             business_name: businessName,
             domain,
+            submit_attempt_id: submitAttemptId || "",
             error: serializedError,
           },
         },
@@ -273,12 +275,26 @@ export async function submitExpressQuestionnaire(args) {
       questionnaireSessionId,
     });
 
-    // Write failed local backup
-    writeFailedExpressSubmissionBackup({
-      questionnaireSessionId,
-      responseSnapshot,
+    // Write local failed submission backup
+    writeLocalFailedSubmissionBackup({
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
+      businessName,
+      domain,
+      responses: responseSnapshot,
       transformedPayload: null,
+      validationStatus: validationStatus || {},
+      touchedQuestions: touchedQuestions || {},
+      expandedQuestions: expandedQuestions || {},
+      stage: "payload_transform_failed",
       error: transformErr,
+      diagnostics: {
+        questionnaireSessionId,
+        businessNamePresent: !!businessName,
+        domainPresent: !!domain,
+        stage: "payload_transform_failed",
+        timestamp,
+      },
     });
 
     // Call fallback with transformFailed: true
@@ -377,6 +393,8 @@ export async function submitExpressQuestionnaire(args) {
     createdAt: timestamp,
     created_at_client: timestamp,
     source: "express_questionnaire_submit",
+    submitAttemptId,
+    submit_attempt_id: submitAttemptId || "",
   };
 
   const diagnostics = {
@@ -386,6 +404,7 @@ export async function submitExpressQuestionnaire(args) {
     draftIdPresent: false,
     payloadFeatureSummary: buildExpressPayloadFeatureSummary(transformedPayload),
     timestamp,
+    submitAttemptId: submitAttemptId || "",
   };
 
   // Step 8: Submit through resilient fallback-aware flow
@@ -453,6 +472,7 @@ export async function submitExpressQuestionnaire(args) {
             session_id: questionnaireSessionId,
             business_name: businessName,
             domain,
+            submit_attempt_id: submitAttemptId || "",
             submissionId: submitResult.submissionId,
             intakeId: submitResult.intakeId,
           },
@@ -529,6 +549,7 @@ export async function submitExpressQuestionnaire(args) {
           session_id: questionnaireSessionId,
           business_name: businessName,
           domain,
+          submit_attempt_id: submitAttemptId || "",
           error: serializedError,
         },
       },
@@ -549,12 +570,27 @@ export async function submitExpressQuestionnaire(args) {
     questionnaireSessionId,
   });
 
-  // Write failed local backup
-  writeFailedExpressSubmissionBackup({
-    questionnaireSessionId,
-    responseSnapshot,
+  // Write local failed submission backup
+  writeLocalFailedSubmissionBackup({
+    sessionId: questionnaireSessionId,
+    submitAttemptId,
+    businessName,
+    domain,
+    responses: responseSnapshot,
     transformedPayload,
+    validationStatus: validationStatus || {},
+    touchedQuestions: touchedQuestions || {},
+    expandedQuestions: expandedQuestions || {},
+    stage: submitResult.failureKind || "submit_failed",
     error: submitResult.error,
+    diagnostics: {
+      questionnaireSessionId,
+      businessNamePresent: !!businessName,
+      domainPresent: !!domain,
+      stage: "submit_failed",
+      failureKind: submitResult.failureKind || "unknown",
+      timestamp: failureTimestamp,
+    },
   });
 
   // Call failure callback
