@@ -252,6 +252,46 @@ export default function Questionnaire() {
   // Text validation hook - must be declared before use
   const textValidation = useExpressTextValidation();
 
+  // Question completion checker - must be declared before incompleteSummary
+  const isQuestionComplete = (questionNum) => {
+    const hasAnswer = (field, otherField) => {
+      const selected = (formData[field] || []).length;
+      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
+      return selected > 0 || hasOther;
+    };
+
+    const hasMinimumAnswer = (field, otherField, minRequired) => {
+      const selected = (formData[field] || []).length;
+      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
+      const total = selected + (hasOther ? 1 : 0);
+      return total >= minRequired;
+    };
+
+    const hasRadioAnswer = (field, otherField) => {
+      const selected = (formData[field] || "").trim().length > 0;
+      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
+      return selected || hasOther;
+    };
+
+    const hasText = (val) => (val || "").trim().length > 0;
+
+    switch(questionNum) {
+      case 1: return hasAnswer("itCompanyType", "itCompanyTypeOther");
+      case 2: return hasMinimumAnswer("serviceOfferings", "serviceOfferingsOther", 3);
+      case 3: return hasText(formData.differentiation);
+      case 4: return hasText(formData.geographicAreas);
+      case 5: return hasRadioAnswer("pricingPackaging", "pricingPackagingOther");
+      case 6: return hasRadioAnswer("companyGoals", "companyGoalsOther");
+      case 7: return hasRadioAnswer("brandTone", "brandToneOther");
+      case 8: return hasAnswer("targetIndustries", "targetIndustriesOther");
+      case 9: return hasText(formData.clientSize);
+      case 10: return hasAnswer("clientChallenges", "clientChallengesOther");
+      case 11: return hasAnswer("clientOutcomes", "clientOutcomesOther");
+      case 12: return hasText(formData.idealClient);
+      default: return false;
+    }
+  };
+
   // Memoized incomplete question summary
   const incompleteSummary = React.useMemo(() => {
     return buildIncompleteQuestionSummary({
@@ -678,45 +718,6 @@ export default function Questionnaire() {
       return next;
     });
   }, [queueDraftSave, questionnaireSessionId]);
-
-  const isQuestionComplete = (questionNum) => {
-    const hasAnswer = (field, otherField) => {
-      const selected = (formData[field] || []).length;
-      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
-      return selected > 0 || hasOther;
-    };
-
-    const hasMinimumAnswer = (field, otherField, minRequired) => {
-      const selected = (formData[field] || []).length;
-      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
-      const total = selected + (hasOther ? 1 : 0);
-      return total >= minRequired;
-    };
-
-    const hasRadioAnswer = (field, otherField) => {
-      const selected = (formData[field] || "").trim().length > 0;
-      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
-      return selected || hasOther;
-    };
-
-    const hasText = (val) => (val || "").trim().length > 0;
-
-    switch(questionNum) {
-      case 1: return hasAnswer("itCompanyType", "itCompanyTypeOther");
-      case 2: return hasMinimumAnswer("serviceOfferings", "serviceOfferingsOther", 3);
-      case 3: return hasText(formData.differentiation);
-      case 4: return hasText(formData.geographicAreas);
-      case 5: return hasRadioAnswer("pricingPackaging", "pricingPackagingOther");
-      case 6: return hasRadioAnswer("companyGoals", "companyGoalsOther");
-      case 7: return hasRadioAnswer("brandTone", "brandToneOther");
-      case 8: return hasAnswer("targetIndustries", "targetIndustriesOther");
-      case 9: return hasText(formData.clientSize);
-      case 10: return hasAnswer("clientChallenges", "clientChallengesOther");
-      case 11: return hasAnswer("clientOutcomes", "clientOutcomesOther");
-      case 12: return hasText(formData.idealClient);
-      default: return false;
-    }
-  };
 
   const handleQuestionClick = (questionNum) => {
     let isOpening;
