@@ -49,6 +49,10 @@
       "type": "string",
       "description": "Client user ID if available"
     },
+    "submit_attempt_id": {
+      "type": "string",
+      "description": "Client submit attempt id used for submit diagnostics and duplicate-submit tracing"
+    },
     "created_at_iso": {
       "type": "string",
       "description": "When the event was created (ISO 8601)"

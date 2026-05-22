@@ -192,6 +192,7 @@ export async function submitExpressQuestionnaire(args) {
           session_id: questionnaireSessionId,
           business_name: businessName,
           domain,
+          submit_attempt_id: submitAttemptId || "",
         },
       },
     });
@@ -210,6 +211,7 @@ export async function submitExpressQuestionnaire(args) {
           session_id: questionnaireSessionId,
           business_name: businessName,
           domain,
+          submit_attempt_id: submitAttemptId || "",
         },
       },
     });
@@ -224,6 +226,7 @@ export async function submitExpressQuestionnaire(args) {
       validationStatusSnapshot: validationStatus || {},
       touchedQuestionsSnapshot: touchedQuestions || {},
       expandedQuestionsSnapshot: expandedQuestions || {},
+      submitAttemptId,
     },
     questionnaireSessionId,
   });
@@ -271,6 +274,7 @@ export async function submitExpressQuestionnaire(args) {
         validationStatusSnapshot: validationStatus || {},
         touchedQuestionsSnapshot: touchedQuestions || {},
         expandedQuestionsSnapshot: expandedQuestions || {},
+        submitAttemptId,
       },
       questionnaireSessionId,
     });
@@ -520,6 +524,7 @@ export async function submitExpressQuestionnaire(args) {
         validationStatusSnapshot: validationStatus || {},
         touchedQuestionsSnapshot: touchedQuestions || {},
         expandedQuestionsSnapshot: expandedQuestions || {},
+        submitAttemptId,
       },
       questionnaireSessionId,
     });
@@ -588,6 +593,7 @@ export async function submitExpressQuestionnaire(args) {
       validationStatusSnapshot: validationStatus || {},
       touchedQuestionsSnapshot: touchedQuestions || {},
       expandedQuestionsSnapshot: expandedQuestions || {},
+      submitAttemptId,
     },
     questionnaireSessionId,
   });

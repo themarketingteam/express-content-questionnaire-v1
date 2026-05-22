@@ -355,6 +355,7 @@ export default function Questionnaire() {
     validationStatusSnapshot,
     touchedQuestionsSnapshot,
     expandedQuestionsSnapshot: expandedSnapshotArg,
+    submitAttemptId,
   } = {}) => {
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
@@ -375,6 +376,7 @@ export default function Questionnaire() {
       status: status || "draft",
       submitError: submitError || "",
       finalSubmissionId: finalSubmissionId || "",
+      submitAttemptId: submitAttemptId || "",
     });
   }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
@@ -403,6 +405,7 @@ export default function Questionnaire() {
           status: "draft",
           submitError: "",
           finalSubmissionId: "",
+          submitAttemptId: "",
         });
       } catch (err) {
         console.error("[draft] save failed:", err?.message || err);
@@ -415,6 +418,7 @@ export default function Questionnaire() {
             Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
           ),
           error: err,
+          submitAttemptId: "",
         });
       }
     }, 600);
@@ -898,12 +902,14 @@ export default function Questionnaire() {
         },
       });
       
+      // Capture final validation status after submit-time validation
+      const finalValidationStatus = textValidation.getAllFieldStatuses();
+      
       // Save updated validation status to draft
-      const updatedValidationStatus = textValidation.getAllFieldStatuses();
       await saveDraftSnapshot({
         sessionId: questionnaireSessionId,
         responses: rawFormData,
-        validationStatus: updatedValidationStatus,
+        validationStatus: finalValidationStatus,
         touchedQuestions,
         expandedQuestions: Object.fromEntries(
           Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
@@ -966,7 +972,7 @@ export default function Questionnaire() {
         businessName,
         domain,
         responses: rawFormData,
-        validationStatus: {},
+        validationStatus: finalValidationStatus,
         touchedQuestions,
         expandedQuestions: Object.fromEntries(
           Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
