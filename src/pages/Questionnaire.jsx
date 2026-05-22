@@ -280,10 +280,12 @@ export default function Questionnaire() {
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
     );
+    // Use text validation hook status as canonical validation status
+    const canonicalValidationStatus = validationStatusSnapshot || textValidation.getAllFieldStatuses();
     await saveDraftSnapshot({
       sessionId: questionnaireSessionId,
       responses: responsesSnapshot || formData,
-      validationStatus: validationStatusSnapshot || {},
+      validationStatus: canonicalValidationStatus,
       touchedQuestions: touchedQuestionsSnapshot || touchedQuestions,
       expandedQuestions: expandedSnap,
       credentials: urlCredentials,
@@ -295,7 +297,7 @@ export default function Questionnaire() {
       submitError: submitError || "",
       finalSubmissionId: finalSubmissionId || "",
     });
-  }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam]);
+  }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
   const queueDraftSave = useCallback((changedQuestionId, nextFormData) => {
     if (hasFinalSubmittedRef.current) return;
@@ -306,10 +308,12 @@ export default function Questionnaire() {
         const expandedSnap = Object.fromEntries(
           Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
         );
+        // Include validation status from hook
+        const validationStatus = textValidation.getAllFieldStatuses();
         await saveDraftSnapshot({
           sessionId: questionnaireSessionId,
           responses: nextFormData,
-          validationStatus: {},
+          validationStatus,
           touchedQuestions,
           expandedQuestions: expandedSnap,
           credentials: urlCredentials,
@@ -326,7 +330,7 @@ export default function Questionnaire() {
         writeDraftFailureBackup({
           questionnaireSessionId,
           responses: nextFormData,
-          validationStatus: {},
+          validationStatus: textValidation.getAllFieldStatuses(),
           touchedQuestions,
           expandedQuestions: Object.fromEntries(
             Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
@@ -335,7 +339,7 @@ export default function Questionnaire() {
         });
       }
     }, 600);
-  }, [saveDraftSnapshot, questionnaireSessionId, touchedQuestions, openQuestions, businessNameParam, domainParam]);
+  }, [saveDraftSnapshot, questionnaireSessionId, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
   // Cleanup draft save timeout on unmount
   useEffect(() => {

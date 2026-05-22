@@ -23,7 +23,13 @@ export function getValueSummary(value) {
     if (Array.isArray(value)) {
       return `Array answer, ${value.length} selected/value item(s)`;
     }
-    if (typeof value === "object") return "Object answer";
+    if (typeof value === "object") {
+      // Check for validation result objects
+      if (value.status !== undefined) {
+        return `Validation status: ${value.status}`;
+      }
+      return "Object answer";
+    }
     return `${typeof value} value`;
   } catch {
     return "Empty value";
