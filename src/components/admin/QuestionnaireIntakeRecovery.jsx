@@ -495,6 +495,62 @@ export default function QuestionnaireIntakeRecovery() {
                     )}
                   </div>
 
+                  {/* Retry Diagnostics */}
+                  <div className="mb-4">
+                    <div className="text-xs font-semibold text-slate-700 mb-2">Retry Diagnostics</div>
+                    <div className="p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Status:</span>
+                          <Badge className={getStatusStyle(record.status)} variant="outline">
+                            {record.status.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Retry Count:</span>
+                          <span className="font-medium">{record.retry_count || 0}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Last Retry:</span>
+                          <span className="font-medium">{formatDate(record.last_retry_at)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Linked Submission:</span>
+                          <span className="font-mono text-slate-700">{record.linked_submission_id || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Zapier Sent:</span>
+                          <span className={record.zapier_sent ? "text-green-700 font-medium" : "text-slate-700 font-medium"}>
+                            {record.zapier_sent ? "Yes" : "No"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Primary Failure:</span>
+                          <span className="font-medium">{record.primary_failure_kind || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Fallback Failure:</span>
+                          <span className="font-medium">{record.fallback_failure_kind || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Retry Error:</span>
+                          <span className="font-medium text-slate-700">
+                            {(() => {
+                              const err = parseJson(record.retry_error_json);
+                              return err?.message || "—";
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Status note */}
+                      {getStatusNote(record.status) && (
+                        <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-200">
+                          {getStatusNote(record.status)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Availability Summary */}
                   <div className="mb-4">
                     <div className="text-xs font-semibold text-slate-700 mb-2">Data Availability</div>
