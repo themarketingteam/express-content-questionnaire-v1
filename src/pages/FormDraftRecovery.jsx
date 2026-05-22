@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, Copy, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
+import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -116,15 +117,16 @@ function DraftRow({ draft, isDuplicate }) {
     const base = mappedPayload?.metadata && mappedPayload?.userdata
       ? { metadata: { ...mappedPayload.metadata }, userdata: { ...mappedPayload.userdata } }
       : { metadata: { ...metadata }, userdata: { ...userdata } };
-    base.metadata.service_type = "express";
-    if (!base.metadata.questionnaire_session_id) {
-      base.metadata.questionnaire_session_id = draft.session_id || "";
+    
+    // Normalize the payload
+    const result = normalizeExpressSubmitIntakePayload(base);
+    
+    if (!result.ok) {
+      toast.error("Could not prepare a valid submit-intake payload from this draft.");
+      return;
     }
-    // Preserve submit_attempt_id if present
-    if (metadata?.submit_attempt_id) {
-      base.metadata.submit_attempt_id = metadata.submit_attempt_id;
-    }
-    navigator.clipboard.writeText(JSON.stringify(base, null, 2));
+    
+    navigator.clipboard.writeText(JSON.stringify(result.payload, null, 2));
     toast.success("Submit-intake payload copied.");
   };
 

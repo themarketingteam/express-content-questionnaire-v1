@@ -136,7 +136,7 @@ export function normalizeExpressFormData(value) {
     brandToneOther: normalizeString(value.brandToneOther, ""),
     targetIndustries: normalizeStringArray(value.targetIndustries),
     targetIndustriesOther: normalizeString(value.targetIndustriesOther, ""),
-    clientSize: normalizeString(value.clientSize, ""),
+    clientSize: normalizeString(value.clientSize, "1-50 employees") || "1-50 employees",
     clientChallenges: normalizeStringArray(value.clientChallenges),
     clientChallengesOther: normalizeString(value.clientChallengesOther, ""),
     clientOutcomes: normalizeStringArray(value.clientOutcomes),

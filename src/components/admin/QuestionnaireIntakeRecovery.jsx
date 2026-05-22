@@ -20,6 +20,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 
 // Helper: format date
 const formatDate = (value) => {
@@ -203,28 +204,15 @@ export default function QuestionnaireIntakeRecovery() {
       userdata: { ...transformed.userdata },
     };
 
-    // Force service_type to express
-    payload.metadata.service_type = "express";
-
-    // Ensure questionnaire_session_id exists
-    if (!payload.metadata.questionnaire_session_id) {
-      payload.metadata.questionnaire_session_id = record.questionnaire_session_id || "";
+    // Normalize the payload
+    const result = normalizeExpressSubmitIntakePayload(payload);
+    
+    if (!result.ok) {
+      toast.error("Could not prepare a valid submit-intake payload from this intake record.");
+      return;
     }
 
-    // Ensure submit_attempt_id exists
-    if (!payload.metadata.submit_attempt_id && record.submit_attempt_id) {
-      payload.metadata.submit_attempt_id = record.submit_attempt_id;
-    }
-
-    // Fill in business name/domain from intake if missing
-    if (!payload.metadata.business_name) {
-      payload.metadata.business_name = record.business_name || "";
-    }
-    if (!payload.metadata.businessDomain) {
-      payload.metadata.businessDomain = record.business_domain || "";
-    }
-
-    copyJson(payload, "Submit-intake payload copied");
+    copyJson(result.payload, "Submit-intake payload copied");
   };
 
   const handleRetry = async (record, { forceRetry = false } = {}) => {

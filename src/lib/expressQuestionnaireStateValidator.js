@@ -149,7 +149,6 @@ export function validateAndRepairQuestionnaireState({
   const arrayFields = [
     "itCompanyType",
     "serviceOfferings",
-    "companyGoals",
     "targetIndustries",
     "clientChallenges",
     "clientOutcomes",
