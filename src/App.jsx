@@ -61,7 +61,11 @@ const AuthenticatedApp = () => {
           }
         />
       ))}
-      <Route path="/admin/submit-intake" element={<AdminSubmitIntake />} />
+      <Route path="/admin/submit-intake" element={
+        <LayoutWrapper currentPageName={"admin/submit-intake"}>
+          <AdminSubmitIntake />
+        </LayoutWrapper>
+      } />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
