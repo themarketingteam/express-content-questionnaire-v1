@@ -477,12 +477,65 @@ export default function Questionnaire() {
         setOpenQuestions(expandedNums.length > 0 ? expandedNums : [1]);
       }
       
-      // Log migration if applicable
-      if (result.migrated) {
-        console.log("[persisted-state] Migrated old cookie format to versioned state");
+      // Log diagnostics in development
+      if (import.meta.env.DEV) {
+        if (result.migrated) {
+          console.log("[persisted-state] Migrated from old format:", result.diagnostics);
+        }
+        if (result.repaired) {
+          console.log("[persisted-state] Repaired invalid fields:", result.diagnostics);
+        }
+        if (result.discarded) {
+          console.warn("[persisted-state] Discarded corrupted state:", result.diagnostics);
+        }
       }
     } else if (result.error) {
-      console.warn("[persisted-state] Failed to parse cookie, using defaults:", result.error.message);
+      if (import.meta.env.DEV) {
+        console.warn("[persisted-state] Failed to parse cookie, using defaults:", result.error.message);
+      }
+    }
+    
+    // Create draft event for migration/repair/discard if session exists
+    if (questionnaireSessionId && (result.migrated || result.repaired || result.discarded)) {
+      const eventType = result.migrated ? "persisted_state_migrated"
+        : result.repaired ? "persisted_state_repaired"
+        : result.discarded ? "persisted_state_discarded"
+        : null;
+      
+      if (eventType) {
+        // Best-effort event creation - don't block if it fails
+        setTimeout(() => {
+          createDraftEvent({
+            eventType,
+            questionId: "",
+            questionType: "persistence",
+            value: {
+              session_id: questionnaireSessionId,
+              ...result.diagnostics,
+              timestamp: new Date().toISOString(),
+            },
+          }).catch(() => {
+            // Silently ignore draft event failures
+          });
+        }, 100);
+      }
+    }
+    
+    // If state was discarded and local backup utility exists, write diagnostic
+    if (result.discarded && questionnaireSessionId) {
+      try {
+        localStorage.setItem(
+          `express_questionnaire_recovery_${questionnaireSessionId}`,
+          JSON.stringify({
+            session_id: questionnaireSessionId,
+            stage: "persisted_state_discarded",
+            reason: "corrupted_json",
+            timestamp: new Date().toISOString(),
+          })
+        );
+      } catch {
+        // Ignore storage errors
+      }
     }
   }, []);
 

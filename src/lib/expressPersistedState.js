@@ -238,17 +238,30 @@ export function normalizeExpandedQuestions(value) {
 }
 
 /**
- * Parse persisted state cookie with migration support
+ * Parse persisted state cookie with migration support and diagnostics
  * @param {string} rawValue
  * @returns {ParseResult}
  */
 export function parsePersistedStateCookie(rawValue) {
+  const diagnostics = {
+    detectedFormat: "unknown",
+    missingFields: [],
+    droppedFields: [],
+    repairedFields: [],
+    invalidSections: [],
+    versionFrom: null,
+    versionTo: EXPRESS_PERSISTED_STATE_VERSION
+  };
+
   if (!rawValue) {
     return {
       ok: false,
       state: getDefaultPersistedState(),
       migrated: false,
-      error: new Error("No cookie value")
+      repaired: false,
+      discarded: false,
+      error: new Error("No cookie value"),
+      diagnostics
     };
   }
 
@@ -259,6 +272,14 @@ export function parsePersistedStateCookie(rawValue) {
     if (!parsed.version) {
       // Check if it looks like raw form data
       if (parsed.itCompanyType !== undefined || parsed.differentiation !== undefined) {
+        diagnostics.detectedFormat = "raw_form_data";
+        diagnostics.versionFrom = 0;
+
+        // Track missing sections
+        if (!parsed.validationStatus) diagnostics.missingFields.push("validationStatus");
+        if (!parsed.touchedQuestions) diagnostics.missingFields.push("touchedQuestions");
+        if (!parsed.expandedQuestions) diagnostics.missingFields.push("expandedQuestions");
+
         // Migrate old format to versioned state
         const migratedState = {
           version: EXPRESS_PERSISTED_STATE_VERSION,
@@ -269,47 +290,115 @@ export function parsePersistedStateCookie(rawValue) {
           expandedQuestions: getDefaultExpandedQuestions(),
           questionnaireSessionId: ""
         };
+
         return {
           ok: true,
           state: migratedState,
           migrated: true,
-          error: null
+          repaired: false,
+          discarded: false,
+          error: null,
+          diagnostics
         };
       }
 
       // Unknown format, return default
+      diagnostics.detectedFormat = "unknown_format";
+      diagnostics.discarded = true;
+
       return {
         ok: true,
         state: getDefaultPersistedState(),
         migrated: false,
-        error: null
+        repaired: false,
+        discarded: true,
+        error: null,
+        diagnostics
       };
     }
 
-    // Versioned format - normalize all sections
+    // Versioned format - normalize all sections and track repairs
+    diagnostics.detectedFormat = "versioned_state";
+    diagnostics.versionFrom = parsed.version || 0;
+
+    // Track dropped unknown fields from formData
+    const knownFormFields = [
+      "itCompanyType", "itCompanyTypeOther", "serviceOfferings", "serviceOfferingsOther",
+      "differentiation", "geographicAreas", "geographicAreaMeta", "pricingPackaging",
+      "pricingPackagingOther", "companyGoals", "companyGoalsOther", "brandTone",
+      "brandToneOther", "targetIndustries", "targetIndustriesOther", "clientSize",
+      "clientChallenges", "clientChallengesOther", "clientOutcomes", "clientOutcomesOther",
+      "idealClient"
+    ];
+
+    if (parsed.formData && typeof parsed.formData === "object") {
+      const unknownFields = Object.keys(parsed.formData).filter(f => !knownFormFields.includes(f));
+      if (unknownFields.length > 0) {
+        diagnostics.droppedFields.push(...unknownFields.map(f => `formData.${f}`));
+      }
+    }
+
+    // Normalize and track repairs
+    const normalizedFormData = normalizeExpressFormData(parsed.formData || parsed);
+    const normalizedValidationStatus = normalizeValidationStatus(parsed.validationStatus || {});
+    const normalizedTouchedQuestions = normalizeTouchedQuestions(parsed.touchedQuestions || {});
+    const normalizedExpandedQuestions = normalizeExpandedQuestions(parsed.expandedQuestions || {});
+
+    // Track repaired fields
+    if (parsed.validationStatus && typeof parsed.validationStatus === "object") {
+      for (const [fieldName, originalStatus] of Object.entries(parsed.validationStatus)) {
+        const normalized = normalizedValidationStatus[fieldName];
+        if (normalized && originalStatus && originalStatus.status !== normalized.status) {
+          diagnostics.repairedFields.push(`validationStatus.${fieldName}`);
+        }
+      }
+    }
+
+    // Track invalid sections that were defaulted
+    if (!parsed.validationStatus || typeof parsed.validationStatus !== "object") {
+      diagnostics.invalidSections.push("validationStatus");
+    }
+    if (!parsed.touchedQuestions || typeof parsed.touchedQuestions !== "object") {
+      diagnostics.invalidSections.push("touchedQuestions");
+    }
+    if (!parsed.expandedQuestions || typeof parsed.expandedQuestions !== "object") {
+      diagnostics.invalidSections.push("expandedQuestions");
+    }
+
     const normalizedState = {
       version: EXPRESS_PERSISTED_STATE_VERSION,
       savedAt: normalizeString(parsed.savedAt, ""),
-      formData: normalizeExpressFormData(parsed.formData || parsed),
-      validationStatus: normalizeValidationStatus(parsed.validationStatus || {}),
-      touchedQuestions: normalizeTouchedQuestions(parsed.touchedQuestions || {}),
-      expandedQuestions: normalizeExpandedQuestions(parsed.expandedQuestions || {}),
+      formData: normalizedFormData,
+      validationStatus: normalizedValidationStatus,
+      touchedQuestions: normalizedTouchedQuestions,
+      expandedQuestions: normalizedExpandedQuestions,
       questionnaireSessionId: normalizeString(parsed.questionnaireSessionId, "")
     };
+
+    const wasRepaired = diagnostics.repairedFields.length > 0 || diagnostics.invalidSections.length > 0;
 
     return {
       ok: true,
       state: normalizedState,
       migrated: false,
-      error: null
+      repaired: wasRepaired,
+      discarded: false,
+      error: null,
+      diagnostics
     };
   } catch (error) {
-    // Corrupted JSON - return default state
+    // Corrupted JSON - discard and return default state
+    diagnostics.detectedFormat = "corrupted_json";
+    diagnostics.discarded = true;
+
     return {
       ok: false,
       state: getDefaultPersistedState(),
       migrated: false,
-      error
+      repaired: false,
+      discarded: true,
+      error,
+      diagnostics
     };
   }
 }
