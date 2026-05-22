@@ -1,6 +1,19 @@
 import { getExpressQuestionDisplayStatus, QUESTION_STATUS } from "@/lib/questionValidationStatus";
 
 /**
+ * Check if a field is currently validating (supports both array and object shapes)
+ */
+function isFieldCurrentlyValidating(validatingFields, fieldName) {
+  if (Array.isArray(validatingFields)) {
+    return validatingFields.includes(fieldName);
+  }
+  if (validatingFields && typeof validatingFields === "object") {
+    return Boolean(validatingFields[fieldName]);
+  }
+  return false;
+}
+
+/**
  * Human-readable labels for Express questionnaire questions
  */
 export const EXPRESS_QUESTION_LABELS = {
@@ -101,7 +114,7 @@ export function buildIncompleteQuestionSummary({
       const isValStatusIncomplete = valStatus?.status === 'incomplete';
       const isValStatusNeedsWork = valStatus?.status === 'needs_work';
       const isValStatusError = valStatus?.status === 'error';
-      const isValidating = validatingFields.includes(fieldName);
+      const isValidating = isFieldCurrentlyValidating(validatingFields, fieldName);
 
       // Question is complete, but validation status is unknown/not yet validated
       if (isValStatusUnknown && !isValidating) {

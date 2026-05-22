@@ -204,6 +204,19 @@ export function getTextValidationQuestionStatus({
 }
 
 /**
+ * Check if a field is currently validating (supports both array and object shapes)
+ */
+function isFieldCurrentlyValidating(validatingFields, fieldName) {
+  if (Array.isArray(validatingFields)) {
+    return validatingFields.includes(fieldName);
+  }
+  if (validatingFields && typeof validatingFields === "object") {
+    return Boolean(validatingFields[fieldName]);
+  }
+  return false;
+}
+
+/**
  * Get final display status for an Express question
  * 
  * Combines base completion status with text validation status for questions 3 and 12
@@ -244,7 +257,7 @@ export function getExpressQuestionDisplayStatus({
   
   // Base is complete, check text validation status
   const isValidating = (fieldName) => {
-    return validatingFields?.includes(fieldName) || false;
+    return isFieldCurrentlyValidating(validatingFields, fieldName);
   };
   
   const validationQuestionStatus = getTextValidationQuestionStatus({

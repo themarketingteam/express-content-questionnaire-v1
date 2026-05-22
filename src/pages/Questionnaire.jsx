@@ -292,16 +292,26 @@ export default function Questionnaire() {
     }
   };
 
-  // Memoized incomplete question summary
+  // Normalize validatingFields to support both object and array shapes
+  const validatingFieldsForDisplay = React.useMemo(() => {
+    const vf = textValidation.validatingFields || {};
+    if (Array.isArray(vf)) return vf;
+    if (vf && typeof vf === "object") {
+      return Object.keys(vf).filter((fieldName) => Boolean(vf[fieldName]));
+    }
+    return [];
+  }, [textValidation.validatingFields]);
+
+  // Memoized incomplete question summary - must come after textValidation and isQuestionComplete
   const incompleteSummary = React.useMemo(() => {
     return buildIncompleteQuestionSummary({
       formData,
       touchedQuestions,
       validationStatus: textValidation.getAllFieldStatuses(),
-      validatingFields: textValidation.validatingFields || [],
+      validatingFields: validatingFieldsForDisplay,
       isQuestionComplete,
     });
-  }, [formData, touchedQuestions, textValidation, isQuestionComplete]);
+  }, [formData, touchedQuestions, textValidation, validatingFieldsForDisplay, isQuestionComplete]);
 
   const submitInFlightRef = useRef(false);
   const activeSubmitAttemptIdRef = useRef("");
@@ -1153,7 +1163,7 @@ export default function Questionnaire() {
       formData,
       touchedQuestions,
       validationStatus: textValidation.getAllFieldStatuses(),
-      validatingFields: textValidation.validatingFields || [],
+      validatingFields: validatingFieldsForDisplay,
       isQuestionComplete,
     });
   };
