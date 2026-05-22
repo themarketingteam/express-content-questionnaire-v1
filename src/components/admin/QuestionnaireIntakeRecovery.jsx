@@ -213,6 +213,49 @@ export default function QuestionnaireIntakeRecovery() {
     copyJson(payload, "Submit-intake payload copied");
   };
 
+  const handleRetry = async (record) => {
+    try {
+      setRetryingId(record.id);
+      const response = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
+        intakeId: record.id,
+        questionnaireSessionId: record.questionnaire_session_id,
+        forceRetry: false,
+      });
+
+      const data = response?.data;
+
+      if (data?.success) {
+        if (data.alreadySubmitted) {
+          toast.info("Already linked to a submission");
+        } else {
+          toast.success("Submission retry completed");
+        }
+      } else {
+        toast.error(data?.error?.message || "Retry failed");
+      }
+    } catch (err) {
+      toast.error(err?.message || "Retry failed");
+    } finally {
+      setRetryingId(null);
+      // Refresh records
+      try {
+        const data = await base44.entities.FormSubmissionIntake.list();
+        data.sort((a, b) => {
+          const aDate = new Date(
+            a.created_at_server || a.created_date || a.last_retry_at || 0
+          ).getTime();
+          const bDate = new Date(
+            b.created_at_server || b.created_date || b.last_retry_at || 0
+          ).getTime();
+          return bDate - aDate;
+        });
+        setRecords(data);
+      } catch {
+        // ignore refresh errors
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -531,18 +574,46 @@ export default function QuestionnaireIntakeRecovery() {
                     </div>
                   )}
 
-                  {/* Action buttons */}
+                  {/* Retry button */}
                   <div className="flex flex-wrap gap-2 mb-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleCopySubmitIntakePayload(record)}
-                      className="bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
-                    >
-                      <Copy className="w-4 h-4 mr-2" />
-                      Copy Submit-Intake Payload
-                    </Button>
+                    {!record.linked_submission_id && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleRetry(record)}
+                        disabled={retryingId === record.id}
+                        className={
+                          record.status === "retry_failed"
+                            ? "bg-red-600 hover:bg-red-700"
+                            : "bg-blue-600 hover:bg-blue-700"
+                        }
+                      >
+                        {retryingId === record.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Retrying...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Retry Submission
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {record.linked_submission_id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="bg-slate-100 text-slate-500 border-slate-300"
+                      >
+                        Already linked to a submission
+                      </Button>
+                    )}
                   </div>
+
+                  {/* Action buttons */}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
