@@ -9,20 +9,15 @@ import {
   repairExpressAdminIntakePayload,
   validateExpressAdminIntakePayload,
 } from "@/lib/adminExpressIntakePayload";
-import { mapExpressPayloadToFormSubmissionRecord } from "@/lib/expressQuestionnairePayload";
+import { mapExpressPayloadToFormSubmissionRecord, cleanExpressDomain } from "@/lib/expressQuestionnairePayload";
 
 // Auto-fix common JSON formatting issues
 function autoFixJson(raw) {
   let s = raw;
-  // Normalize smart quotes
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-  // Remove block comments
   s = s.replace(/\/\*[\s\S]*?\*\//g, "");
-  // Remove line comments
   s = s.replace(/\/\/[^\n]*/g, "");
-  // Remove trailing commas before } or ]
   s = s.replace(/,(\s*[}\]])/g, "$1");
-  // Balance missing closing braces/brackets
   const opens = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
   const openBrackets = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
   if (opens > 0) s += "}".repeat(opens);
@@ -68,21 +63,32 @@ export default function AdminSubmitIntake() {
   };
 
   const handleSaveJson = () => {
-    let fixed = autoFixJson(rawJson);
+    const fixed = autoFixJson(rawJson);
     try {
       const parsed = JSON.parse(fixed);
       setPayload(parsed);
       setRawJson(JSON.stringify(parsed, null, 2));
       setEditing(false);
       setSaveError("");
+      // Editing JSON clears the submitted id so admin can safely resubmit
+      setSubmittedId(null);
     } catch (err) {
-      setSaveError(`Invalid JSON: ${err.message}`);
+      setSaveError(`JSON parse error: ${err.message} — Check for mismatched quotes, trailing commas, or unbalanced brackets.`);
     }
   };
 
   const handleSubmit = async () => {
-    setSubmitting(true);
     setSaveError("");
+
+    // Duplicate-submission guard
+    if (submittedId) {
+      const confirmed = window.confirm(
+        "This payload was already submitted (id: " + submittedId + ").\n\nSubmitting again will create a duplicate record. Continue anyway?"
+      );
+      if (!confirmed) return;
+    }
+
+    setSubmitting(true);
 
     const repaired = repairExpressAdminIntakePayload(payload);
     if (!repaired) {
@@ -92,15 +98,21 @@ export default function AdminSubmitIntake() {
       return;
     }
 
+    // Enforce Express-only safety on domain and service_type
+    repaired.metadata.service_type = "express";
+    repaired.metadata.businessDomain = cleanExpressDomain(repaired.metadata.businessDomain);
+
     const { valid, errors } = validateExpressAdminIntakePayload(repaired);
     if (!valid) {
-      setSaveError(`Validation failed:\n${errors.join("\n")}`);
-      toast.error("Submission payload is not valid.");
+      setSaveError("Validation failed:\n" + errors.join("\n"));
+      toast.error("Validation failed. See errors above.");
       setSubmitting(false);
       return;
     }
 
+    // Map to DB record — _rawFormData is never included
     const record = mapExpressPayloadToFormSubmissionRecord(repaired);
+
     const res = await base44.entities.FormSubmission.create(record);
     const id = res?.id || res?.data?.id || null;
 
@@ -108,9 +120,7 @@ export default function AdminSubmitIntake() {
     setPayload(repaired);
     setRawJson(JSON.stringify(repaired, null, 2));
 
-    // Zapier resend is intentionally handled by the later server-side Zapier wrapper resource.
-
-    toast.success(`Submission saved${id ? ` (id: ${id})` : ""}`);
+    toast.success("Submission saved" + (id ? ` (id: ${id})` : ""));
     setSubmitting(false);
   };
 
@@ -137,9 +147,12 @@ export default function AdminSubmitIntake() {
     <div className="max-w-4xl mx-auto px-6 py-10">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
-          Admin — Submit Express Intake
+          Express Admin Intake Submission
         </h1>
         <p className="text-sm text-slate-500 mt-1">
+          Paste or edit an Express questionnaire payload, validate it, and save it to FormSubmission.
+        </p>
+        <p className="text-xs text-slate-400 mt-1">
           Signed in as <span className="font-medium">{user?.email}</span>
         </p>
       </div>
@@ -165,8 +178,8 @@ export default function AdminSubmitIntake() {
               disabled={submitting}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Submit Now
+              {submitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              {submitting ? "Submitting..." : "Submit Now"}
             </Button>
             <Button variant="outline" onClick={handleEdit} disabled={submitting}>
               Edit JSON
