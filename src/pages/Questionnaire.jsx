@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
@@ -9,6 +8,7 @@ import {
   createSaveDraftSnapshot,
   writeDraftFailureBackup,
 } from "@/lib/draftPersistence";
+import { submitExpressQuestionnaire, SubmitFlowError } from "@/lib/expressQuestionnaireSubmit";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -20,7 +20,7 @@ import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import { Save } from "lucide-react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
 
@@ -213,6 +213,9 @@ export default function Questionnaire() {
   const [infoModalData, setInfoModalData] = useState(null);
   const [openQuestions, setOpenQuestions] = useState([1]);
   const [touchedQuestions, setTouchedQuestions] = useState({});
+  const [submitError, setSubmitError] = useState(null);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const questionRefs = useRef({});
   const draftSaveTimeoutRef = useRef(null);
@@ -452,58 +455,7 @@ export default function Questionnaire() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [formData, touchedQuestions, openQuestions, questionnaireSessionId]);
 
-  const submitMutation = useMutation({
-    mutationFn: async (data) => {
-      const zapierUrl = `https://hooks.zapier.com/hooks/catch/23529934/u0ajvtt/`;
-      const zapierPayload = {
-        metadata: {
-          ...data.metadata,
-          businessDomain: data.metadata.businessDomain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim(),
-        },
-        userdata: data.userdata,
-      };
 
-      const [zapierResult, savedSubmission] = await Promise.all([
-        fetch(zapierUrl, { method: 'POST', body: JSON.stringify(zapierPayload) }).then(r => r.json()),
-        base44.entities.FormSubmission.create({
-          business_name: data.metadata.business_name,
-          submission_datetime: data.metadata.submission_datetime,
-          service_type: data.metadata.service_type,
-          it_company_type: data.userdata.it_company_type,
-          it_company_type_other: data.userdata.it_company_type_other,
-          service_offerings: data.userdata.service_offerings,
-          service_offerings_other: data.userdata.service_offerings_other,
-          differentiation: data.userdata.differentiation,
-          geographic_areas: data.userdata.geographic_areas,
-          geographic_area_meta: data.userdata.geographic_area_meta,
-          pricing_packaging: data.userdata.pricing_packaging,
-          pricing_packaging_other: data.userdata.pricing_packaging_other,
-          company_goals: Array.isArray(data.userdata.company_goals) ? data.userdata.company_goals : (data.userdata.company_goals ? [data.userdata.company_goals] : []),
-          company_goals_other: data.userdata.company_goals_other,
-          brand_tone: data.userdata.brand_tone,
-          brand_tone_other: data.userdata.brand_tone_other,
-          target_industries: data.userdata.target_industries,
-          target_industries_other: data.userdata.target_industries_other,
-          client_size: data.userdata.client_size,
-          client_challenges: data.userdata.client_challenges,
-          client_challenges_other: data.userdata.client_challenges_other,
-          client_outcomes: data.userdata.client_outcomes,
-          client_outcomes_other: data.userdata.client_outcomes_other,
-          ideal_client: data.userdata.ideal_client
-        })
-      ]);
-
-      return {
-        response: zapierResult,
-        savedSubmission,
-        submissionId: savedSubmission?.id || "",
-        businessName: data.metadata.business_name,
-        domain: data.metadata.businessDomain,
-        formData: data._rawFormData,
-      };
-    },
-
-  });
 
   const updateField = useCallback((field, value) => {
     const questionId = FIELD_TO_QUESTION[field] || "";
@@ -643,127 +595,79 @@ export default function Questionnaire() {
   };
 
   const handleConfirmSubmit = useCallback(async (businessName, domain) => {
+    if (isSubmitting) return;
+    
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setRecoveryCode("");
+
     const rawFormData = { ...formData };
-    const payload = {
-      _rawFormData: rawFormData,
-      metadata: {
-        business_name: businessName,
-        businessDomain: domain,
-        submission_datetime: new Date().toISOString(),
-        service_type: "express",
-        questionnaire_session_id: questionnaireSessionId,
-      },
-      userdata: {
-        it_company_type: formData.itCompanyType,
-        it_company_type_other: formData.itCompanyTypeOther,
-        service_offerings: formData.serviceOfferings,
-        service_offerings_other: formData.serviceOfferingsOther,
-        differentiation: formData.differentiation,
-        geographic_areas: formData.geographicAreaMeta?.label || formData.geographicAreas,
-        geographic_area_meta: formData.geographicAreaMeta,
-        pricing_packaging: formData.pricingPackaging,
-        pricing_packaging_other: formData.pricingPackagingOther,
-        company_goals: formData.companyGoals,
-        company_goals_other: formData.companyGoalsOther,
-        brand_tone: formData.brandTone,
-        brand_tone_other: formData.brandToneOther,
-        target_industries: formData.targetIndustries,
-        target_industries_other: formData.targetIndustriesOther,
-        client_size: formData.clientSize,
-        client_challenges: formData.clientChallenges,
-        client_challenges_other: formData.clientChallengesOther,
-        client_outcomes: formData.clientOutcomes,
-        client_outcomes_other: formData.clientOutcomesOther,
-        ideal_client: formData.idealClient
-      }
-    };
-
-    // Mark draft as submit_attempted before the async call
-    try {
-      await saveDraftNow({ status: "submit_attempted", responsesSnapshot: rawFormData });
-    } catch {
-      // non-blocking — proceed even if draft update fails
-    }
-
-    // Audit event: submit started (best-effort, non-blocking)
-    createDraftEvent({
-      eventType: "submit_started",
-      questionId: "",
-      questionType: "submit",
-      value: { session_id: questionnaireSessionId, business_name: businessName, domain },
-    });
 
     try {
-      const result = await submitMutation.mutateAsync(payload);
-
-      // On success: mark draft as submitted and link final submission id
-      try {
-        await saveDraftNow({
-          status: "submitted",
-          finalSubmissionId: result.submissionId || "",
-          responsesSnapshot: rawFormData,
-        });
-      } catch {
-        // non-blocking
-      }
-
-      // Audit event: submit succeeded (best-effort)
-      createDraftEvent({
-        eventType: "submit_succeeded",
-        questionId: "",
-        questionType: "submit",
-        value: { session_id: questionnaireSessionId, final_submission_id: result.submissionId || "", business_name: businessName, domain },
+      const result = await submitExpressQuestionnaire({
+        businessName,
+        domain,
+        responses: rawFormData,
+        validationStatus: {},
+        touchedQuestions,
+        expandedQuestions: Object.fromEntries(
+          Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+        ),
+        credentials: urlCredentials,
+        domainParam,
+        questionnaireSessionId,
+        saveDraftNow,
+        createDraftEvent,
+        onFinalSubmitSuccess: (successResult) => {
+          hasFinalSubmittedRef.current = true;
+          if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+          
+          // Delete cookie only on full success (not intake-only)
+          if (!successResult.receivedViaIntake) {
+            deleteCookie(STORAGE_KEY);
+            clearQuestionnaireSessionId();
+          }
+          
+          setSubmittedData({ 
+            businessName, 
+            domain, 
+            formData: rawFormData 
+          });
+          setShowConfirmModal(false);
+          handleReset();
+          setShowThankYouModal(true);
+          
+          if (successResult.receivedViaIntake) {
+            // Show recovery message for intake-only
+            toast.success("Your submission was received via recovery intake. Support may follow up if needed.");
+          }
+        },
+        onFinalSubmitFailure: (failureResult) => {
+          setSubmitError(failureResult.error);
+          setRecoveryCode(failureResult.recoveryCode || questionnaireSessionId);
+        },
       });
 
-      // Success side-effects (mirrors onSuccess)
-      hasFinalSubmittedRef.current = true;
-      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-      deleteCookie(STORAGE_KEY);
-      // Clear session id only after all draft/event/submission records are saved above,
-      // so the old id is preserved for recovery if any of those writes had failed.
-      clearQuestionnaireSessionId();
-      setSubmittedData({ businessName: result.businessName, domain: result.domain, formData: result.formData });
-      setShowConfirmModal(false);
-      handleReset();
-      setShowThankYouModal(true);
+      // Success is handled in onFinalSubmitSuccess callback
     } catch (error) {
-      // On failure: mark draft as submit_failed and record error
-      try {
-        await saveDraftNow({
-          status: "submit_failed",
-          submitError: serializeExpressError(error),
-          responsesSnapshot: rawFormData,
-        });
-      } catch {
-        writeDraftFailureBackup({
-          questionnaireSessionId,
-          responses: rawFormData,
-          validationStatus: {},
-          touchedQuestions,
-          expandedQuestions: Object.fromEntries(
-            Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
-          ),
-          error,
-        });
-      }
-      // Audit event: submit failed (best-effort)
-      const serializedError = serializeExpressError(error);
-      createDraftEvent({
-        eventType: "submit_failed",
-        questionId: "",
-        questionType: "submit",
-        value: { session_id: questionnaireSessionId, error: serializedError, business_name: businessName, domain },
-      });
-
-      // Preserve existing user-facing failure alert; modal stays open for retry
-      alert('There was an error submitting your form. Please try again or contact support.');
+      // Handle SubmitFlowError or unexpected errors
+      const recoveryCodeValue = error.recoveryCode || questionnaireSessionId;
+      setSubmitError(error);
+      setRecoveryCode(recoveryCodeValue);
+      
+      // Show user-safe message
+      alert(`We saved your progress, but final submission could not complete. Please try again. Recovery code: ${recoveryCodeValue}`);
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [saveDraftNow, submitMutation, questionnaireSessionId, formData, touchedQuestions, openQuestions]);
+  }, [isSubmitting, formData, touchedQuestions, openQuestions, questionnaireSessionId, urlCredentials, domainParam, saveDraftNow, createDraftEvent]);
 
   const handleReset = () => {
     setFormData(getInitialExpressFormData());
     setTouchedQuestions({});
     setOpenQuestions([1]);
+    setSubmitError(null);
+    setRecoveryCode("");
   };
 
   const initialBusinessName = businessNameParam;
@@ -1176,10 +1080,10 @@ export default function Questionnaire() {
         <ConfirmModal
           formData={formData}
           onConfirm={handleConfirmSubmit}
-          onCancel={() => !submitMutation.isPending && setShowConfirmModal(false)}
+          onCancel={() => !isSubmitting && setShowConfirmModal(false)}
           initialBusinessName={initialBusinessName}
           initialDomain={initialDomain}
-          isSubmitting={submitMutation.isPending}
+          isSubmitting={isSubmitting}
         />
       )}
 

@@ -16,7 +16,7 @@ const capitalizeBusinessName = (name) => {
     .join(' ');
 };
 
-export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain, isSubmitting = false }) {
+export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain, isSubmitting = false, submitError = null, recoveryCode = "" }) {
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
@@ -271,6 +271,25 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
           ))}
         </div>
 
+        {/* Error display */}
+        {submitError && (
+          <div className="mx-6 mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-800 mb-1">
+                  We saved your progress, but final submission could not complete. Please try again.
+                </p>
+                {recoveryCode && (
+                  <p className="text-xs text-red-700 font-mono bg-red-100 inline-block px-2 py-1 rounded">
+                    Recovery code: {recoveryCode}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 flex flex-wrap gap-3">
           <button
@@ -279,8 +298,11 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
             disabled={!isFormValid || isSubmitting || isGeneratingPDF}
             className="flex-1 min-w-[140px] bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
           >
-            <CheckCircle className="w-5 h-5" />
-            Confirm & Submit
+            {isSubmitting ? (
+              <><Loader2 className="w-5 h-5 animate-spin" />Submitting...</>
+            ) : (
+              <><CheckCircle className="w-5 h-5" />Confirm & Submit</>
+            )}
           </button>
           <button
             type="button"
