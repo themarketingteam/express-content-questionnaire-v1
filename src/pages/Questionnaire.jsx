@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId } from "@/lib/sessionId";
-import { getInitialExpressFormData } from "@/lib/expressQuestionnairePayload";
+import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
 import {
   createFindExistingDraftBySessionId,
   createSaveDraftSnapshot,
@@ -400,7 +400,7 @@ export default function Questionnaire() {
         userdata: data.userdata,
       };
 
-      const [zapierResult] = await Promise.all([
+      const [zapierResult, savedSubmission] = await Promise.all([
         fetch(zapierUrl, { method: 'POST', body: JSON.stringify(zapierPayload) }).then(r => r.json()),
         base44.entities.FormSubmission.create({
           business_name: data.metadata.business_name,
@@ -430,19 +430,16 @@ export default function Questionnaire() {
         })
       ]);
 
-      return { response: zapierResult, businessName: data.metadata.business_name, domain: data.metadata.businessDomain, formData: data._rawFormData };
+      return {
+        response: zapierResult,
+        savedSubmission,
+        submissionId: savedSubmission?.id || "",
+        businessName: data.metadata.business_name,
+        domain: data.metadata.businessDomain,
+        formData: data._rawFormData,
+      };
     },
-    onSuccess: (data) => {
-      hasFinalSubmittedRef.current = true;
-      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-      deleteCookie(STORAGE_KEY);
-      setSubmittedData({ businessName: data.businessName, domain: data.domain, formData: data.formData });
-      handleReset();
-      setShowThankYouModal(true);
-    },
-    onError: (error) => {
-      alert('There was an error submitting your form. Please try again or contact support.');
-    }
+
   });
 
   const updateField = useCallback((field, value) => {
@@ -564,9 +561,10 @@ export default function Questionnaire() {
     }
   };
 
-  const handleConfirmSubmit = (businessName, domain) => {
+  const handleConfirmSubmit = async (businessName, domain) => {
+    const rawFormData = { ...formData };
     const payload = {
-      _rawFormData: { ...formData },
+      _rawFormData: rawFormData,
       metadata: {
         business_name: businessName,
         businessDomain: domain,
@@ -598,8 +596,58 @@ export default function Questionnaire() {
       }
     };
 
-    submitMutation.mutate(payload);
-    setShowConfirmModal(false);
+    // Mark draft as submit_attempted before the async call
+    try {
+      await saveDraftNow({ status: "submit_attempted", responsesSnapshot: rawFormData });
+    } catch {
+      // non-blocking — proceed even if draft update fails
+    }
+
+    try {
+      const result = await submitMutation.mutateAsync(payload);
+
+      // On success: mark draft as submitted and link final submission id
+      try {
+        await saveDraftNow({
+          status: "submitted",
+          finalSubmissionId: result.submissionId || "",
+          responsesSnapshot: rawFormData,
+        });
+      } catch {
+        // non-blocking
+      }
+
+      // Success side-effects (mirrors onSuccess)
+      hasFinalSubmittedRef.current = true;
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+      deleteCookie(STORAGE_KEY);
+      setSubmittedData({ businessName: result.businessName, domain: result.domain, formData: result.formData });
+      setShowConfirmModal(false);
+      handleReset();
+      setShowThankYouModal(true);
+    } catch (error) {
+      // On failure: mark draft as submit_failed and record error
+      try {
+        await saveDraftNow({
+          status: "submit_failed",
+          submitError: serializeExpressError(error),
+          responsesSnapshot: rawFormData,
+        });
+      } catch {
+        writeDraftFailureBackup({
+          questionnaireSessionId,
+          responses: rawFormData,
+          validationStatus: {},
+          touchedQuestions,
+          expandedQuestions: Object.fromEntries(
+            Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+          ),
+          error,
+        });
+      }
+      // Preserve existing user-facing failure alert; modal stays open for retry
+      alert('There was an error submitting your form. Please try again or contact support.');
+    }
   };
 
   const handleReset = () => {
