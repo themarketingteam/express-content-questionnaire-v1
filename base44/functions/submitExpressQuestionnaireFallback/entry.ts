@@ -200,13 +200,44 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    // Resolve business identity
-    const businessName   = transformedPayload?.metadata?.business_name   || transformedPayload?.userdata?.business_name   || null;
-    const businessDomain = transformedPayload?.metadata?.businessDomain  || transformedPayload?.userdata?.businessDomain  || null;
-    const userEmail      = transformedPayload?.metadata?.user_email      || submitContext?.userEmail      || null;
-    const userId         = transformedPayload?.metadata?.user_id         || submitContext?.userId         || null;
-    const createdAtClient = submitContext?.createdAt || null;
-    const source         = submitContext?.source || 'questionnaire_submit_fallback';
+    // Resolve business identity - support both camelCase and snake_case
+    const businessName =
+      transformedPayload?.metadata?.business_name ||
+      transformedPayload?.userdata?.business_name ||
+      submitContext?.businessName ||
+      submitContext?.business_name ||
+      null;
+
+    const businessDomain =
+      transformedPayload?.metadata?.businessDomain ||
+      transformedPayload?.metadata?.business_domain ||
+      transformedPayload?.userdata?.businessDomain ||
+      transformedPayload?.userdata?.business_domain ||
+      submitContext?.businessDomain ||
+      submitContext?.business_domain ||
+      submitContext?.domain ||
+      null;
+
+    const userEmail =
+      transformedPayload?.metadata?.user_email ||
+      submitContext?.userEmail ||
+      submitContext?.user_email ||
+      null;
+
+    const userId =
+      transformedPayload?.metadata?.user_id ||
+      submitContext?.userId ||
+      submitContext?.user_id ||
+      null;
+
+    const createdAtClient =
+      submitContext?.createdAt ||
+      submitContext?.created_at_client ||
+      null;
+
+    const source =
+      submitContext?.source ||
+      'questionnaire_submit_fallback';
 
     // 2. If payload is invalid/missing or required metadata is absent → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&

@@ -190,11 +190,18 @@ export async function submitExpressQuestionnaire(args) {
 
     // Call fallback with transformFailed: true
     const submitContext = {
+      businessName,
       business_name: businessName,
-      domain: domain,
-      user_email: credentials?.userEmail || null,
-      user_id: credentials?.userId || null,
+      domain,
+      businessDomain: domain,
+      business_domain: domain,
+      userEmail: credentials?.userEmail || "",
+      user_email: credentials?.userEmail || "",
+      userId: credentials?.userId || "",
+      user_id: credentials?.userId || "",
+      createdAt: timestamp,
       created_at_client: timestamp,
+      source: "express_questionnaire_submit",
     };
 
     const diagnostics = {
@@ -257,11 +264,18 @@ export async function submitExpressQuestionnaire(args) {
 
   // Step 7: Prepare submit context and diagnostics
   const submitContext = {
+    businessName,
     business_name: businessName,
-    domain: domain,
-    user_email: credentials?.userEmail || null,
-    user_id: credentials?.userId || null,
+    domain,
+    businessDomain: domain,
+    business_domain: domain,
+    userEmail: credentials?.userEmail || "",
+    user_email: credentials?.userEmail || "",
+    userId: credentials?.userId || "",
+    user_id: credentials?.userId || "",
+    createdAt: timestamp,
     created_at_client: timestamp,
+    source: "express_questionnaire_submit",
   };
 
   const diagnostics = {
