@@ -1,15 +1,13 @@
 /**
- * Express Draft Persistence Helper
- * Manages server-side draft snapshots in the FormDraft entity.
+ * Express draft persistence helper.
+ * Mirrors the Pro draft persistence architecture for FormDraft (Express-specific entity).
  */
 
 import {
   buildExpressSubmissionPayload,
   safeJsonStringify,
-  serializeExpressError,
-} from "./expressQuestionnairePayload.js";
-
-// ─── Browser-safe internal helpers ───────────────────────────────────────────
+  serializeExpressError
+} from "@/lib/expressQuestionnairePayload";
 
 function safeNowIso() {
   try {
@@ -31,11 +29,9 @@ function safeLocalStorageSet(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // ignore storage errors
+    // silently ignore storage errors
   }
 }
-
-// ─── Exported helpers ─────────────────────────────────────────────────────────
 
 export function sanitizeCredentialsForDraft(credentials = {}) {
   return {
@@ -43,7 +39,7 @@ export function sanitizeCredentialsForDraft(credentials = {}) {
     domain: credentials.domain || "",
     userId: credentials.userId || "",
     userName: credentials.userName || "",
-    userEmail: credentials.userEmail || "",
+    userEmail: credentials.userEmail || ""
   };
 }
 
@@ -53,17 +49,13 @@ export function createFindExistingDraftBySessionId({ draftRecordIdRef }) {
       return { id: draftRecordIdRef.current };
     }
 
-    const drafts = await entities.FormDraft.filter({ session_id: sessionId });
+    const results = await entities.FormDraft.filter({ session_id: sessionId });
+    if (!results || results.length === 0) return null;
 
-    if (!drafts || drafts.length === 0) {
-      return null;
-    }
-
-    // Sort newest first by last_saved_at, falling back to created_date
-    const sorted = [...drafts].sort((a, b) => {
-      const dateA = new Date(a.last_saved_at || a.created_date || 0).getTime();
-      const dateB = new Date(b.last_saved_at || b.created_date || 0).getTime();
-      return dateB - dateA;
+    const sorted = [...results].sort((a, b) => {
+      const aTime = a.last_saved_at || a.created_date || "";
+      const bTime = b.last_saved_at || b.created_date || "";
+      return bTime.localeCompare(aTime);
     });
 
     const newest = sorted[0];
@@ -87,61 +79,55 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
     status = "draft",
     saveError = "",
     submitError = "",
-    finalSubmissionId = "",
+    finalSubmissionId = ""
   }) {
-    const sanitized = sanitizeCredentialsForDraft(credentials);
-    const businessName = businessNameParam || sanitized.businessName || "";
-    const domain = domainParam || sanitized.domain || "";
+    const creds = sanitizeCredentialsForDraft(credentials);
+    const businessName = businessNameParam || creds.businessName || "";
+    const domain = domainParam || creds.domain || "";
 
     const mappedPayload = buildExpressSubmissionPayload({
       formData: responses || {},
       businessName,
       domain,
-      sessionId,
+      sessionId
     });
 
     const now = safeNowIso();
-
-    const isSubmitAttempt = status === "submit_attempted" || status === "submit_failed";
+    const isSubmitAttempted = status === "submit_attempted" || status === "submit_failed";
     const isSubmitted = status === "submitted";
 
-    let safePath = "";
-    try {
-      safePath = window?.location?.pathname || "";
-    } catch {
-      safePath = "";
-    }
+    const draftMetadata = {
+      app: "express_questionnaire",
+      source: "real_time_draft",
+      path: typeof window !== "undefined" ? window.location.pathname : "",
+      userAgent: safeGetUserAgent()
+    };
 
     const draftRecord = {
       session_id: sessionId,
       business_name: businessName,
       domain,
-      user_id: sanitized.userId,
-      user_name: sanitized.userName,
-      user_email: sanitized.userEmail,
+      user_id: creds.userId,
+      user_name: creds.userName,
+      user_email: creds.userEmail,
       status,
-      current_question_id: currentQuestionId || "",
-      last_changed_question_id: lastChangedQuestionId || "",
+      current_question_id: String(currentQuestionId || ""),
+      last_changed_question_id: String(lastChangedQuestionId || ""),
       responses_json: safeJsonStringify(responses || {}),
       validation_status_json: safeJsonStringify(validationStatus || {}),
-      touched_questions_json: safeJsonStringify(touchedQuestions || []),
-      expanded_questions_json: safeJsonStringify(expandedQuestions || []),
+      touched_questions_json: safeJsonStringify(touchedQuestions || {}),
+      expanded_questions_json: safeJsonStringify(expandedQuestions || {}),
       metadata_json: safeJsonStringify(mappedPayload.metadata),
       userdata_json: safeJsonStringify(mappedPayload.userdata),
-      mapped_payload_json: safeJsonStringify(mappedPayload),
-      draft_metadata_json: safeJsonStringify({
-        app: "express_questionnaire",
-        source: "real_time_draft",
-        path: safePath,
-        userAgent: safeGetUserAgent(),
-      }),
-      save_error: saveError ? serializeExpressError(saveError) : "",
-      submit_error: submitError ? serializeExpressError(submitError) : "",
+      mapped_payload_json: safeJsonStringify({ metadata: mappedPayload.metadata, userdata: mappedPayload.userdata }),
+      draft_metadata_json: safeJsonStringify(draftMetadata),
+      save_error: saveError || "",
+      submit_error: submitError || "",
       final_submission_id: finalSubmissionId || "",
-      submit_attempted_at: isSubmitAttempt ? now : "",
+      submit_attempted_at: isSubmitAttempted ? now : "",
       submitted_at: isSubmitted ? now : "",
       last_changed_at: now,
-      last_saved_at: now,
+      last_saved_at: now
     };
 
     const existing = await findExistingDraftBySessionId({ sessionId, entities });
@@ -163,18 +149,16 @@ export function writeDraftFailureBackup({
   validationStatus,
   touchedQuestions,
   expandedQuestions,
-  error,
+  error
 }) {
-  safeLocalStorageSet(
-    `express_questionnaire_local_backup_${questionnaireSessionId}`,
-    {
-      session_id: questionnaireSessionId,
-      responses,
-      validationStatus,
-      touchedQuestions,
-      expandedQuestions,
-      error: serializeExpressError(error),
-      savedAt: safeNowIso(),
-    }
-  );
+  const key = `express_questionnaire_local_backup_${questionnaireSessionId}`;
+  safeLocalStorageSet(key, {
+    session_id: questionnaireSessionId,
+    responses: responses || {},
+    validationStatus: validationStatus || {},
+    touchedQuestions: touchedQuestions || {},
+    expandedQuestions: expandedQuestions || {},
+    error: serializeExpressError(error),
+    savedAt: safeNowIso()
+  });
 }
