@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,36 +15,24 @@ import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, Copy, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(value); } catch { return fallback; }
 }
 
 function canParseJson(value) {
   if (!value) return false;
-  try {
-    JSON.parse(value);
-    return true;
-  } catch {
-    return false;
-  }
+  try { JSON.parse(value); return true; } catch { return false; }
 }
 
 function formatDate(value) {
   if (!value) return "—";
   try {
     const d = new Date(value);
-    if (isNaN(d.getTime())) return "—";
-    return d.toLocaleString();
-  } catch {
-    return "—";
-  }
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  } catch { return "—"; }
 }
 
 const STATUS_BADGE = {
@@ -62,20 +51,36 @@ function StatusBadge({ status }) {
   );
 }
 
-// ─── Draft Row ───────────────────────────────────────────────────────────────
+// ─── Detail Cell ─────────────────────────────────────────────────────────────
+
+function Detail({ label, value, mono = false }) {
+  return (
+    <div>
+      <p className="text-slate-400 font-medium uppercase tracking-wide text-[10px]">{label}</p>
+      <p className={`text-slate-700 truncate mt-0.5 ${mono ? "font-mono" : ""}`}>
+        {value || "—"}
+      </p>
+    </div>
+  );
+}
+
+// ─── Draft Row ────────────────────────────────────────────────────────────────
 
 function DraftRow({ draft, isDuplicate }) {
   const [expanded, setExpanded] = useState(false);
 
   const responsesParseOk = canParseJson(draft.responses_json);
   const mappedParseOk = canParseJson(draft.mapped_payload_json);
-  const validationParseOk = canParseJson(draft.validation_status_json);
 
   const responses = safeJsonParse(draft.responses_json, {});
   const validationStatus = safeJsonParse(draft.validation_status_json, {});
   const metadata = safeJsonParse(draft.metadata_json, {});
   const userdata = safeJsonParse(draft.userdata_json, {});
   const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
+
+  const hasResponses = Object.keys(responses).length > 0;
+  const hasMapped = mappedPayload !== null && Object.keys(mappedPayload).length > 0;
+  const hasValidation = Object.keys(validationStatus).length > 0;
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(responses, null, 2));
@@ -102,28 +107,19 @@ function DraftRow({ draft, isDuplicate }) {
   };
 
   const handleCopySubmitIntake = () => {
-    // Prefer mapped_payload_json; fallback to metadata + userdata
-    let base = mappedPayload && mappedPayload.metadata && mappedPayload.userdata
+    const base = mappedPayload?.metadata && mappedPayload?.userdata
       ? { metadata: { ...mappedPayload.metadata }, userdata: { ...mappedPayload.userdata } }
       : { metadata: { ...metadata }, userdata: { ...userdata } };
-
-    // Force express service type and ensure session id is present
     base.metadata.service_type = "express";
     if (!base.metadata.questionnaire_session_id) {
       base.metadata.questionnaire_session_id = draft.session_id || "";
     }
-
     navigator.clipboard.writeText(JSON.stringify(base, null, 2));
     toast.success("Submit-intake payload copied.");
   };
 
-  const hasResponses = Object.keys(responses).length > 0;
-  const hasMapped = mappedPayload !== null && Object.keys(mappedPayload).length > 0;
-  const hasValidation = Object.keys(validationStatus).length > 0;
-
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
-      {/* Summary row */}
       <button
         onClick={() => setExpanded((v) => !v)}
         className="w-full text-left px-4 py-3 bg-white hover:bg-slate-50 transition-colors flex items-start gap-3"
@@ -159,10 +155,8 @@ function DraftRow({ draft, isDuplicate }) {
         </div>
       </button>
 
-      {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 space-y-4">
-          {/* Meta grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
             <Detail label="User name" value={draft.user_name} />
             <Detail label="User ID" value={draft.user_id} mono />
@@ -174,7 +168,6 @@ function DraftRow({ draft, isDuplicate }) {
             <Detail label="Last saved at" value={formatDate(draft.last_saved_at)} />
           </div>
 
-          {/* Availability summary */}
           <div className="flex flex-wrap gap-4 text-xs text-slate-600 bg-white border border-slate-200 rounded px-3 py-2">
             <span>
               <span className="font-medium text-slate-500">Mapped Payload:</span>{" "}
@@ -190,7 +183,6 @@ function DraftRow({ draft, isDuplicate }) {
             </span>
           </div>
 
-          {/* Parse warnings */}
           {draft.responses_json && !responsesParseOk && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Responses JSON could not be parsed.
@@ -201,7 +193,6 @@ function DraftRow({ draft, isDuplicate }) {
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Mapped payload JSON could not be parsed.
             </p>
           )}
-
           {draft.save_error && (
             <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
               <span className="font-semibold">Save error:</span> {draft.save_error}
@@ -210,13 +201,10 @@ function DraftRow({ draft, isDuplicate }) {
           {draft.submit_error && (
             <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
               <span className="font-semibold">Submit error:</span>{" "}
-              {typeof draft.submit_error === "string"
-                ? draft.submit_error
-                : JSON.stringify(draft.submit_error)}
+              {typeof draft.submit_error === "string" ? draft.submit_error : JSON.stringify(draft.submit_error)}
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={handleCopyJson} className="text-xs gap-1.5">
               <Copy className="w-3.5 h-3.5" /> Copy JSON
@@ -229,7 +217,6 @@ function DraftRow({ draft, isDuplicate }) {
             </Button>
           </div>
 
-          {/* Parsed responses */}
           {hasResponses && (
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1">Parsed Responses</p>
@@ -244,18 +231,7 @@ function DraftRow({ draft, isDuplicate }) {
   );
 }
 
-function Detail({ label, value, mono = false }) {
-  return (
-    <div>
-      <p className="text-slate-400 font-medium uppercase tracking-wide text-[10px]">{label}</p>
-      <p className={`text-slate-700 truncate mt-0.5 ${mono ? "font-mono" : ""}`}>
-        {value || "—"}
-      </p>
-    </div>
-  );
-}
-
-// ─── Page ────────────────────────────────────────────────────────────────────
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -266,31 +242,14 @@ const STATUS_OPTIONS = [
 ];
 
 export default function FormDraftRecovery() {
-  const [loadingAuth, setLoadingAuth] = useState(true);
-  const [authed, setAuthed] = useState(false);
-  const [user, setUser] = useState(null);
-
+  const { user } = useAuth();
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // Auth check on mount
   useEffect(() => {
-    base44.auth.isAuthenticated().then(async (isAuth) => {
-      if (isAuth) {
-        const me = await base44.auth.me();
-        setUser(me);
-        setAuthed(true);
-      }
-      setLoadingAuth(false);
-    });
-  }, []);
-
-  // Load drafts only after auth
-  useEffect(() => {
-    if (!authed) return;
     setLoading(true);
     base44.entities.FormDraft.list()
       .then((data) => {
@@ -303,7 +262,7 @@ export default function FormDraftRecovery() {
       })
       .catch((err) => setLoadError(err?.message || "Failed to load drafts."))
       .finally(() => setLoading(false));
-  }, [authed]);
+  }, []);
 
   const duplicateSessionIds = useMemo(() => {
     const counts = {};
@@ -327,34 +286,8 @@ export default function FormDraftRecovery() {
     });
   }, [drafts, search, statusFilter]);
 
-  // Auth loading
-  if (loadingAuth) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="w-6 h-6 border-4 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  // Not authenticated
-  if (!authed) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
-        <p className="text-slate-600 text-sm">Please sign in to view Express draft recovery data.</p>
-        <Button
-          onClick={() => base44.auth.redirectToLogin(window.location.pathname)}
-          style={{ backgroundColor: "#004B87", color: "white", borderRadius: "2px" }}
-          className="px-8 py-2 font-bold text-sm uppercase tracking-wider hover:opacity-90"
-        >
-          Sign in
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
           Express Form Draft Recovery
@@ -367,7 +300,6 @@ export default function FormDraftRecovery() {
         )}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <Input
           placeholder="Search by business, domain, email, or session id…"
@@ -381,22 +313,18 @@ export default function FormDraftRecovery() {
           </SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Load error */}
       {loadError && (
         <Card className="border-red-200 bg-red-50 mb-6">
           <CardContent className="pt-4 text-sm text-red-700">{loadError}</CardContent>
         </Card>
       )}
 
-      {/* Draft list */}
       {loading ? (
         <p className="text-slate-500 text-sm">Loading drafts…</p>
       ) : filtered.length === 0 ? (

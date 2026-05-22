@@ -9,6 +9,8 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import AdminSubmitIntake from './pages/AdminSubmitIntake';
 import FormDraftRecovery from './pages/FormDraftRecovery';
+import AdminOnly from '@/components/admin/AdminOnly';
+// TODO: import QuestionnaireIntakeRecoveryPage from './pages/QuestionnaireIntakeRecovery';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 
@@ -63,15 +65,20 @@ const AuthenticatedApp = () => {
         />
       ))}
       <Route path="/admin/draft-recovery" element={
-        <LayoutWrapper currentPageName={"admin/draft-recovery"}>
-          <FormDraftRecovery />
-        </LayoutWrapper>
+        <AdminOnly>
+          <LayoutWrapper currentPageName={"admin/draft-recovery"}>
+            <FormDraftRecovery />
+          </LayoutWrapper>
+        </AdminOnly>
       } />
       <Route path="/admin/submit-intake" element={
-        <LayoutWrapper currentPageName={"admin/submit-intake"}>
-          <AdminSubmitIntake />
-        </LayoutWrapper>
+        <AdminOnly>
+          <LayoutWrapper currentPageName={"admin/submit-intake"}>
+            <AdminSubmitIntake />
+          </LayoutWrapper>
+        </AdminOnly>
       } />
+      {/* TODO: add /admin/questionnaire-intake-recovery once QuestionnaireIntakeRecovery page exists */}
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

@@ -8,8 +8,7 @@ import {
 } from "@/lib/adminAccess";
 
 export default function AdminOnly({ children }) {
-  const { user, isLoadingAuth, isLoadingPublicSettings, isAuthenticated, navigateToLogin } =
-    useAuth();
+  const { user, isLoadingAuth, isLoadingPublicSettings, isAuthenticated, navigateToLogin } = useAuth();
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -20,21 +19,20 @@ export default function AdminOnly({ children }) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !user) {
     return (
       <div className="fixed inset-0 flex items-center justify-center px-6">
-        <div className="w-full max-w-sm border border-slate-200 rounded-xl bg-white shadow-sm p-8 flex flex-col items-center text-center gap-4">
-          <h2 className="text-lg font-semibold text-slate-800">Sign in required</h2>
+        <div className="max-w-sm w-full bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center space-y-4">
+          <h2 className="text-lg font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
+            Sign in required
+          </h2>
           <p className="text-sm text-slate-500">
             Please sign in with an authorized admin account to view Express questionnaire admin tools.
           </p>
           <Button
-            onClick={() =>
-              navigateToLogin
-                ? navigateToLogin()
-                : window.location.assign("/login")
-            }
-            className="w-full"
+            onClick={() => navigateToLogin ? navigateToLogin() : window.location.assign("/login")}
+            className="w-full font-bold uppercase tracking-wider text-sm"
+            style={{ backgroundColor: "#004B87", color: "white", borderRadius: "2px" }}
           >
             Sign in
           </Button>
@@ -46,10 +44,12 @@ export default function AdminOnly({ children }) {
   if (!isExpressAdminUser(user)) {
     return (
       <div className="fixed inset-0 flex items-center justify-center px-6">
-        <div className="w-full max-w-sm border border-slate-200 rounded-xl bg-white shadow-sm p-8 flex flex-col items-center text-center gap-4">
-          <h2 className="text-lg font-semibold text-slate-800">Access denied</h2>
+        <div className="max-w-sm w-full bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center space-y-4">
+          <h2 className="text-lg font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
+            Access denied
+          </h2>
           <p className="text-sm text-slate-500">{getAdminAccessDeniedMessage()}</p>
-          {user?.email && (
+          {user.email && (
             <p className="text-xs text-slate-400">Signed in as {user.email}</p>
           )}
         </div>
