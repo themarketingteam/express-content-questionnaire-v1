@@ -213,13 +213,13 @@ export default function QuestionnaireIntakeRecovery() {
     copyJson(payload, "Submit-intake payload copied");
   };
 
-  const handleRetry = async (record) => {
+  const handleRetry = async (record, { forceRetry = false } = {}) => {
     try {
       setRetryingId(record.id);
       const response = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
-        forceRetry: false,
+        forceRetry,
       });
 
       const data = response?.data;
@@ -227,6 +227,8 @@ export default function QuestionnaireIntakeRecovery() {
       if (data?.success) {
         if (data.alreadySubmitted) {
           toast.info("Already linked to a submission");
+        } else if (forceRetry) {
+          toast.success("Force retry completed");
         } else {
           toast.success("Submission retry completed");
         }
@@ -253,6 +255,39 @@ export default function QuestionnaireIntakeRecovery() {
       } catch {
         // ignore refresh errors
       }
+    }
+  };
+
+  const handleCopyRetryDiagnostics = (record) => {
+    const diagnostics = {
+      id: record.id,
+      questionnaire_session_id: record.questionnaire_session_id,
+      status: record.status,
+      retry_count: record.retry_count || 0,
+      last_retry_at: record.last_retry_at,
+      linked_submission_id: record.linked_submission_id,
+      zapier_sent: record.zapier_sent,
+      retry_error: parseJson(record.retry_error_json),
+      primary_error: parseJson(record.primary_error_json),
+      fallback_error: parseJson(record.fallback_error_json),
+      primary_failure_kind: record.primary_failure_kind,
+      fallback_failure_kind: record.fallback_failure_kind,
+    };
+    copyJson(diagnostics, "Retry diagnostics copied");
+  };
+
+  const getStatusNote = (status) => {
+    switch (status) {
+      case "retry_success":
+        return "Retry created or linked a final submission.";
+      case "retry_failed":
+        return "Retry failed. Review retry diagnostics before trying again.";
+      case "received_intake":
+        return "Intake has been received and is ready for admin review.";
+      case "submitted":
+        return "Submission was created during fallback handling.";
+      default:
+        return "";
     }
   };
 
@@ -602,14 +637,33 @@ export default function QuestionnaireIntakeRecovery() {
                       </Button>
                     )}
                     {record.linked_submission_id && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled
-                        className="bg-slate-100 text-slate-500 border-slate-300"
-                      >
-                        Already linked to a submission
-                      </Button>
+                      <>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => {
+                            if (window.confirm("This intake record is already linked to a submission. Force retry may create a duplicate FormSubmission. Continue?")) {
+                              handleRetry(record, { forceRetry: true });
+                            }
+                          }}
+                          disabled={retryingId === record.id}
+                        >
+                          {retryingId === record.id ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Retrying...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Force Retry
+                            </>
+                          )}
+                        </Button>
+                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200">
+                          Use only when support intentionally needs to create or relink a submission from this intake payload.
+                        </span>
+                      </>
                     )}
                   </div>
 
