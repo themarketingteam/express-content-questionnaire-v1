@@ -1,0 +1,137 @@
+{
+  "name": "FormDraft",
+  "type": "object",
+  "required": [
+    "session_id"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Stable questionnaire session ID"
+    },
+    "business_name": {
+      "type": "string",
+      "description": "Business name associated with the draft"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Business domain associated with the draft"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "Client user ID if available"
+    },
+    "user_name": {
+      "type": "string",
+      "description": "Client user name if available"
+    },
+    "user_email": {
+      "type": "string",
+      "description": "Client user email if available"
+    },
+    "status": {
+      "type": "string",
+      "description": "Draft lifecycle status"
+    },
+    "current_question_id": {
+      "type": "string",
+      "description": "Currently active question ID"
+    },
+    "last_changed_question_id": {
+      "type": "string",
+      "description": "Last changed question ID"
+    },
+    "responses_json": {
+      "type": "string",
+      "description": "Serialized Express questionnaire responses"
+    },
+    "validation_status_json": {
+      "type": "string",
+      "description": "Serialized validation status map"
+    },
+    "touched_questions_json": {
+      "type": "string",
+      "description": "Serialized touched questions map"
+    },
+    "expanded_questions_json": {
+      "type": "string",
+      "description": "Serialized expanded questions map"
+    },
+    "metadata_json": {
+      "type": "string",
+      "description": "JSON string of mapped final payload metadata"
+    },
+    "userdata_json": {
+      "type": "string",
+      "description": "JSON string of mapped final payload userdata"
+    },
+    "mapped_payload_json": {
+      "type": "string",
+      "description": "JSON string of full mapped final-style Express questionnaire payload"
+    },
+    "draft_metadata_json": {
+      "type": "string",
+      "description": "Technical draft autosave metadata such as page path, source, app name, and user agent"
+    },
+    "save_error": {
+      "type": "string",
+      "description": "Latest draft save error message"
+    },
+    "submit_error": {
+      "type": "string",
+      "description": "Latest submit error payload"
+    },
+    "submit_attempted_at": {
+      "type": "string",
+      "description": "When final submit was attempted"
+    },
+    "submitted_at": {
+      "type": "string",
+      "description": "When final submit succeeded"
+    },
+    "last_changed_at": {
+      "type": "string",
+      "description": "When the last answer changed"
+    },
+    "last_saved_at": {
+      "type": "string",
+      "description": "When the draft was last saved"
+    },
+    "final_submission_id": {
+      "type": "string",
+      "description": "Linked final FormSubmission ID"
+    }
+  },
+  "rls": {
+    "create": {},
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

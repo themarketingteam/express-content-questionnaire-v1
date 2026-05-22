@@ -16,14 +16,14 @@ const capitalizeBusinessName = (name) => {
     .join(' ');
 };
 
-export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain }) {
+export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain, isSubmitting = false }) {
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && !isSubmitting) onCancel();
     };
 
     document.addEventListener("keydown", handleEscape);
@@ -33,7 +33,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
       document.removeEventListener("keydown", handleEscape);
       document.body.style.overflow = "unset";
     };
-  }, [onCancel]);
+  }, [onCancel, isSubmitting]);
 
   const formatAnswer = (value) => {
     if (Array.isArray(value)) {
