@@ -25,7 +25,7 @@ import { runSubmitTextValidation } from "@/lib/expressSubmitTextValidation";
 import { getExpressQuestionDisplayStatus } from "@/lib/questionValidationStatus";
 import QuestionValidationBadge from "@/components/questionnaire/QuestionValidationBadge";
 import IncompleteQuestionSummary from "@/components/questionnaire/IncompleteQuestionSummary";
-import { buildIncompleteQuestionSummary, getFirstBlockingQuestionId } from "@/lib/incompleteQuestionSummary";
+import { buildIncompleteQuestionSummary, getFirstBlockingQuestionId, hasBlockingIncompleteItems } from "@/lib/incompleteQuestionSummary";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -240,6 +240,7 @@ export default function Questionnaire() {
   const [submitValidationIssues, setSubmitValidationIssues] = useState([]);
   const [submitValidationWarnings, setSubmitValidationWarnings] = useState([]);
   const [isSubmitValidatingText, setIsSubmitValidatingText] = useState(false);
+  const [submitAttemptedWithIncomplete, setSubmitAttemptedWithIncomplete] = useState(false);
 
   // Memoized incomplete question summary
   const incompleteSummary = React.useMemo(() => {
@@ -702,11 +703,28 @@ export default function Questionnaire() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (isFormValid()) {
-      setShowConfirmModal(true);
-    } else {
-      alert("Please complete all required fields before submitting.");
+    
+    // Check for blocking incomplete items
+    const hasBlocking = hasBlockingIncompleteItems(incompleteSummary);
+    
+    if (hasBlocking) {
+      // Show incomplete summary prominently
+      setSubmitAttemptedWithIncomplete(true);
+      
+      // Find and scroll to first blocking question
+      const firstBlockingId = getFirstBlockingQuestionId(incompleteSummary);
+      if (firstBlockingId) {
+        goToQuestion(firstBlockingId);
+      }
+      
+      // Show user-friendly message
+      toast.error("Please complete the highlighted questions before submitting.");
+      return;
     }
+    
+    // No blocking items - proceed with confirmation modal
+    setSubmitAttemptedWithIncomplete(false);
+    setShowConfirmModal(true);
   };
 
   const handleConfirmSubmit = useCallback(async (businessName, domain) => {
@@ -1083,6 +1101,7 @@ export default function Questionnaire() {
             summary={incompleteSummary}
             onGoToQuestion={goToQuestion}
             onOpenValidationGuide={() => setShowValidationGuide(true)}
+            compact={!submitAttemptedWithIncomplete}
           />
         </div>
 
