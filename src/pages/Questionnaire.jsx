@@ -417,6 +417,10 @@ export default function Questionnaire() {
 
   // Auto-save
   useEffect(() => {
+    if (hasFinalSubmittedRef.current) {
+      return;
+    }
+
     const saveTimer = setTimeout(() => {
       setCookie(STORAGE_KEY, JSON.stringify(formData));
       setShowSaveIndicator(true);
@@ -429,6 +433,9 @@ export default function Questionnaire() {
   // Save before page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
+      // Skip autosave after final submission
+      if (hasFinalSubmittedRef.current) return;
+      
       // Existing cookie autosave
       setCookie(STORAGE_KEY, JSON.stringify(formData));
       // Local draft backup on unload
