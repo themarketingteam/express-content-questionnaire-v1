@@ -1,4 +1,5 @@
 import { base44 } from "@/api/base44Client";
+import { base44 } from "@/api/base44Client";
 import {
   buildExpressSubmissionPayload,
   mapExpressPayloadToFormSubmissionRecord,
@@ -11,6 +12,78 @@ import {
   buildExpressPayloadFeatureSummary,
 } from "@/lib/expressSubmissionResilience";
 import { sendExpressZapierSafe, buildExpressZapierPayload } from "@/lib/expressZapierDelivery";
+
+// Best-effort Zapier delivery status persistence
+export async function updateZapierDeliveryStatusSafe(args) {
+  const { submissionId, intakeId, zapierResult, createDraftEvent, questionnaireSessionId, businessName, domain } = args;
+  
+  const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+  const timestamp = new Date().toISOString();
+  
+  // Build safe delivery update values
+  const update = zapierResult.ok
+    ? {
+        zapier_delivery_status: "sent",
+        zapier_sent: true,
+        zapier_sent_at: timestamp,
+        zapier_error_json: "",
+        zapier_attempt_count: 1,
+      }
+    : {
+        zapier_delivery_status: "failed",
+        zapier_sent: false,
+        zapier_sent_at: "",
+        zapier_error_json: safeJsonStringify(zapierResult.error || {}),
+        zapier_attempt_count: 1,
+      };
+  
+  // Update FormSubmission if submissionId exists
+  if (submissionId) {
+    try {
+      await base44.entities.FormSubmission.update(submissionId, update);
+    } catch (err) {
+      if (isDev) {
+        console.warn('[updateZapierDeliveryStatusSafe] Could not update FormSubmission:', err.message);
+      }
+    }
+  }
+  
+  // Update FormSubmissionIntake if no submissionId but intakeId exists
+  if (!submissionId && intakeId) {
+    try {
+      await base44.entities.FormSubmissionIntake.update(intakeId, {
+        zapier_sent: update.zapier_sent,
+        zapier_error_json: update.zapier_error_json,
+      });
+    } catch (err) {
+      if (isDev) {
+        console.warn('[updateZapierDeliveryStatusSafe] Could not update FormSubmissionIntake:', err.message);
+      }
+    }
+  }
+  
+  // Create draft event
+  if (createDraftEvent) {
+    const eventType = zapierResult.ok ? "zapier_sent" : "zapier_failed";
+    await createDraftEventSafe({
+      createDraftEvent,
+      event: {
+        eventType,
+        questionId: "",
+        questionType: "submit",
+        value: {
+          stage: eventType,
+          session_id: questionnaireSessionId,
+          business_name: businessName,
+          domain,
+          submissionId: submissionId || null,
+          intakeId: intakeId || null,
+          zapierResult: zapierResult.ok ? { ok: true } : { ok: false, error: zapierResult.error },
+        },
+      },
+    });
+  }
+}
 
 // Custom error class for submit flow failures
 export class SubmitFlowError extends Error {
@@ -337,74 +410,33 @@ export async function submitExpressQuestionnaire(args) {
     // Zapier delivery: send after successful save/fallback
     let zapierSent = false;
     let zapierError = null;
+    let zapierResult = { ok: false, error: null };
     
     try {
       const zapierPayload = buildExpressZapierPayload(transformedPayload);
-      const zapierResult = await sendExpressZapierSafe(zapierPayload);
+      zapierResult = await sendExpressZapierSafe(zapierPayload);
       
       if (zapierResult.ok) {
         zapierSent = true;
-        
-        // Record zapier_sent event
-        if (createDraftEvent) {
-          await createDraftEventSafe({
-            createDraftEvent,
-            event: {
-              eventType: "zapier_sent",
-              questionId: "",
-              questionType: "submit",
-              value: {
-                stage: "zapier_sent",
-                session_id: questionnaireSessionId,
-                business_name: businessName,
-                domain,
-                zapierSent: true,
-              },
-            },
-          });
-        }
       } else {
         zapierError = zapierResult.error;
-        
-        // Record zapier_failed event
-        if (createDraftEvent) {
-          await createDraftEventSafe({
-            createDraftEvent,
-            event: {
-              eventType: "zapier_failed",
-              questionId: "",
-              questionType: "submit",
-              value: {
-                stage: "zapier_failed",
-                session_id: questionnaireSessionId,
-                business_name: businessName,
-                domain,
-                zapierError: serializeExpressError(new Error(zapierError)),
-              },
-            },
-          });
-        }
       }
     } catch (zapierErr) {
       // Silently ignore Zapier errors - don't fail the submission
       zapierError = zapierErr.message || 'Zapier delivery failed';
+      zapierResult = { ok: false, error: zapierError };
     }
-
-    // Best-effort update FormSubmissionIntake if intake was received
-    if (submitResult.receivedViaIntake && submitResult.intakeId) {
-      try {
-        await base44.entities.FormSubmissionIntake.update(submitResult.intakeId, {
-          zapier_sent: zapierSent,
-          zapier_error_json: zapierError ? JSON.stringify({ message: zapierError }) : null,
-        });
-      } catch (intakeUpdateErr) {
-        // RLS may prevent client updates - log only in development
-        const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
-        if (isDev) {
-          console.warn('[submitExpressQuestionnaire] Could not update intake with Zapier status:', intakeUpdateErr.message);
-        }
-      }
-    }
+    
+    // Best-effort persist Zapier status to FormSubmission or FormSubmissionIntake
+    await updateZapierDeliveryStatusSafe({
+      submissionId: submitResult.submissionId,
+      intakeId: submitResult.intakeId,
+      zapierResult,
+      createDraftEvent,
+      questionnaireSessionId,
+      businessName,
+      domain,
+    });
 
     // Record submit success stage
     if (createDraftEvent) {

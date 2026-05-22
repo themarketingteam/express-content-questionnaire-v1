@@ -179,6 +179,7 @@ export default function QuestionnaireIntakeRecovery() {
       retry_count: record.retry_count,
       linked_submission_id: record.linked_submission_id,
       zapier_sent: record.zapier_sent,
+      zapier_error: parseJson(record.zapier_error_json),
       transformed_payload: parseJson(record.transformed_payload_json),
       raw_responses: parseJson(record.raw_responses_json),
       diagnostics: parseJson(record.diagnostics_json),
@@ -545,6 +546,21 @@ export default function QuestionnaireIntakeRecovery() {
                             {(() => {
                               const err = parseJson(record.retry_error_json);
                               return err?.message || "—";
+                            })()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Zapier Sent:</span>
+                          <span className={record.zapier_sent ? "text-green-700 font-medium" : "text-slate-700 font-medium"}>
+                            {record.zapier_sent ? "Yes" : "No"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Zapier Error:</span>
+                          <span className="font-medium text-slate-700">
+                            {(() => {
+                              const err = parseJson(record.zapier_error_json);
+                              return err?.message || (record.zapier_error_json ? record.zapier_error_json : "—");
                             })()}
                           </span>
                         </div>

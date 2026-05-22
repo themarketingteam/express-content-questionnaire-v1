@@ -136,6 +136,9 @@ export default function AdminSubmitIntake() {
           Paste or edit an Express questionnaire payload, validate it, and save it to FormSubmission.
         </p>
         <p className="text-xs text-slate-400 mt-1">
+          This page saves a FormSubmission manually. Zapier resend is handled separately from database save status.
+        </p>
+        <p className="text-xs text-slate-400 mt-1">
           Signed in as <span className="font-medium">{user?.email}</span>
         </p>
       </div>
