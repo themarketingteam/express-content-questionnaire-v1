@@ -249,6 +249,9 @@ export default function Questionnaire() {
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
 
+  // Text validation hook - must be declared before use
+  const textValidation = useExpressTextValidation();
+
   // Memoized incomplete question summary
   const incompleteSummary = React.useMemo(() => {
     return buildIncompleteQuestionSummary({
@@ -259,9 +262,6 @@ export default function Questionnaire() {
       isQuestionComplete,
     });
   }, [formData, touchedQuestions, textValidation, isQuestionComplete]);
-
-  // Text validation hook
-  const textValidation = useExpressTextValidation();
 
   const submitInFlightRef = useRef(false);
   const activeSubmitAttemptIdRef = useRef("");
