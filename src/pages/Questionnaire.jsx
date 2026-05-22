@@ -1030,16 +1030,16 @@ export default function Questionnaire() {
     setIsClearingAll(true);
     
     try {
-      // Reset form data to initial state
-      setFormData(getInitialExpressFormData());
+      // Create cleared state values
+      const clearedFormData = getInitialExpressFormData();
+      const clearedValidationStatus = {};
+      const clearedTouchedQuestions = {};
+      const clearedExpandedQuestions = getDefaultExpandedQuestions();
       
-      // Reset validation status
+      // Set state using exact cleared values
+      setFormData(clearedFormData);
       textValidation.resetAllFields();
-      
-      // Reset touched questions
-      setTouchedQuestions({});
-      
-      // Reset open questions to defaults
+      setTouchedQuestions(clearedTouchedQuestions);
       setOpenQuestions([1]);
       
       // Clear submit validation issues/warnings
@@ -1050,29 +1050,14 @@ export default function Questionnaire() {
       setSubmitError(null);
       setRecoveryCode("");
       
-      // Queue draft save with cleared responses (if not finally submitted)
+      // Save cleared state to draft snapshot
       if (!hasFinalSubmittedRef.current) {
-        const clearedResponses = getInitialExpressFormData();
-        const expandedSnap = Object.fromEntries(
-          Array.from({ length: 12 }, (_, i) => [String(i + 1), [1].includes(i + 1)])
-        );
-        const validationStatus = textValidation.getAllFieldStatuses();
-        
-        // Save cleared state to draft
-        await saveDraftSnapshot({
-          sessionId: questionnaireSessionId,
-          responses: clearedResponses,
-          validationStatus,
-          touchedQuestions: {},
-          expandedQuestions: expandedSnap,
-          credentials: urlCredentials,
-          businessNameParam,
-          domainParam,
-          currentQuestionId: "",
-          lastChangedQuestionId: "",
+        await saveDraftNow({
           status: "draft",
-          submitError: "",
-          finalSubmissionId: "",
+          responsesSnapshot: clearedFormData,
+          validationStatusSnapshot: clearedValidationStatus,
+          touchedQuestionsSnapshot: clearedTouchedQuestions,
+          expandedQuestionsSnapshot: clearedExpandedQuestions,
         });
         
         // Create draft event for destructive action
@@ -1080,16 +1065,20 @@ export default function Questionnaire() {
           eventType: "answers_cleared",
           questionId: "",
           questionType: "destructive_action",
-          value: { session_id: questionnaireSessionId },
+          value: {
+            session_id: questionnaireSessionId,
+            cleared_at: new Date().toISOString(),
+            cleared_fields_count: Object.keys(clearedFormData).length,
+          },
         });
       }
       
-      // Update cookie to reflect cleared form
+      // Update cookie with cleared versioned state
       const persistedState = buildPersistedState({
-        formData: getInitialExpressFormData(),
-        validationStatus: {},
-        touchedQuestions: {},
-        expandedQuestions: { "1": true },
+        formData: clearedFormData,
+        validationStatus: clearedValidationStatus,
+        touchedQuestions: clearedTouchedQuestions,
+        expandedQuestions: clearedExpandedQuestions,
         questionnaireSessionId,
       });
       setCookie(STORAGE_KEY, serializePersistedState(persistedState));
@@ -1102,7 +1091,7 @@ export default function Questionnaire() {
       setIsClearingAll(false);
       setShowClearAllConfirm(false);
     }
-  }, [questionnaireSessionId, textValidation, saveDraftSnapshot, createDraftEvent, urlCredentials, businessNameParam, domainParam]);
+  }, [questionnaireSessionId, textValidation, saveDraftNow, createDraftEvent]);
 
   const handleReset = () => {
     setShowClearAllConfirm(true);

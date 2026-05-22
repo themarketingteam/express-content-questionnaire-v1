@@ -28,6 +28,10 @@ export function getValueSummary(value) {
       if (value.status !== undefined) {
         return `Validation status: ${value.status}`;
       }
+      // Check for clear-all action objects
+      if (value.cleared_at && value.session_id) {
+        return "Answers cleared";
+      }
       return "Object answer";
     }
     return `${typeof value} value`;
