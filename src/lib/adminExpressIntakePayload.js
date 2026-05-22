@@ -4,6 +4,8 @@
  * for the /admin/submit-intake page.
  */
 
+import { cleanExpressDomain } from "@/lib/expressQuestionnairePayload";
+
 export function initialExpressAdminIntakePayload() {
   return {
     metadata: {
@@ -55,7 +57,7 @@ export function repairExpressAdminIntakePayload(payload) {
 
   const repairedMetadata = {
     business_name: String(md.business_name || "").trim(),
-    businessDomain: String(md.businessDomain || "").trim(),
+    businessDomain: cleanExpressDomain(md.businessDomain || ""),
     submission_datetime: md.submission_datetime || new Date().toISOString(),
     service_type: "express",
     questionnaire_session_id: String(md.questionnaire_session_id || "").trim()
