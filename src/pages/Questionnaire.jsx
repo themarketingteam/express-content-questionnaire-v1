@@ -1834,12 +1834,15 @@ export default function Questionnaire() {
                 fontFamily: 'Lato, sans-serif'
               }}
             >
-              Clear All
+              Clear All Answers
             </button>
           </div>
+          <p className="text-xs text-slate-500 mt-3">
+            This clears the answers shown in the form, but does not delete server-side recovery records.
+          </p>
 
           {/* Local state recovery option */}
-          <div className="pt-6 border-t" style={{ borderColor: '#E0E0E0' }}>
+          <div className="pt-6 border-t mt-8" style={{ borderColor: '#E0E0E0' }}>
             <button
               type="button"
               onClick={handleLocalStateRecovery}
