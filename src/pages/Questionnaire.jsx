@@ -1145,6 +1145,14 @@ export default function Questionnaire() {
                     >
                       {textValidation.isFieldValidating("differentiation") ? "Validating..." : "Validate Answer"}
                     </button>
+                    <span className="text-xs text-slate-500">This quick check looks for enough useful detail, not perfect wording.</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowValidationGuide(true)}
+                      className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      What does this mean?
+                    </button>
                   </div>
                   
                   {(() => {
@@ -1176,6 +1184,12 @@ export default function Questionnaire() {
                               </li>
                             ))}
                           </ul>
+                        )}
+                        {(status.status === 'needs_work' || status.status === 'incomplete') && (
+                          <p className="text-xs text-slate-600 mt-2">Try adding specific clients, services, outcomes, or business problems.</p>
+                        )}
+                        {status.status === 'dirty' && (
+                          <p className="text-xs text-slate-600 mt-2">You edited this after the last check. Validate again before submitting.</p>
                         )}
                       </div>
                     );
@@ -1424,6 +1438,14 @@ export default function Questionnaire() {
                     >
                       {textValidation.isFieldValidating("idealClient") ? "Validating..." : "Validate Answer"}
                     </button>
+                    <span className="text-xs text-slate-500">This quick check looks for enough useful detail, not perfect wording.</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowValidationGuide(true)}
+                      className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      What does this mean?
+                    </button>
                   </div>
                   
                   {(() => {
@@ -1455,6 +1477,12 @@ export default function Questionnaire() {
                               </li>
                             ))}
                           </ul>
+                        )}
+                        {(status.status === 'needs_work' || status.status === 'incomplete') && (
+                          <p className="text-xs text-slate-600 mt-2">Try adding specific clients, services, outcomes, or business problems.</p>
+                        )}
+                        {status.status === 'dirty' && (
+                          <p className="text-xs text-slate-600 mt-2">You edited this after the last check. Validate again before submitting.</p>
                         )}
                       </div>
                     );
@@ -1536,6 +1564,7 @@ export default function Questionnaire() {
           submitAttemptId={activeSubmitAttemptIdRef.current}
           localRecoveryBackupId={localRecoveryBackupId}
           latestLocalRecoveryBackup={latestLocalRecoveryBackup}
+          onOpenValidationGuide={() => setShowValidationGuide(true)}
         />
       )}
 

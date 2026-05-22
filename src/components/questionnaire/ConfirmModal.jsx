@@ -30,7 +30,8 @@ export default function ConfirmModal({
   localRecoveryBackupId = "",
   latestLocalRecoveryBackup = null,
   submitValidationIssues = [],
-  submitValidationWarnings = []
+  submitValidationWarnings = [],
+  onOpenValidationGuide
 }) {
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
@@ -329,6 +330,9 @@ export default function ConfirmModal({
                 <p className="text-sm font-semibold text-red-800 mb-1">
                   A few answers need more detail before submitting
                 </p>
+                <p className="text-xs text-red-700 mb-3">
+                  These answers need a little more detail before we can submit the questionnaire.
+                </p>
                 <div className="space-y-2 mt-3">
                   {submitValidationIssues.map((issue, idx) => (
                     <div key={idx} className="bg-red-100 border border-red-200 rounded-lg p-3">
@@ -349,9 +353,20 @@ export default function ConfirmModal({
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-red-700 mt-3 italic">
-                  Use "Go Back & Edit" to update these answers, then return to submit again.
-                </p>
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-xs text-red-700 italic">
+                    Use "Go Back & Edit" to update these answers, then return to submit again.
+                  </p>
+                  {typeof onOpenValidationGuide === 'function' && (
+                    <button
+                      type="button"
+                      onClick={onOpenValidationGuide}
+                      className="text-xs text-red-700 hover:text-red-900 hover:underline font-semibold"
+                    >
+                      Open Answer Quality Guide
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -365,6 +380,9 @@ export default function ConfirmModal({
               <div className="flex-1">
                 <p className="text-sm font-semibold text-amber-800 mb-1">
                   Optional improvements
+                </p>
+                <p className="text-xs text-amber-700 mb-3">
+                  These suggestions are optional, but improving them may help the team use your answers more effectively.
                 </p>
                 <div className="space-y-2 mt-3">
                   {submitValidationWarnings.map((warning, idx) => (
@@ -386,6 +404,17 @@ export default function ConfirmModal({
                     </div>
                   ))}
                 </div>
+                {typeof onOpenValidationGuide === 'function' && (
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={onOpenValidationGuide}
+                      className="text-xs text-amber-700 hover:text-amber-900 hover:underline font-semibold"
+                    >
+                      Open Answer Quality Guide
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
