@@ -1346,16 +1346,6 @@ export default function Questionnaire() {
           </button>
         </div>
 
-        {/* Inline incomplete question summary */}
-        <div className="mb-8">
-          <IncompleteQuestionSummary
-            summary={incompleteSummary}
-            onGoToQuestion={goToQuestion}
-            onOpenValidationGuide={() => setShowValidationGuide(true)}
-            compact={!submitAttemptedWithIncomplete}
-          />
-        </div>
-
         <form onSubmit={handleSubmit} className="space-y-16">
           <section className="space-y-8">
             <div className="pb-6 border-b-2" style={{ borderColor: '#009ADD' }}>
@@ -1838,6 +1828,19 @@ export default function Questionnaire() {
               Clear All Answers
             </button>
           </div>
+
+          {/* Show incomplete questions only after submit attempt */}
+          {submitAttemptedWithIncomplete && (
+            <div className="mt-8">
+              <IncompleteQuestionSummary
+                summary={incompleteSummary}
+                onGoToQuestion={goToQuestion}
+                onOpenValidationGuide={() => setShowValidationGuide(true)}
+                compact={false}
+              />
+            </div>
+          )}
+
           <p className="text-xs text-slate-500 mt-3">
             This clears the answers shown in the form, but does not delete server-side recovery records.
           </p>
