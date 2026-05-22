@@ -340,7 +340,7 @@ export async function createExpressFormSubmissionWithFallback(args) {
     }
 
     const fallbackBody = buildExpressFallbackBody({
-      payload,
+      transformedPayload: payload,
       responseSnapshot,
       rawResponses,
       transformFailed,
@@ -351,6 +351,7 @@ export async function createExpressFormSubmissionWithFallback(args) {
       draftId,
       submitContext,
       diagnostics,
+      primaryError: primaryResult?.error || null,
     });
 
     const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
@@ -407,7 +408,7 @@ export async function createExpressFormSubmissionWithFallback(args) {
     }
 
     const fallbackBody = buildExpressFallbackBody({
-      payload,
+      transformedPayload: payload,
       responseSnapshot,
       rawResponses,
       transformFailed,
@@ -418,6 +419,7 @@ export async function createExpressFormSubmissionWithFallback(args) {
       draftId,
       submitContext,
       diagnostics,
+      primaryError: null,
     });
 
     const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
