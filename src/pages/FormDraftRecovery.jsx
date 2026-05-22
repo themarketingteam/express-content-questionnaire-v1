@@ -201,16 +201,34 @@ const STATUS_OPTIONS = [
 ];
 
 export default function FormDraftRecovery() {
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [authed, setAuthed] = useState(false);
+  const [user, setUser] = useState(null);
+
   const [drafts, setDrafts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Auth check on mount
   useEffect(() => {
+    base44.auth.isAuthenticated().then(async (isAuthed) => {
+      if (isAuthed) {
+        const me = await base44.auth.me();
+        setUser(me);
+        setAuthed(true);
+      }
+      setLoadingAuth(false);
+    });
+  }, []);
+
+  // Load drafts only after auth succeeds
+  useEffect(() => {
+    if (!authed) return;
+    setLoading(true);
     base44.entities.FormDraft.list()
       .then((data) => {
-        // Sort newest first
         const sorted = [...(data || [])].sort((a, b) => {
           const ta = new Date(a.last_saved_at || a.created_date || 0).getTime();
           const tb = new Date(b.last_saved_at || b.created_date || 0).getTime();
@@ -220,7 +238,7 @@ export default function FormDraftRecovery() {
       })
       .catch((err) => setLoadError(err?.message || "Failed to load drafts."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [authed]);
 
   // Build duplicate session id set
   const duplicateSessionIds = useMemo(() => {
@@ -245,6 +263,27 @@ export default function FormDraftRecovery() {
     });
   }, [drafts, search, statusFilter]);
 
+  // Auth loading state
+  if (loadingAuth) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Unauthenticated state
+  if (!authed) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-4">
+        <p className="text-slate-600 text-sm">Please sign in to view Express draft recovery data.</p>
+        <Button onClick={() => base44.auth.redirectToLogin(window.location.pathname)}>
+          Sign in
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
       {/* Header */}
@@ -255,6 +294,9 @@ export default function FormDraftRecovery() {
         <p className="text-sm text-slate-500 mt-1">
           Review recent Express questionnaire drafts and copy recovery data for support.
         </p>
+        {user?.email && (
+          <p className="text-xs text-slate-400 mt-1">Signed in as {user.email}</p>
+        )}
       </div>
 
       {/* Filters */}
