@@ -78,38 +78,47 @@ export default function AdminSubmitIntake() {
 
     setSubmitting(true);
 
-    const repaired = repairExpressAdminIntakePayload(payload);
-    if (!repaired) {
-      setSaveError("Payload could not be repaired. Please check the JSON structure.");
-      toast.error("Submission payload is not valid.");
+    try {
+      const repairResult = repairExpressAdminIntakePayload(payload);
+      if (!repairResult.ok) {
+        setSaveError("Payload could not be repaired:\n" + repairResult.errors.join("\n"));
+        toast.error("Submission payload is not valid.");
+        setSubmitting(false);
+        return;
+      }
+
+      const repaired = repairResult.payload;
+
+      // Enforce Express-only safety on domain and service_type
+      repaired.metadata.service_type = "express";
+      repaired.metadata.businessDomain = cleanExpressDomain(repaired.metadata.businessDomain);
+
+      const validation = validateExpressAdminIntakePayload(repaired);
+      if (!validation.ok) {
+        setSaveError("Validation failed:\n" + validation.errors.join("\n"));
+        toast.error("Validation failed. See errors above.");
+        setSubmitting(false);
+        return;
+      }
+
+      // Map to DB record — _rawFormData is never included
+      const record = mapExpressPayloadToFormSubmissionRecord(repaired);
+
+      const res = await base44.entities.FormSubmission.create(record);
+      const id = res?.id || res?.data?.id || null;
+
+      setSubmittedId(id);
+      setPayload(repaired);
+      setRawJson(JSON.stringify(repaired, null, 2));
+
+      toast.success("Submission saved" + (id ? ` (id: ${id})` : ""));
+    } catch (err) {
+      const message = err?.message || err || "Unknown error";
+      setSaveError(`Submission failed: ${message}`);
+      toast.error("Submission failed. See error details above.");
+    } finally {
       setSubmitting(false);
-      return;
     }
-
-    // Enforce Express-only safety on domain and service_type
-    repaired.metadata.service_type = "express";
-    repaired.metadata.businessDomain = cleanExpressDomain(repaired.metadata.businessDomain);
-
-    const { valid, errors } = validateExpressAdminIntakePayload(repaired);
-    if (!valid) {
-      setSaveError("Validation failed:\n" + errors.join("\n"));
-      toast.error("Validation failed. See errors above.");
-      setSubmitting(false);
-      return;
-    }
-
-    // Map to DB record — _rawFormData is never included
-    const record = mapExpressPayloadToFormSubmissionRecord(repaired);
-
-    const res = await base44.entities.FormSubmission.create(record);
-    const id = res?.id || res?.data?.id || null;
-
-    setSubmittedId(id);
-    setPayload(repaired);
-    setRawJson(JSON.stringify(repaired, null, 2));
-
-    toast.success("Submission saved" + (id ? ` (id: ${id})` : ""));
-    setSubmitting(false);
   };
 
   return (
