@@ -71,6 +71,13 @@ const getStatusStyle = (status) => {
   }
 };
 
+// Retryable status helper
+const RETRYABLE_STATUSES = new Set(["received_intake", "retry_failed", "retry_pending"]);
+
+function isRetryableIntake(record) {
+  return RETRYABLE_STATUSES.has(record?.status) && !record?.linked_submission_id;
+}
+
 export default function QuestionnaireIntakeRecovery() {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -667,32 +674,7 @@ export default function QuestionnaireIntakeRecovery() {
 
                   {/* Retry button */}
                   <div className="flex flex-wrap gap-2 mb-2">
-                    {!record.linked_submission_id && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => handleRetry(record)}
-                        disabled={retryingId === record.id}
-                        className={
-                          record.status === "retry_failed"
-                            ? "bg-red-600 hover:bg-red-700"
-                            : "bg-blue-600 hover:bg-blue-700"
-                        }
-                      >
-                        {retryingId === record.id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Retrying...
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Retry Submission
-                          </>
-                        )}
-                      </Button>
-                    )}
-                    {record.linked_submission_id && (
+                    {record.linked_submission_id ? (
                       <>
                         <Button
                           variant="destructive"
@@ -720,11 +702,47 @@ export default function QuestionnaireIntakeRecovery() {
                           Use only when support intentionally needs to create or relink a submission from this intake payload.
                         </span>
                       </>
+                    ) : isRetryableIntake(record) ? (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleRetry(record)}
+                        disabled={retryingId === record.id}
+                        className={
+                          record.status === "retry_failed"
+                            ? "bg-red-600 hover:bg-red-700"
+                            : "bg-blue-600 hover:bg-blue-700"
+                        }
+                      >
+                        {retryingId === record.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Retrying...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Retry Submission
+                          </>
+                        )}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+                        This intake status is not currently retryable.
+                      </span>
                     )}
                   </div>
 
                   {/* Action buttons */}
                   <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCopySubmitIntakePayload(record)}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copy Submit-Intake Payload
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
