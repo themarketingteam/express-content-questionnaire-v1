@@ -1168,19 +1168,31 @@ export default function Questionnaire() {
     return openNums.length > 0 ? openNums : [1];
   };
 
+  // Build expanded questions object for validator
+  const expandedQuestionsSnapshot = openQuestionsToExpandedQuestionsObject(openQuestions);
+
   return (
-    <>
-      {/* Self-healing data validator - monitors and repairs malformed persisted state */}
+    <QuestionnaireErrorBoundary
+      onResetLocalState={handleResetLocalState}
+      onBeforeReset={handleBeforeReset}
+      recoveryCode={questionnaireSessionId}
+    >
+      {/* Self-healing data validator - repairs malformed state silently */}
       <ExpressDataValidator
         formData={formData}
         validationStatus={textValidation.getAllFieldStatuses()}
         touchedQuestions={touchedQuestions}
-        expandedQuestions={openQuestionsToExpandedQuestionsObject(openQuestions)}
+        expandedQuestions={expandedQuestionsSnapshot}
         setFormData={setFormData}
-        setValidationStatus={textValidation.setFieldValidation}
+        setValidationStatus={(vs) => {
+          // Apply validation status repairs to hook
+          Object.entries(vs).forEach(([fieldName, status]) => {
+            textValidation.setFieldValidation(fieldName, status);
+          });
+        }}
         setTouchedQuestions={setTouchedQuestions}
-        setExpandedQuestions={(nextExpandedObject) => {
-          setOpenQuestions(expandedQuestionsObjectToOpenQuestions(nextExpandedObject));
+        setExpandedQuestions={(nextExpanded) => {
+          setOpenQuestions(expandedQuestionsObjectToOpenQuestions(nextExpanded));
         }}
         createDraftEvent={createDraftEvent}
         disabled={hasFinalSubmittedRef.current}
@@ -1188,17 +1200,11 @@ export default function Questionnaire() {
           if (import.meta.env.DEV) {
             console.info("[Express Questionnaire] Self-healing repairs applied", result.repairs);
           }
-          // Queue draft save with repaired form data
           queueDraftSave("self_healing", result.formData);
         }}
       />
-      <QuestionnaireErrorBoundary
-        onResetLocalState={handleResetLocalState}
-        onBeforeReset={handleBeforeReset}
-        recoveryCode={questionnaireSessionId}
-      >
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-          <header className="shadow-sm" style={{
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        <header className="shadow-sm" style={{
                       backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
                       backgroundSize: 'cover',
                       backgroundPosition: 'center'
@@ -1837,8 +1843,7 @@ export default function Questionnaire() {
       />
 
       <Toaster richColors position="top-center" />
-        </div>
-      </QuestionnaireErrorBoundary>
-    </>
+    </div>
+    </QuestionnaireErrorBoundary>
   );
 }
