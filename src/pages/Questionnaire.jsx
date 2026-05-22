@@ -622,25 +622,26 @@ export default function Questionnaire() {
           hasFinalSubmittedRef.current = true;
           if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
           
-          // Delete cookie only on full success (not intake-only)
-          if (!successResult.receivedViaIntake) {
-            deleteCookie(STORAGE_KEY);
-            clearQuestionnaireSessionId();
-          }
-          
           setSubmittedData({ 
             businessName, 
             domain, 
             formData: rawFormData 
           });
           setShowConfirmModal(false);
+          
+          // Intake-only receipt: do NOT reset form or clear cookie/session
+          if (successResult.receivedViaIntake) {
+            // Keep formData intact, preserve cookie, keep session id
+            toast.success(`Your submission was safely received. Recovery code: ${questionnaireSessionId}`);
+            setShowThankYouModal(true);
+            return;
+          }
+          
+          // Full success: clear cookie, session, reset form
+          deleteCookie(STORAGE_KEY);
+          clearQuestionnaireSessionId();
           handleReset();
           setShowThankYouModal(true);
-          
-          if (successResult.receivedViaIntake) {
-            // Show recovery message for intake-only
-            toast.success("Your submission was received via recovery intake. Support may follow up if needed.");
-          }
         },
         onFinalSubmitFailure: (failureResult) => {
           setSubmitError(failureResult.error);
@@ -1084,6 +1085,8 @@ export default function Questionnaire() {
           initialBusinessName={initialBusinessName}
           initialDomain={initialDomain}
           isSubmitting={isSubmitting}
+          submitError={submitError}
+          recoveryCode={recoveryCode}
         />
       )}
 

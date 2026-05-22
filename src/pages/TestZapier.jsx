@@ -81,7 +81,9 @@ export default function TestZapier() {
     };
 
     try {
-      const result = await sendExpressZapierSafe(payload);
+      // Build Zapier payload through the standard helper
+      const zapierPayload = buildExpressZapierPayload(payload);
+      const result = await sendExpressZapierSafe(zapierPayload);
       if (result.ok) {
         toast.success("Test submission sent successfully via server-side wrapper.");
         setSubmittedData({ businessName, domain, formData });

@@ -28,10 +28,15 @@ const incrementRetryCount = (value) => {
 
 const mapExpressPayloadToFormSubmissionRecord = (payload) => {
   const { metadata, userdata } = payload;
+  // Force service_type to express - do not trust incoming value
+  const normalizedMetadata = { ...metadata, service_type: 'express' };
+  const normalizedPayload = { metadata: normalizedMetadata, userdata };
+  
+  const { metadata: normMd, userdata: normUd } = normalizedPayload;
   return {
-    business_name: metadata.business_name || '',
-    submission_datetime: metadata.submission_datetime || new Date().toISOString(),
-    service_type: metadata.service_type || 'express',
+    business_name: normMd.business_name || '',
+    submission_datetime: normMd.submission_datetime || new Date().toISOString(),
+    service_type: normMd.service_type || 'express',
     it_company_type: Array.isArray(userdata.it_company_type) ? userdata.it_company_type : [],
     it_company_type_other: userdata.it_company_type_other || '',
     service_offerings: Array.isArray(userdata.service_offerings) ? userdata.service_offerings : [],
@@ -83,7 +88,17 @@ const hasRequiredExpressPayloadFields = (payload) => {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
+    
+    // Wrap auth check in try/catch
+    let user;
+    try {
+      user = await base44.auth.me();
+    } catch (authErr) {
+      return Response.json(
+        { success: false, error: { message: 'Forbidden: Admin access required' } },
+        { status: 403 }
+      );
+    }
 
     const isAdmin = user?.role === 'admin';
     const isBenjamin = user?.email?.toLowerCase() === 'benjamin.hines8@gmail.com';
@@ -205,6 +220,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Normalize service_type before mapping
+    transformed.metadata.service_type = 'express';
     const submissionRecord = mapExpressPayloadToFormSubmissionRecord(transformed);
 
     let createdSubmission;

@@ -115,6 +115,7 @@ Deno.serve(async (req) => {
       error: error.message || 'Unknown Zapier send error',
     }, {
       status: 500,
+      headers: corsHeaders,
     });
   }
 });
