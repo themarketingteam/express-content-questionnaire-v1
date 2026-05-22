@@ -161,7 +161,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => { if (!isSubmitting) onCancel(); }}
+      onClick={isSubmitting ? undefined : onCancel}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -178,7 +178,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
           </div>
           <button
             type="button"
-            onClick={onCancel}
+            onClick={isSubmitting ? undefined : onCancel}
             disabled={isSubmitting}
             className="p-2 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Close"
@@ -272,21 +272,20 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 flex flex-wrap gap-3">
+        <div className="sticky bottom-0 bg-white border-t border-slate-200 p-6 flex gap-3">
           <button
-            type="button"
             onClick={handleConfirm}
-            disabled={!isFormValid || isSubmitting || isGeneratingPDF}
-            className="flex-1 min-w-[140px] bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
+            disabled={!isFormValid || isGeneratingPDF}
+            className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
           >
             <CheckCircle className="w-5 h-5" />
             Confirm & Submit
           </button>
           <button
-            type="button"
             onClick={handleDownloadPDF}
-            disabled={isGeneratingPDF || isSubmitting}
-            className="min-w-[140px] px-6 py-3 border-2 border-blue-400 hover:border-blue-500 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed text-blue-700 font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+            disabled={isGeneratingPDF}
+            type="button"
+            className="px-6 py-3 border-2 border-blue-400 hover:border-blue-500 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed text-blue-700 font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
           >
             {isGeneratingPDF ? (
               <><Loader2 className="w-4 h-4 animate-spin" />Generating...</>
@@ -295,10 +294,8 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
             )}
           </button>
           <button
-            type="button"
             onClick={onCancel}
-            disabled={isSubmitting}
-            className="min-w-[120px] px-6 py-3 border-2 border-slate-300 hover:border-slate-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-semibold rounded-xl transition-all duration-200"
+            className="px-6 py-3 border-2 border-slate-300 hover:border-slate-400 text-slate-700 font-semibold rounded-xl transition-all duration-200"
           >
             Go Back & Edit
           </button>

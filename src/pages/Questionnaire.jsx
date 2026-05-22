@@ -1,6 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { getOrCreateQuestionnaireSessionId } from "@/lib/sessionId";
+import { getInitialExpressFormData } from "@/lib/expressQuestionnairePayload";
+import {
+  createFindExistingDraftBySessionId,
+  createSaveDraftSnapshot,
+  writeDraftFailureBackup,
+} from "@/lib/draftPersistence";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -180,30 +187,23 @@ const HELPER_COPY = {
   }
 };
 
+const FIELD_TO_QUESTION = {
+  itCompanyType: "1", itCompanyTypeOther: "1",
+  serviceOfferings: "2", serviceOfferingsOther: "2",
+  differentiation: "3",
+  geographicAreas: "4", geographicAreaMeta: "4",
+  pricingPackaging: "5", pricingPackagingOther: "5",
+  companyGoals: "6", companyGoalsOther: "6",
+  brandTone: "7", brandToneOther: "7",
+  targetIndustries: "8", targetIndustriesOther: "8",
+  clientSize: "9",
+  clientChallenges: "10", clientChallengesOther: "10",
+  clientOutcomes: "11", clientOutcomesOther: "11",
+  idealClient: "12",
+};
+
 export default function Questionnaire() {
-  const [formData, setFormData] = useState({
-    itCompanyType: [],
-    itCompanyTypeOther: "",
-    serviceOfferings: [],
-    serviceOfferingsOther: "",
-    differentiation: "",
-    geographicAreas: "",
-    geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
-    pricingPackaging: "",
-    pricingPackagingOther: "",
-    companyGoals: "",
-    companyGoalsOther: "",
-    brandTone: "",
-    brandToneOther: "",
-    targetIndustries: [],
-    targetIndustriesOther: "",
-    clientSize: "1-50 employees",
-    clientChallenges: [],
-    clientChallengesOther: "",
-    clientOutcomes: [],
-    clientOutcomesOther: "",
-    idealClient: ""
-  });
+  const [formData, setFormData] = useState(getInitialExpressFormData);
 
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -211,8 +211,113 @@ export default function Questionnaire() {
   const [submittedData, setSubmittedData] = useState(null);
   const [infoModalData, setInfoModalData] = useState(null);
   const [openQuestions, setOpenQuestions] = useState([1]);
+  const [touchedQuestions, setTouchedQuestions] = useState({});
 
   const questionRefs = useRef({});
+  const draftSaveTimeoutRef = useRef(null);
+  const draftRecordIdRef = useRef("");
+  const lastChangedQuestionIdRef = useRef("");
+  const hasFinalSubmittedRef = useRef(false);
+
+  const [questionnaireSessionId] = useState(() => getOrCreateQuestionnaireSessionId());
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const businessNameParam = urlParams.get("businessName") || "";
+  const rawDomain = urlParams.get("domainName") || "";
+  const domainParam = rawDomain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+  const urlCredentials = {
+    businessName: businessNameParam,
+    domain: domainParam,
+    userId: urlParams.get("userId") || "",
+    userEmail: urlParams.get("userEmail") || "",
+    userName: urlParams.get("userName") || "",
+  };
+
+  const findExistingDraftBySessionId = useCallback(
+    createFindExistingDraftBySessionId({ draftRecordIdRef }),
+    []
+  );
+
+  const saveDraftSnapshot = useCallback(
+    createSaveDraftSnapshot({ entities: base44.entities, draftRecordIdRef, findExistingDraftBySessionId }),
+    [findExistingDraftBySessionId]
+  );
+
+  const saveDraftNow = useCallback(async ({
+    status,
+    submitError,
+    finalSubmissionId,
+    responsesSnapshot,
+    validationStatusSnapshot,
+    touchedQuestionsSnapshot,
+    expandedQuestionsSnapshot: expandedSnapshotArg,
+  } = {}) => {
+    const expandedSnap = expandedSnapshotArg || Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+    );
+    await saveDraftSnapshot({
+      sessionId: questionnaireSessionId,
+      responses: responsesSnapshot || formData,
+      validationStatus: validationStatusSnapshot || {},
+      touchedQuestions: touchedQuestionsSnapshot || touchedQuestions,
+      expandedQuestions: expandedSnap,
+      credentials: urlCredentials,
+      businessNameParam,
+      domainParam,
+      currentQuestionId: lastChangedQuestionIdRef.current,
+      lastChangedQuestionId: lastChangedQuestionIdRef.current,
+      status: status || "draft",
+      submitError: submitError || "",
+      finalSubmissionId: finalSubmissionId || "",
+    });
+  }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam]);
+
+  const queueDraftSave = useCallback((changedQuestionId, nextFormData) => {
+    if (hasFinalSubmittedRef.current) return;
+    lastChangedQuestionIdRef.current = String(changedQuestionId || "");
+    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    draftSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const expandedSnap = Object.fromEntries(
+          Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+        );
+        await saveDraftSnapshot({
+          sessionId: questionnaireSessionId,
+          responses: nextFormData,
+          validationStatus: {},
+          touchedQuestions,
+          expandedQuestions: expandedSnap,
+          credentials: urlCredentials,
+          businessNameParam,
+          domainParam,
+          currentQuestionId: String(changedQuestionId || ""),
+          lastChangedQuestionId: String(changedQuestionId || ""),
+          status: "draft",
+          submitError: "",
+          finalSubmissionId: "",
+        });
+      } catch (err) {
+        console.error("[draft] save failed:", err?.message || err);
+        writeDraftFailureBackup({
+          questionnaireSessionId,
+          responses: nextFormData,
+          validationStatus: {},
+          touchedQuestions,
+          expandedQuestions: Object.fromEntries(
+            Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+          ),
+          error: err,
+        });
+      }
+    }, 600);
+  }, [saveDraftSnapshot, questionnaireSessionId, touchedQuestions, openQuestions, businessNameParam, domainParam]);
+
+  // Cleanup draft save timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    };
+  }, []);
 
   // Set favicon and page title
   useEffect(() => {
@@ -258,12 +363,31 @@ export default function Questionnaire() {
   // Save before page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
+      // Existing cookie autosave
       setCookie(STORAGE_KEY, JSON.stringify(formData));
+      // Local draft backup on unload
+      try {
+        const expandedSnap = Object.fromEntries(
+          Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+        );
+        localStorage.setItem(
+          `express_questionnaire_local_backup_${questionnaireSessionId}`,
+          JSON.stringify({
+            session_id: questionnaireSessionId,
+            responses: formData,
+            touchedQuestions,
+            expandedQuestions: expandedSnap,
+            savedAt: new Date().toISOString(),
+          })
+        );
+      } catch {
+        // ignore storage errors
+      }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [formData]);
+  }, [formData, touchedQuestions, openQuestions, questionnaireSessionId]);
 
   const submitMutation = useMutation({
     mutationFn: async (data) => {
@@ -309,6 +433,8 @@ export default function Questionnaire() {
       return { response: zapierResult, businessName: data.metadata.business_name, domain: data.metadata.businessDomain, formData: data._rawFormData };
     },
     onSuccess: (data) => {
+      hasFinalSubmittedRef.current = true;
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
       deleteCookie(STORAGE_KEY);
       setSubmittedData({ businessName: data.businessName, domain: data.domain, formData: data.formData });
       handleReset();
@@ -319,26 +445,36 @@ export default function Questionnaire() {
     }
   });
 
-  const updateField = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  const updateField = useCallback((field, value) => {
+    const questionId = FIELD_TO_QUESTION[field] || "";
+    setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
+    setFormData(prev => {
+      const next = { ...prev, [field]: value };
+      queueDraftSave(questionId, next);
+      return next;
+    });
+  }, [queueDraftSave]);
 
-  const updateArrayField = (field, value, limit = 3, otherField = null) => {
+  const updateArrayField = useCallback((field, value, limit = 3, otherField = null) => {
+    const questionId = FIELD_TO_QUESTION[field] || "";
+    setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
     setFormData(prev => {
       const current = prev[field] || [];
       const index = current.indexOf(value);
-
       const hasOtherText = otherField && (prev[otherField] || "").trim().length > 0;
       const totalSelections = current.length + (hasOtherText ? 1 : 0);
 
+      let next;
       if (index > -1) {
-        return { ...prev, [field]: current.filter(v => v !== value) };
+        next = { ...prev, [field]: current.filter(v => v !== value) };
       } else {
         if (totalSelections >= limit) return prev;
-        return { ...prev, [field]: [...current, value] };
+        next = { ...prev, [field]: [...current, value] };
       }
+      queueDraftSave(questionId, next);
+      return next;
     });
-  };
+  }, [queueDraftSave]);
 
   const isQuestionComplete = (questionNum) => {
     const hasAnswer = (field, otherField) => {
@@ -467,36 +603,13 @@ export default function Questionnaire() {
   };
 
   const handleReset = () => {
-    setFormData({
-      itCompanyType: [],
-      itCompanyTypeOther: "",
-      serviceOfferings: [],
-      serviceOfferingsOther: "",
-      differentiation: "",
-      geographicAreas: "",
-      geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
-      pricingPackaging: "",
-      pricingPackagingOther: "",
-      companyGoals: "",
-      companyGoalsOther: "",
-      brandTone: "",
-      brandToneOther: "",
-      targetIndustries: [],
-      targetIndustriesOther: "",
-      clientSize: "1-50 employees",
-      clientChallenges: [],
-      clientChallengesOther: "",
-      clientOutcomes: [],
-      clientOutcomesOther: "",
-      idealClient: ""
-    });
+    setFormData(getInitialExpressFormData());
+    setTouchedQuestions({});
     setOpenQuestions([1]);
   };
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const initialBusinessName = urlParams.get("businessName") || "";
-  const rawDomain = urlParams.get("domainName") || "";
-  const initialDomain = rawDomain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+  const initialBusinessName = businessNameParam;
+  const initialDomain = domainParam;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
