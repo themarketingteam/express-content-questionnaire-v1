@@ -523,6 +523,7 @@ export default function Questionnaire() {
 
   const updateArrayField = useCallback((field, value, limit = 3, otherField = null) => {
     const questionId = FIELD_TO_QUESTION[field] || "";
+    const { id: qId, type: qType } = getQuestionMetaForField(field);
     setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
     setFormData(prev => {
       const current = prev[field] || [];
@@ -538,9 +539,10 @@ export default function Questionnaire() {
         next = { ...prev, [field]: [...current, value] };
       }
       queueDraftSave(questionId, next);
+      queueDraftEvent({ eventType: "selection_changed", questionId: qId, questionType: qType, value: next[field] });
       return next;
     });
-  }, [queueDraftSave]);
+  }, [queueDraftSave, questionnaireSessionId]);
 
   const isQuestionComplete = (questionNum) => {
     const hasAnswer = (field, otherField) => {
@@ -582,14 +584,24 @@ export default function Questionnaire() {
   };
 
   const handleQuestionClick = (questionNum) => {
+    let isOpening;
     setOpenQuestions(prev => {
       if (prev.includes(questionNum)) {
+        isOpening = false;
         return prev.filter(q => q !== questionNum);
       } else {
+        isOpening = true;
         return [...prev, questionNum];
       }
     });
-    
+
+    createDraftEvent({
+      eventType: isOpening ? "question_opened" : "question_collapsed",
+      questionId: String(questionNum),
+      questionType: "question_container",
+      value: { open: isOpening },
+    });
+
     // Scroll to question with appropriate offset
     setTimeout(() => {
       const questionElement = questionRefs.current[questionNum];
@@ -672,6 +684,14 @@ export default function Questionnaire() {
       // non-blocking — proceed even if draft update fails
     }
 
+    // Audit event: submit started (best-effort, non-blocking)
+    createDraftEvent({
+      eventType: "submit_started",
+      questionId: "",
+      questionType: "submit",
+      value: { session_id: questionnaireSessionId, business_name: businessName, domain },
+    });
+
     try {
       const result = await submitMutation.mutateAsync(payload);
 
@@ -685,6 +705,14 @@ export default function Questionnaire() {
       } catch {
         // non-blocking
       }
+
+      // Audit event: submit succeeded (best-effort)
+      createDraftEvent({
+        eventType: "submit_succeeded",
+        questionId: "",
+        questionType: "submit",
+        value: { session_id: questionnaireSessionId, final_submission_id: result.submissionId || "", business_name: businessName, domain },
+      });
 
       // Success side-effects (mirrors onSuccess)
       hasFinalSubmittedRef.current = true;
@@ -714,6 +742,15 @@ export default function Questionnaire() {
           error,
         });
       }
+      // Audit event: submit failed (best-effort)
+      const serializedError = serializeExpressError(error);
+      createDraftEvent({
+        eventType: "submit_failed",
+        questionId: "",
+        questionType: "submit",
+        value: { session_id: questionnaireSessionId, error: serializedError, business_name: businessName, domain },
+      });
+
       // Preserve existing user-facing failure alert; modal stays open for retry
       alert('There was an error submitting your form. Please try again or contact support.');
     }
