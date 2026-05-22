@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
+import { buildDraftEventRecord } from "@/lib/draftEvents";
 import {
   createFindExistingDraftBySessionId,
   createSaveDraftSnapshot,
@@ -215,6 +216,7 @@ export default function Questionnaire() {
 
   const questionRefs = useRef({});
   const draftSaveTimeoutRef = useRef(null);
+  const draftTextEventTimeoutsRef = useRef({});
   const draftRecordIdRef = useRef("");
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
@@ -316,8 +318,69 @@ export default function Questionnaire() {
   useEffect(() => {
     return () => {
       if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+      Object.values(draftTextEventTimeoutsRef.current).forEach(clearTimeout);
     };
   }, []);
+
+  const QUESTION_META = {
+    itCompanyType: { id: "1", type: "checkbox" },
+    itCompanyTypeOther: { id: "1", type: "checkbox" },
+    serviceOfferings: { id: "2", type: "categorized_checkbox" },
+    serviceOfferingsOther: { id: "2", type: "categorized_checkbox" },
+    differentiation: { id: "3", type: "textarea" },
+    geographicAreas: { id: "4", type: "geographic" },
+    geographicAreaMeta: { id: "4", type: "geographic" },
+    pricingPackaging: { id: "5", type: "radio" },
+    pricingPackagingOther: { id: "5", type: "radio" },
+    companyGoals: { id: "6", type: "radio" },
+    companyGoalsOther: { id: "6", type: "radio" },
+    brandTone: { id: "7", type: "radio" },
+    brandToneOther: { id: "7", type: "radio" },
+    targetIndustries: { id: "8", type: "checkbox" },
+    targetIndustriesOther: { id: "8", type: "checkbox" },
+    clientSize: { id: "9", type: "numeric_range" },
+    clientChallenges: { id: "10", type: "checkbox" },
+    clientChallengesOther: { id: "10", type: "checkbox" },
+    clientOutcomes: { id: "11", type: "checkbox" },
+    clientOutcomesOther: { id: "11", type: "checkbox" },
+    idealClient: { id: "12", type: "textarea" },
+  };
+
+  const getQuestionMetaForField = (field) => QUESTION_META[field] || { id: "", type: "" };
+
+  const createDraftEvent = async ({ eventType, questionId, questionType, value }) => {
+    if (!questionnaireSessionId) return;
+    try {
+      const record = buildDraftEventRecord({
+        sessionId: questionnaireSessionId,
+        eventType,
+        questionId,
+        questionType,
+        value,
+        businessName: urlCredentials.businessName,
+        domain: urlCredentials.domain,
+        userId: urlCredentials.userId,
+      });
+      await base44.entities.FormDraftEvent.create(record);
+    } catch (err) {
+      console.error("[draftEvent] write failed:", err?.message || err);
+    }
+  };
+
+  const queueDraftEvent = ({ eventType, questionId, questionType, value }) => {
+    const isText = questionType === "textarea" || questionType === "text";
+    if (isText) {
+      if (draftTextEventTimeoutsRef.current[questionId]) {
+        clearTimeout(draftTextEventTimeoutsRef.current[questionId]);
+      }
+      draftTextEventTimeoutsRef.current[questionId] = setTimeout(() => {
+        createDraftEvent({ eventType: "text_changed", questionId, questionType, value });
+        delete draftTextEventTimeoutsRef.current[questionId];
+      }, 1000);
+    } else {
+      createDraftEvent({ eventType, questionId, questionType, value });
+    }
+  };
 
   // Set favicon and page title
   useEffect(() => {
@@ -444,13 +507,19 @@ export default function Questionnaire() {
 
   const updateField = useCallback((field, value) => {
     const questionId = FIELD_TO_QUESTION[field] || "";
+    const { id: qId, type: qType } = getQuestionMetaForField(field);
     setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
     setFormData(prev => {
       const next = { ...prev, [field]: value };
       queueDraftSave(questionId, next);
       return next;
     });
-  }, [queueDraftSave]);
+    const eventType = qType === "textarea" || qType === "text" ? "text_changed"
+      : qType === "geographic" ? "location_changed"
+      : qType === "radio" ? "selection_changed"
+      : "answer_changed";
+    queueDraftEvent({ eventType, questionId: qId, questionType: qType, value });
+  }, [queueDraftSave, questionnaireSessionId]);
 
   const updateArrayField = useCallback((field, value, limit = 3, otherField = null) => {
     const questionId = FIELD_TO_QUESTION[field] || "";

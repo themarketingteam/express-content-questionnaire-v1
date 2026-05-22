@@ -1,7 +1,7 @@
 /**
- * Express draft event record builder.
- * Builds safe, compact event records for the FormDraftEvent entity.
- * Does not write to Base44 — callers are responsible for persistence.
+ * Express draft event helper.
+ * Builds safe, compact event records for FormDraftEvent.
+ * Never throws during summary generation.
  */
 
 function safeJsonStringify(value) {
@@ -15,11 +15,13 @@ function safeJsonStringify(value) {
 export function getValueSummary(value) {
   try {
     if (value === null || value === undefined) return "Empty value";
-    if (Array.isArray(value)) return `Array answer, ${value.length} selected/value item(s)`;
     if (typeof value === "string") {
       return value.trim().length > 0
         ? `Text answer, ${value.length} characters`
         : "Empty text answer";
+    }
+    if (Array.isArray(value)) {
+      return `Array answer, ${value.length} selected/value item(s)`;
     }
     if (typeof value === "object") return "Object answer";
     return `${typeof value} value`;
@@ -33,7 +35,7 @@ export function getValueLength(value) {
     if (typeof value === "string") return value.length;
     if (Array.isArray(value)) return value.length;
     if (value !== null && typeof value === "object") {
-      try { return JSON.stringify(value).length; } catch { return 0; }
+      return JSON.stringify(value).length;
     }
     return 0;
   } catch {
