@@ -7,7 +7,7 @@
 
 import { EXPRESS_COOKIE_KEY } from './expressPersistedState';
 import { clearQuestionnaireSessionId } from './sessionId';
-import { clearActiveSubmitAttempt } from './submitAttempt';
+import { ACTIVE_SUBMIT_ATTEMPT_KEY } from './submitAttempt';
 import { clearLocalFailedSubmissionBackup } from './localRecoveryBackup';
 
 /**
@@ -92,10 +92,8 @@ export const clearExpressQuestionnaireLocalState = (options = {}) => {
   // Clear active submit attempt if requested
   if (clearSubmitAttempt) {
     try {
-      // Clear from localStorage
-      const attemptKey = 'express_questionnaire_submit_attempt';
-      localStorage.removeItem(attemptKey);
-      cleared.push(`${attemptKey} (localStorage)`);
+      localStorage.removeItem(ACTIVE_SUBMIT_ATTEMPT_KEY);
+      cleared.push(`${ACTIVE_SUBMIT_ATTEMPT_KEY} (localStorage)`);
     } catch (err) {
       errors.push(`Failed to clear submit attempt: ${err.message}`);
     }

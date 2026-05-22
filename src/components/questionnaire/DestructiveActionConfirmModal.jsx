@@ -27,7 +27,9 @@ export default function DestructiveActionConfirmModal({
     if (!isOpen) return;
 
     const handleEscape = (e) => {
-      if (!isWorking) onCancel();
+      if (e.key === "Escape" && !isWorking) {
+        onCancel();
+      }
     };
 
     document.addEventListener("keydown", handleEscape);

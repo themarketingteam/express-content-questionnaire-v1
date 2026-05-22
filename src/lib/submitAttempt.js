@@ -1,7 +1,7 @@
 // Submit attempt/idempotency helper for Express questionnaire
 // Prevents duplicate final submissions and provides stable attempt tracking
 
-const ACTIVE_SUBMIT_ATTEMPT_KEY = "express_questionnaire_active_submit_attempt";
+export const ACTIVE_SUBMIT_ATTEMPT_KEY = "express_questionnaire_active_submit_attempt";
 const ATTEMPT_EXPIRY_MS = 20 * 60 * 1000; // 20 minutes
 
 /**
