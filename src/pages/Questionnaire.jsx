@@ -34,7 +34,8 @@ import NumericRangeQuestion from "../components/questionnaire/NumericRangeQuesti
 import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
-import { Save } from "lucide-react";
+import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
+import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
 const STORAGE_KEY = "msp_questionnaire_data_v2";
@@ -226,6 +227,7 @@ export default function Questionnaire() {
   const [showThankYouModal, setShowThankYouModal] = useState(false);
   const [submittedData, setSubmittedData] = useState(null);
   const [infoModalData, setInfoModalData] = useState(null);
+  const [showValidationGuide, setShowValidationGuide] = useState(false);
   const [openQuestions, setOpenQuestions] = useState([1]);
   const [touchedQuestions, setTouchedQuestions] = useState({});
   const [submitError, setSubmitError] = useState(null);
@@ -1023,6 +1025,22 @@ export default function Questionnaire() {
           >
             Collapse All
           </button>
+          <button
+            type="button"
+            onClick={() => setShowValidationGuide(true)}
+            className="px-6 py-3 hover:opacity-90 font-bold transition-all text-sm tracking-wider uppercase flex items-center gap-2"
+            style={{ 
+              border: '2px solid #004B87',
+              color: '#004B87',
+              borderRadius: '2px',
+              height: '48px',
+              letterSpacing: '0.8px',
+              fontFamily: 'Lato, sans-serif'
+            }}
+          >
+            <Info className="w-4 h-4" />
+            Answer Quality Guide
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-16">
@@ -1528,6 +1546,12 @@ export default function Questionnaire() {
           formData={submittedData.formData}
         />
       )}
+
+      <ValidationGuideModal
+        isOpen={showValidationGuide}
+        onClose={() => setShowValidationGuide(false)}
+      />
+
       <Toaster richColors position="top-center" />
     </div>
   );
