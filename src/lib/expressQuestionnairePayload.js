@@ -109,7 +109,14 @@ export function mapExpressPayloadToFormSubmissionRecord(payload) {
     client_challenges_other: ud.client_challenges_other,
     client_outcomes: ud.client_outcomes,
     client_outcomes_other: ud.client_outcomes_other,
-    ideal_client: ud.ideal_client
+    ideal_client: ud.ideal_client,
+    questionnaire_session_id: md.questionnaire_session_id || "",
+    submit_attempt_id: md.submit_attempt_id || "",
+    zapier_delivery_status: "not_attempted",
+    zapier_sent: false,
+    zapier_sent_at: "",
+    zapier_error_json: "",
+    zapier_attempt_count: 0
   };
 }
 

@@ -1,0 +1,212 @@
+{
+  "name": "FormSubmission",
+  "type": "object",
+  "properties": {
+    "business_name": {
+      "type": "string",
+      "description": "Name of the business submitting the form"
+    },
+    "submission_datetime": {
+      "type": "string",
+      "description": "DateTime of submission in ET"
+    },
+    "service_type": {
+      "type": "string",
+      "description": "Type of service requested"
+    },
+    "it_company_type": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Types of IT company selected"
+    },
+    "it_company_type_other": {
+      "type": "string",
+      "description": "Other IT company type specified"
+    },
+    "service_offerings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Primary service offerings"
+    },
+    "service_offerings_other": {
+      "type": "string",
+      "description": "Other service offerings specified"
+    },
+    "differentiation": {
+      "type": "string",
+      "description": "What makes the company different"
+    },
+    "geographic_areas": {
+      "type": "string",
+      "description": "Geographic area served"
+    },
+    "geographic_area_meta": {
+      "type": "object",
+      "description": "Metadata about geographic location",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "lat": {
+          "type": "number"
+        },
+        "lon": {
+          "type": "number"
+        },
+        "place_id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    },
+    "pricing_packaging": {
+      "type": "string",
+      "description": "Pricing/packaging model"
+    },
+    "pricing_packaging_other": {
+      "type": "string",
+      "description": "Other pricing model specified"
+    },
+    "company_goals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Company goals for next year"
+    },
+    "company_goals_other": {
+      "type": "string",
+      "description": "Other company goals specified"
+    },
+    "brand_tone": {
+      "type": "string",
+      "description": "Desired brand tone"
+    },
+    "brand_tone_other": {
+      "type": "string",
+      "description": "Other brand tone specified"
+    },
+    "target_industries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Target industries served"
+    },
+    "target_industries_other": {
+      "type": "string",
+      "description": "Other industries specified"
+    },
+    "client_size": {
+      "type": "string",
+      "description": "Typical client company size"
+    },
+    "client_challenges": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Main IT challenges clients face"
+    },
+    "client_challenges_other": {
+      "type": "string",
+      "description": "Other client challenges specified"
+    },
+    "client_outcomes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Desired client outcomes"
+    },
+    "client_outcomes_other": {
+      "type": "string",
+      "description": "Other client outcomes specified"
+    },
+    "ideal_client": {
+      "type": "string",
+      "description": "Description of ideal client"
+    },
+    "questionnaire_session_id": {
+      "type": "string",
+      "description": "Stable questionnaire recovery/session id"
+    },
+    "submit_attempt_id": {
+      "type": "string",
+      "description": "Client submit attempt id used for idempotency and diagnostics"
+    },
+    "zapier_delivery_status": {
+      "type": "string",
+      "enum": [
+        "not_attempted",
+        "sent",
+        "failed"
+      ],
+      "description": "Delivery status for the downstream Express Zapier webhook"
+    },
+    "zapier_sent": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the downstream Express Zapier webhook was successfully delivered"
+    },
+    "zapier_sent_at": {
+      "type": "string",
+      "description": "ISO timestamp when Zapier delivery succeeded"
+    },
+    "zapier_error_json": {
+      "type": "string",
+      "description": "Safe serialized Zapier delivery error if delivery failed"
+    },
+    "zapier_attempt_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of Zapier delivery attempts for this submission"
+    }
+  },
+  "required": [],
+  "rls": {
+    "create": {},
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
