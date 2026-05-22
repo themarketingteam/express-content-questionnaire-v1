@@ -4,7 +4,7 @@
  * for the /admin/submit-intake page.
  */
 
-import { cleanExpressDomain } from "@/lib/expressQuestionnairePayload";
+import { cleanExpressDomain, normalizeExpressFormData } from "@/lib/expressQuestionnairePayload";
 
 export function initialExpressAdminIntakePayload() {
   return {
@@ -49,11 +49,30 @@ export function repairExpressAdminIntakePayload(payload) {
   const md = payload.metadata || {};
   const ud = payload.userdata || {};
 
-  const ensureArray = (v) => {
-    if (Array.isArray(v)) return v;
-    if (v && typeof v === "string" && v.trim()) return [v];
-    return [];
-  };
+  // Normalize userdata first using shared helper
+  const normalizedUserdata = normalizeExpressFormData({
+    itCompanyType: ud.it_company_type,
+    itCompanyTypeOther: ud.it_company_type_other,
+    serviceOfferings: ud.service_offerings,
+    serviceOfferingsOther: ud.service_offerings_other,
+    differentiation: ud.differentiation,
+    geographicAreas: ud.geographic_areas,
+    geographicAreaMeta: ud.geographic_area_meta,
+    pricingPackaging: ud.pricing_packaging,
+    pricingPackagingOther: ud.pricing_packaging_other,
+    companyGoals: ud.company_goals,
+    companyGoalsOther: ud.company_goals_other,
+    brandTone: ud.brand_tone,
+    brandToneOther: ud.brand_tone_other,
+    targetIndustries: ud.target_industries,
+    targetIndustriesOther: ud.target_industries_other,
+    clientSize: ud.client_size,
+    clientChallenges: ud.client_challenges,
+    clientChallengesOther: ud.client_challenges_other,
+    clientOutcomes: ud.client_outcomes,
+    clientOutcomesOther: ud.client_outcomes_other,
+    idealClient: ud.ideal_client,
+  });
 
   const repairedMetadata = {
     business_name: String(md.business_name || "").trim(),
@@ -63,30 +82,29 @@ export function repairExpressAdminIntakePayload(payload) {
     questionnaire_session_id: String(md.questionnaire_session_id || "").trim()
   };
 
+  // Use normalized userdata fields (already properly typed)
   const repairedUserdata = {
-    it_company_type: ensureArray(ud.it_company_type),
-    it_company_type_other: String(ud.it_company_type_other || ""),
-    service_offerings: ensureArray(ud.service_offerings),
-    service_offerings_other: String(ud.service_offerings_other || ""),
-    differentiation: String(ud.differentiation || ""),
-    geographic_areas: String(ud.geographic_areas || ""),
-    geographic_area_meta: ud.geographic_area_meta && typeof ud.geographic_area_meta === "object"
-      ? ud.geographic_area_meta
-      : { label: "", lat: null, lon: null, place_id: null, source: "manual" },
-    pricing_packaging: String(ud.pricing_packaging || ""),
-    pricing_packaging_other: String(ud.pricing_packaging_other || ""),
-    company_goals: Array.isArray(ud.company_goals) ? ud.company_goals.join(", ") : String(ud.company_goals || ""),
-    company_goals_other: String(ud.company_goals_other || ""),
-    brand_tone: String(ud.brand_tone || ""),
-    brand_tone_other: String(ud.brand_tone_other || ""),
-    target_industries: ensureArray(ud.target_industries),
-    target_industries_other: String(ud.target_industries_other || ""),
-    client_size: String(ud.client_size || ""),
-    client_challenges: ensureArray(ud.client_challenges),
-    client_challenges_other: String(ud.client_challenges_other || ""),
-    client_outcomes: ensureArray(ud.client_outcomes),
-    client_outcomes_other: String(ud.client_outcomes_other || ""),
-    ideal_client: String(ud.ideal_client || "")
+    it_company_type: normalizedUserdata.itCompanyType,
+    it_company_type_other: normalizedUserdata.itCompanyTypeOther,
+    service_offerings: normalizedUserdata.serviceOfferings,
+    service_offerings_other: normalizedUserdata.serviceOfferingsOther,
+    differentiation: normalizedUserdata.differentiation,
+    geographic_areas: normalizedUserdata.geographicAreas,
+    geographic_area_meta: normalizedUserdata.geographicAreaMeta,
+    pricing_packaging: normalizedUserdata.pricingPackaging,
+    pricing_packaging_other: normalizedUserdata.pricingPackagingOther,
+    company_goals: normalizedUserdata.companyGoals,
+    company_goals_other: normalizedUserdata.companyGoalsOther,
+    brand_tone: normalizedUserdata.brandTone,
+    brand_tone_other: normalizedUserdata.brandToneOther,
+    target_industries: normalizedUserdata.targetIndustries,
+    target_industries_other: normalizedUserdata.targetIndustriesOther,
+    client_size: normalizedUserdata.clientSize,
+    client_challenges: normalizedUserdata.clientChallenges,
+    client_challenges_other: normalizedUserdata.clientChallengesOther,
+    client_outcomes: normalizedUserdata.clientOutcomes,
+    client_outcomes_other: normalizedUserdata.clientOutcomesOther,
+    ideal_client: normalizedUserdata.idealClient
   };
 
   const repairedPayload = { metadata: repairedMetadata, userdata: repairedUserdata };

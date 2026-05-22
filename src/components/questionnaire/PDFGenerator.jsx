@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { format } from "date-fns";
+import { normalizeExpressFormData } from "@/lib/expressQuestionnairePayload";
 
 const QUESTIONS = [
   { id: 1, title: "What type of IT company are you?", field: "itCompanyType", otherField: "itCompanyTypeOther" },
@@ -18,25 +19,26 @@ const QUESTIONS = [
 ];
 
 function formatAnswer(field, formData, otherField) {
-  const value = formData[field];
-  const otherValue = otherField ? formData[otherField] : "";
+  // formData should already be normalized, but add defensive checks
+  const value = formData?.[field];
+  const otherValue = otherField ? formData?.[otherField] : "";
 
   let parts = [];
 
   if (field === "geographicAreas") {
-    const meta = formData.geographicAreaMeta;
-    const label = meta?.label || value || "";
-    parts = label ? [label] : [];
+    const meta = formData?.geographicAreaMeta;
+    const label = meta?.label || (typeof value === "string" ? value : "");
+    parts = label && String(label).trim() ? [String(label).trim()] : [];
   } else if (Array.isArray(value)) {
-    parts = value.filter(Boolean);
-  } else if (typeof value === "object" && value !== null) {
-    parts = value.label ? [value.label] : [];
+    parts = value.filter(Boolean).map(String);
+  } else if (value && typeof value === "object" && value.label) {
+    parts = [String(value.label)];
   } else if (typeof value === "string" && value.trim()) {
     parts = [value.trim()];
   }
 
-  if (otherValue && otherValue.trim()) {
-    parts.push(`Other: ${otherValue.trim()}`);
+  if (otherValue && String(otherValue).trim()) {
+    parts.push(`Other: ${String(otherValue).trim()}`);
   }
 
   return parts.length > 0 ? parts.join(", ") : "Not answered";
@@ -226,6 +228,9 @@ function buildHTML(formData, businessName, domain) {
 }
 
 export async function generatePDF(formData, businessName, domain) {
+  // Normalize form data to prevent crashes from malformed state
+  const normalizedFormData = normalizeExpressFormData(formData || {});
+  
   const cleanName = businessName.replace(/[^a-zA-Z0-9]/g, "");
   const dateStr = format(new Date(), "M-d-yy");
   const filename = `${cleanName}_Questionnaire_Responses_${dateStr}.pdf`;
@@ -236,7 +241,7 @@ export async function generatePDF(formData, businessName, domain) {
   container.style.top = "0";
   container.style.width = "794px";
   container.style.background = "#ffffff";
-  container.innerHTML = buildHTML(formData, businessName, domain);
+  container.innerHTML = buildHTML(normalizedFormData, businessName, domain);
   document.body.appendChild(container);
 
   try {

@@ -3,6 +3,7 @@ import { X, CheckCircle, AlertCircle, Download, Loader2, Copy } from "lucide-rea
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { generatePDF } from "./PDFGenerator";
+import { normalizeExpressFormData } from "@/lib/expressQuestionnairePayload";
 
 const capitalizeBusinessName = (name) => {
   return name
@@ -33,6 +34,9 @@ export default function ConfirmModal({
   submitValidationWarnings = [],
   onOpenValidationGuide
 }) {
+  // Normalize formData to prevent crashes from malformed state
+  const normalizedFormData = normalizeExpressFormData(formData || {});
+  
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
@@ -84,7 +88,7 @@ export default function ConfirmModal({
     }
     setIsGeneratingPDF(true);
     try {
-      const result = await generatePDF(formData, businessName.trim(), cleanDomain(domain));
+      const result = await generatePDF(normalizedFormData, businessName.trim(), cleanDomain(domain));
       if (result?.success) {
         toast.success(`PDF downloaded: ${result.filename}`);
       } else {
@@ -134,42 +138,42 @@ export default function ConfirmModal({
         {
           number: 1,
           question: "What type of IT company are you?",
-          answer: formatAnswer(formData.itCompanyType),
-          other: formData.itCompanyTypeOther
+          answer: formatAnswer(normalizedFormData.itCompanyType),
+          other: normalizedFormData.itCompanyTypeOther
         },
         {
           number: 2,
           question: "What are your primary service offerings?",
-          answer: formatAnswer(formData.serviceOfferings),
-          other: formData.serviceOfferingsOther
+          answer: formatAnswer(normalizedFormData.serviceOfferings),
+          other: normalizedFormData.serviceOfferingsOther
         },
         {
           number: 3,
           question: "What makes your company different from other MSPs in your area?",
-          answer: formData.differentiation || "Not answered"
+          answer: normalizedFormData.differentiation || "Not answered"
         },
         {
           number: 4,
           question: "What geographic area do you primarily serve?",
-          answer: formData.geographicAreaMeta?.label || formData.geographicAreas || "Not answered"
+          answer: normalizedFormData.geographicAreaMeta?.label || normalizedFormData.geographicAreas || "Not answered"
         },
         {
           number: 5,
           question: "How do you typically price or package your services?",
-          answer: formData.pricingPackaging || "Not answered",
-          other: formData.pricingPackagingOther
+          answer: normalizedFormData.pricingPackaging || "Not answered",
+          other: normalizedFormData.pricingPackagingOther
         },
         {
           number: 6,
           question: "What are your company's biggest goals over the next year?",
-          answer: formatAnswer(formData.companyGoals),
-          other: formData.companyGoalsOther
+          answer: formatAnswer(normalizedFormData.companyGoals),
+          other: normalizedFormData.companyGoalsOther
         },
         {
           number: 7,
           question: "What tone best describes how you want your brand to sound on your website?",
-          answer: formData.brandTone || "Not answered",
-          other: formData.brandToneOther
+          answer: normalizedFormData.brandTone || "Not answered",
+          other: normalizedFormData.brandToneOther
         }
       ]
     },
@@ -179,30 +183,30 @@ export default function ConfirmModal({
         {
           number: 8,
           question: "What types of businesses do you primarily serve?",
-          answer: formatAnswer(formData.targetIndustries),
-          other: formData.targetIndustriesOther
+          answer: formatAnswer(normalizedFormData.targetIndustries),
+          other: normalizedFormData.targetIndustriesOther
         },
         {
           number: 9,
           question: "What is the typical size of your client companies?",
-          answer: formData.clientSize || "Not answered"
+          answer: normalizedFormData.clientSize || "Not answered"
         },
         {
           number: 10,
           question: "What are the main IT challenges your clients come to you for help with?",
-          answer: formatAnswer(formData.clientChallenges),
-          other: formData.clientChallengesOther
+          answer: formatAnswer(normalizedFormData.clientChallenges),
+          other: normalizedFormData.clientChallengesOther
         },
         {
           number: 11,
           question: "What outcomes do your clients want most from working with you?",
-          answer: formatAnswer(formData.clientOutcomes),
-          other: formData.clientOutcomesOther
+          answer: formatAnswer(normalizedFormData.clientOutcomes),
+          other: normalizedFormData.clientOutcomesOther
         },
         {
           number: 12,
           question: "If you could describe your ideal client in one sentence, what would you say?",
-          answer: formData.idealClient || "Not answered"
+          answer: normalizedFormData.idealClient || "Not answered"
         }
       ]
     }

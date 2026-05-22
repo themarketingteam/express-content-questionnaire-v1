@@ -27,7 +27,7 @@ export function withClientTimeout(promiseFactory, timeoutMs = DEFAULT_ZAPIER_TIM
 /**
  * Build Zapier delivery payload from Express transformed payload
  * @param {Object} transformedPayload - Full Express transformed payload with metadata and userdata
- * @returns {Object} - Cleaned payload with only metadata and userdata for Zapier
+ * @returns {Object} - Cleaned payload with only metadata and userdata for Zapier (excludes _rawFormData)
  */
 export function buildExpressZapierPayload(transformedPayload) {
   if (!transformedPayload || !transformedPayload.metadata || !transformedPayload.userdata) {
@@ -45,6 +45,7 @@ export function buildExpressZapierPayload(transformedPayload) {
       .trim();
   };
 
+  // Return only metadata and userdata - explicitly exclude _rawFormData
   return {
     metadata: {
       business_name: transformedPayload.metadata.business_name || "",
