@@ -182,6 +182,37 @@ export default function QuestionnaireIntakeRecovery() {
     copyJson(bundle, "Recovery bundle copied");
   };
 
+  const handleCopySubmitIntakePayload = (record) => {
+    const transformed = parseJson(record.transformed_payload_json);
+    if (!transformed || !transformed.metadata || !transformed.userdata) {
+      toast.error("No valid submit-intake payload is available for this intake record.");
+      return;
+    }
+
+    const payload = {
+      metadata: { ...transformed.metadata },
+      userdata: { ...transformed.userdata },
+    };
+
+    // Force service_type to express
+    payload.metadata.service_type = "express";
+
+    // Ensure questionnaire_session_id exists
+    if (!payload.metadata.questionnaire_session_id) {
+      payload.metadata.questionnaire_session_id = record.questionnaire_session_id || "";
+    }
+
+    // Fill in business name/domain from intake if missing
+    if (!payload.metadata.business_name) {
+      payload.metadata.business_name = record.business_name || "";
+    }
+    if (!payload.metadata.businessDomain) {
+      payload.metadata.businessDomain = record.business_domain || "";
+    }
+
+    copyJson(payload, "Submit-intake payload copied");
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -386,6 +417,79 @@ export default function QuestionnaireIntakeRecovery() {
                     )}
                   </div>
 
+                  {/* Availability Summary */}
+                  <div className="mb-4">
+                    <div className="text-xs font-semibold text-slate-700 mb-2">Data Availability</div>
+                    <div className="p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Payload Available:</span>
+                          {(() => {
+                            const p = parseJson(record.transformed_payload_json);
+                            const valid = p && p.metadata && p.userdata;
+                            return (
+                              <span className={valid ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                                {valid ? "Yes" : "No"}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Raw Responses Available:</span>
+                          {(() => {
+                            const r = parseJson(record.raw_responses_json);
+                            return (
+                              <span className={r ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                                {r ? "Yes" : "No"}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Diagnostics Available:</span>
+                          {(() => {
+                            const d = parseJson(record.diagnostics_json);
+                            return (
+                              <span className={d ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                                {d ? "Yes" : "No"}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Linked Submission:</span>
+                          <span className="font-medium text-slate-700">{record.linked_submission_id || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Zapier Sent:</span>
+                          <span className={record.zapier_sent ? "text-green-700 font-medium" : "text-slate-700 font-medium"}>
+                            {record.zapier_sent ? "Yes" : "No"}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Parse warnings */}
+                      {(() => {
+                        const payloadValid = parseJson(record.transformed_payload_json);
+                        const responsesValid = parseJson(record.raw_responses_json);
+                        const diagnosticsValid = parseJson(record.diagnostics_json);
+                        const warnings = [];
+                        if (!payloadValid) warnings.push("Transformed payload JSON could not be parsed.");
+                        if (!responsesValid) warnings.push("Raw responses JSON could not be parsed.");
+                        if (!diagnosticsValid) warnings.push("Diagnostics JSON could not be parsed.");
+                        if (warnings.length === 0) return null;
+                        return (
+                          <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="text-xs text-amber-700 space-y-1">
+                              {warnings.map((w, i) => (
+                                <div key={i}>⚠ {w}</div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
                   {/* Diagnostics */}
                   {record.diagnostics_json && (
                     <div className="mb-4">
@@ -428,7 +532,18 @@ export default function QuestionnaireIntakeRecovery() {
                   )}
 
                   {/* Action buttons */}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCopySubmitIntakePayload(record)}
+                      className="bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copy Submit-Intake Payload
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
                       size="sm"
