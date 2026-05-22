@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, CheckCircle2 } from "lucide-react";
@@ -26,9 +27,7 @@ function autoFixJson(raw) {
 }
 
 export default function AdminSubmitIntake() {
-  const [loadingAuth, setLoadingAuth] = useState(true);
-  const [authed, setAuthed] = useState(false);
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState(null);
   const [payload, setPayload] = useState(initialExpressAdminIntakePayload());
@@ -36,17 +35,6 @@ export default function AdminSubmitIntake() {
   const [rawJson, setRawJson] = useState(() => JSON.stringify(initialExpressAdminIntakePayload(), null, 2));
   const [saveError, setSaveError] = useState("");
   const [originalBeforeEdit, setOriginalBeforeEdit] = useState(null);
-
-  useEffect(() => {
-    base44.auth.isAuthenticated().then(async (isAuth) => {
-      if (isAuth) {
-        const me = await base44.auth.me();
-        setUser(me);
-        setAuthed(true);
-      }
-      setLoadingAuth(false);
-    });
-  }, []);
 
   const handleEdit = () => {
     setOriginalBeforeEdit(payload);
@@ -123,25 +111,6 @@ export default function AdminSubmitIntake() {
     toast.success("Submission saved" + (id ? ` (id: ${id})` : ""));
     setSubmitting(false);
   };
-
-  if (loadingAuth) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-      </div>
-    );
-  }
-
-  if (!authed) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-slate-600 text-lg">You must be signed in to access this page.</p>
-        <Button onClick={() => base44.auth.redirectToLogin(window.location.pathname)}>
-          Sign in
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10">
