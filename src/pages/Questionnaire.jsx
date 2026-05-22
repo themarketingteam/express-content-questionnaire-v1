@@ -1030,6 +1030,37 @@ export default function Questionnaire() {
     setRecoveryCode("");
   };
 
+  const handleResetLocalState = () => {
+    // Clear persisted state cookie
+    deleteCookie(STORAGE_KEY);
+    // Clear local recovery backup
+    try {
+      localStorage.removeItem(`express_questionnaire_local_backup_${questionnaireSessionId}`);
+    } catch {
+      // Ignore storage errors
+    }
+    // Clear session ID to force regeneration
+    clearQuestionnaireSessionId();
+  };
+
+  const handleBeforeReset = ({ error, errorInfo }) => {
+    // Write diagnostic backup before reset
+    try {
+      localStorage.setItem(
+        `express_questionnaire_error_diagnostic_${questionnaireSessionId}`,
+        JSON.stringify({
+          session_id: questionnaireSessionId,
+          stage: "error_boundary_caught",
+          error_message: error?.message || "Unknown error",
+          has_error_info: !!errorInfo,
+          timestamp: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
   // Get display status for each question
   const getQuestionDisplayStatus = (questionId) => {
     return getExpressQuestionDisplayStatus({
@@ -1102,12 +1133,17 @@ export default function Questionnaire() {
   const initialDomain = domainParam;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <header className="shadow-sm" style={{
-                    backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center'
-                  }}>
+    <QuestionnaireErrorBoundary
+      onResetLocalState={handleResetLocalState}
+      onBeforeReset={handleBeforeReset}
+      recoveryCode={questionnaireSessionId}
+    >
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        <header className="shadow-sm" style={{
+                      backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center'
+                    }}>
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-5xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px', fontFamily: 'Raleway, sans-serif' }}>MSP Success - Express | Website Content Questionnaire</h1>
@@ -1729,5 +1765,6 @@ export default function Questionnaire() {
 
       <Toaster richColors position="top-center" />
     </div>
+    </QuestionnaireErrorBoundary>
   );
 }
