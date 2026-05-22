@@ -138,6 +138,7 @@ function buildIntakePayload({
   businessDomain,
   userEmail,
   userId,
+  submitAttemptId,
   primaryError,
   fallbackError,
   transformedPayload,
@@ -154,6 +155,7 @@ function buildIntakePayload({
     business_domain:          truncate(businessDomain) || null,
     user_email:               truncate(userEmail)      || null,
     user_id:                  truncate(userId)         || null,
+    submit_attempt_id:        truncate(submitAttemptId) || null,
     primary_failure_kind:     primaryError?.failureKind || classifyError(primaryError) || null,
     fallback_failure_kind:    fallbackError ? classifyError(fallbackError) : null,
     primary_error_json:       primaryError  ? safeJsonStringify(primaryError)  : null,
@@ -239,6 +241,12 @@ Deno.serve(async (req) => {
       submitContext?.source ||
       'questionnaire_submit_fallback';
 
+    const submitAttemptId =
+      transformedPayload?.metadata?.submit_attempt_id ||
+      submitContext?.submitAttemptId ||
+      submitContext?.submit_attempt_id ||
+      null;
+
     // 2. If payload is invalid/missing or required metadata is absent → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&
       transformedPayload &&
@@ -259,6 +267,7 @@ Deno.serve(async (req) => {
         businessDomain,
         userEmail,
         userId,
+        submitAttemptId,
         primaryError: primaryError || transformError || validationError,
         transformedPayload,
         rawResponses: rawResponses || responseSnapshot,
@@ -302,6 +311,7 @@ Deno.serve(async (req) => {
         businessDomain,
         userEmail,
         userId,
+        submitAttemptId,
         primaryError,
         transformedPayload: normalized,
         rawResponses: rawResponses || responseSnapshot,
@@ -333,6 +343,7 @@ Deno.serve(async (req) => {
       businessDomain,
       userEmail,
       userId,
+      submitAttemptId,
       primaryError,
       fallbackError: submissionError,
       transformedPayload: normalized,
