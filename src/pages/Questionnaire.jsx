@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
-import { getOrCreateQuestionnaireSessionId } from "@/lib/sessionId";
+import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
 import {
@@ -719,6 +719,9 @@ export default function Questionnaire() {
       hasFinalSubmittedRef.current = true;
       if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
       deleteCookie(STORAGE_KEY);
+      // Clear session id only after all draft/event/submission records are saved above,
+      // so the old id is preserved for recovery if any of those writes had failed.
+      clearQuestionnaireSessionId();
       setSubmittedData({ businessName: result.businessName, domain: result.domain, formData: result.formData });
       setShowConfirmModal(false);
       handleReset();
