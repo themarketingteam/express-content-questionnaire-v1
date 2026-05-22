@@ -759,28 +759,54 @@ export default function Questionnaire() {
     const questionId = FIELD_TO_QUESTION[fieldName] || "";
     const { type: qType } = getQuestionMetaForField(fieldName);
     
-    // Call validation
-    const result = await textValidation.validateField(fieldName, answer, {
-      businessName: urlCredentials.businessName,
-      domain: urlCredentials.domain,
-      formData,
-    });
-    
-    // Create draft event for validation completed
+    // Create validation started event
     createDraftEvent({
-      eventType: "validation_completed",
+      eventType: "validation_started",
       questionId,
-      questionType: qType,
-      value: {
-        fieldName,
-        status: result.status,
-        score: result.score,
-        reason_codes: result.reason_codes,
-      },
+      questionType: "text_validation",
+      value: { fieldName },
     });
     
-    // Queue draft save after validation
-    queueDraftSave(questionId, formData);
+    try {
+      // Call validation
+      const result = await textValidation.validateField(fieldName, answer, {
+        businessName: urlCredentials.businessName,
+        domain: urlCredentials.domain,
+        formData,
+      });
+      
+      // Create validation completed event
+      createDraftEvent({
+        eventType: "validation_completed",
+        questionId,
+        questionType: "text_validation",
+        value: {
+          fieldName,
+          status: result.status,
+          message: result.message,
+          reason_codes: result.reason_codes,
+          validatedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Queue draft save after validation
+      queueDraftSave(questionId, formData);
+    } catch (error) {
+      // Create validation unavailable event
+      createDraftEvent({
+        eventType: "validation_unavailable",
+        questionId,
+        questionType: "text_validation",
+        value: {
+          fieldName,
+          error: error?.message || "Validation failed",
+          timestamp: new Date().toISOString(),
+        },
+      });
+      
+      // Still queue draft save to capture the error state
+      queueDraftSave(questionId, formData);
+    }
   }, [formData, textValidation, urlCredentials, createDraftEvent, queueDraftSave]);
 
   const initialBusinessName = businessNameParam;

@@ -181,6 +181,13 @@ export function useExpressTextValidation() {
   }, []);
   
   /**
+   * Get all field validation statuses
+   */
+  const getAllFieldStatuses = useCallback(() => {
+    return validationStatus;
+  }, [validationStatus]);
+  
+  /**
    * Create a debounced validator for a specific field
    */
   const createDebouncedValidator = useCallback((fieldName, delay = 1000) => {
@@ -199,6 +206,7 @@ export function useExpressTextValidation() {
     isFieldValidating,
     getFieldStatus,
     isFieldDirty,
+    getAllFieldStatuses,
     createDebouncedValidator,
   };
 }
