@@ -98,43 +98,62 @@ export class SubmitFlowError extends Error {
   }
 }
 
-// Write failed submission backup to localStorage
-export function writeFailedExpressSubmissionBackup({ questionnaireSessionId, responseSnapshot, transformedPayload, error }) {
-  try {
-    const backup = {
-      session_id: questionnaireSessionId,
-      responses: responseSnapshot,
-      transformedPayload,
-      error: serializeSubmitError(error),
-      createdAt: new Date().toISOString(),
-    };
-    const key = `failed_express_submission_${Date.now()}`;
-    localStorage.setItem(key, JSON.stringify(backup));
-  } catch (storageErr) {
-    // Silently ignore storage errors
-  }
-}
 
-// Safe draft save wrapper
+
+// Safe draft save wrapper with indexed backup
 export async function safeDraftSave(args) {
-  const { saveDraftNow, draftData, questionnaireSessionId } = args;
+  const { 
+    saveDraftNow, 
+    draftData, 
+    questionnaireSessionId,
+    submitAttemptId,
+    businessName,
+    domain,
+    responses,
+    transformedPayload,
+    validationStatus,
+    touchedQuestions,
+    expandedQuestions,
+    stage,
+  } = args;
+  
   try {
     if (saveDraftNow) {
       await saveDraftNow(draftData);
     }
     return true;
   } catch (saveErr) {
-    // Write local backup if draft save fails
-    try {
-      const backupKey = `failed_express_draft_${Date.now()}`;
-      localStorage.setItem(backupKey, JSON.stringify({
-        session_id: questionnaireSessionId,
-        draftData,
-        error: serializeSubmitError(saveErr),
-        createdAt: new Date().toISOString(),
-      }));
-    } catch {
-      // ignore
+    // Write indexed local backup if draft save fails during submit-related stages
+    const isSubmitRelated = stage && (
+      stage.startsWith('submit_') || 
+      draftData?.status === 'submit_attempted' ||
+      draftData?.status === 'submit_failed' ||
+      draftData?.status === 'submitted'
+    );
+    
+    if (isSubmitRelated) {
+      try {
+        writeLocalFailedSubmissionBackup({
+          sessionId: questionnaireSessionId,
+          submitAttemptId: submitAttemptId || "",
+          businessName: businessName || "",
+          domain: domain || "",
+          responses: responses || draftData?.responsesSnapshot || {},
+          transformedPayload: transformedPayload || null,
+          validationStatus: validationStatus || draftData?.validationStatusSnapshot || {},
+          touchedQuestions: touchedQuestions || draftData?.touchedQuestionsSnapshot || {},
+          expandedQuestions: expandedQuestions || draftData?.expandedQuestionsSnapshot || {},
+          stage: stage || "draft_save_failed",
+          error: saveErr,
+          diagnostics: {
+            source: "safeDraftSave",
+            draftData,
+            failedAt: new Date().toISOString(),
+          },
+        });
+      } catch {
+        // ignore backup write errors
+      }
     }
     return false;
   }
@@ -229,6 +248,15 @@ export async function submitExpressQuestionnaire(args) {
       submitAttemptId,
     },
     questionnaireSessionId,
+    submitAttemptId,
+    businessName,
+    domain,
+    responses: responseSnapshot,
+    transformedPayload: null,
+    validationStatus,
+    touchedQuestions,
+    expandedQuestions,
+    stage: "submit_attempted",
   });
 
   // Step 5: Build transformed Express payload
@@ -277,6 +305,15 @@ export async function submitExpressQuestionnaire(args) {
         submitAttemptId,
       },
       questionnaireSessionId,
+      submitAttemptId,
+      businessName,
+      domain,
+      responses: responseSnapshot,
+      transformedPayload: null,
+      validationStatus,
+      touchedQuestions,
+      expandedQuestions,
+      stage: "payload_transform_failed",
     });
 
     // Write local failed submission backup
@@ -527,6 +564,15 @@ export async function submitExpressQuestionnaire(args) {
         submitAttemptId,
       },
       questionnaireSessionId,
+      submitAttemptId,
+      businessName,
+      domain,
+      responses: responseSnapshot,
+      transformedPayload,
+      validationStatus,
+      touchedQuestions,
+      expandedQuestions,
+      stage: draftStatus,
     });
 
     // Call success callback with Zapier status
@@ -596,6 +642,15 @@ export async function submitExpressQuestionnaire(args) {
       submitAttemptId,
     },
     questionnaireSessionId,
+    submitAttemptId,
+    businessName,
+    domain,
+    responses: responseSnapshot,
+    transformedPayload,
+    validationStatus,
+    touchedQuestions,
+    expandedQuestions,
+    stage: "submit_failed",
   });
 
   // Write local failed submission backup

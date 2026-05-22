@@ -1278,11 +1278,7 @@ export default function Questionnaire() {
   const expandedQuestionsSnapshot = openQuestionsToExpandedQuestionsObject(openQuestions);
 
   return (
-    <QuestionnaireErrorBoundary
-      onResetLocalState={handleResetLocalState}
-      onBeforeReset={handleBeforeReset}
-      recoveryCode={questionnaireSessionId}
-    >
+    <>
       {/* Self-healing data validator - repairs malformed state silently */}
       <ExpressDataValidator
         formData={formData}
@@ -1970,6 +1966,6 @@ export default function Questionnaire() {
 
       <Toaster richColors position="top-center" />
     </div>
-    </QuestionnaireErrorBoundary>
+    </>
   );
 }
