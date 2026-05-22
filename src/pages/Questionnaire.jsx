@@ -39,7 +39,6 @@ import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
-import QuestionnaireErrorBoundary from "../components/questionnaire/QuestionnaireErrorBoundary";
 import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidator";
 import DestructiveActionConfirmModal from "@/components/questionnaire/DestructiveActionConfirmModal";
 import { Save, Info } from "lucide-react";
