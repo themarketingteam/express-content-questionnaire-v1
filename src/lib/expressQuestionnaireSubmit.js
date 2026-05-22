@@ -397,12 +397,34 @@ export async function submitExpressQuestionnaire(args) {
     submit_attempt_id: submitAttemptId || "",
   };
 
+  // Build validation status summary if available
+  const validationSummary = validationStatus ? (() => {
+    const statusCounts = { complete: 0, needs_work: 0, incomplete: 0, dirty: 0, error: 0, unknown: 0 };
+    const blockingFields = [];
+    
+    Object.entries(validationStatus).forEach(([field, status]) => {
+      const statusValue = status?.status || 'unknown';
+      statusCounts[statusValue] = (statusCounts[statusValue] || 0) + 1;
+      
+      if (statusValue === 'incomplete' || statusValue === 'error') {
+        blockingFields.push(field);
+      }
+    });
+    
+    return {
+      status_counts: statusCounts,
+      blocking_fields: blockingFields,
+      total_fields: Object.keys(validationStatus).length,
+    };
+  })() : null;
+  
   const diagnostics = {
     questionnaireSessionId,
     businessNamePresent: !!businessName,
     domainPresent: !!domain,
     draftIdPresent: false,
     payloadFeatureSummary: buildExpressPayloadFeatureSummary(transformedPayload),
+    validation_summary: validationSummary,
     timestamp,
     submitAttemptId: submitAttemptId || "",
   };

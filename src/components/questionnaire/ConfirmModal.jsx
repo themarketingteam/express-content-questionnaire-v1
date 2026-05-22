@@ -327,7 +327,7 @@ export default function ConfirmModal({
               <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-red-800 mb-1">
-                  Please add a little more detail to the highlighted answers before submitting.
+                  A few answers need more detail before submitting
                 </p>
                 <div className="space-y-2 mt-3">
                   {submitValidationIssues.map((issue, idx) => (
@@ -349,6 +349,9 @@ export default function ConfirmModal({
                     </div>
                   ))}
                 </div>
+                <p className="text-xs text-red-700 mt-3 italic">
+                  Use "Go Back & Edit" to update these answers, then return to submit again.
+                </p>
               </div>
             </div>
           </div>
@@ -361,7 +364,7 @@ export default function ConfirmModal({
               <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-amber-800 mb-1">
-                  Consider improving these answers for better results:
+                  Optional improvements
                 </p>
                 <div className="space-y-2 mt-3">
                   {submitValidationWarnings.map((warning, idx) => (
@@ -430,11 +433,11 @@ export default function ConfirmModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!isFormValid || isSubmitting || isSubmitValidatingText || isGeneratingPDF}
+            disabled={!isFormValid || isSubmitting || isSubmitValidatingText || isGeneratingPDF || submitValidationIssues.length > 0}
             className="flex-1 min-w-[140px] bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
           >
             {isSubmitValidatingText ? (
-              <><Loader2 className="w-5 h-5 animate-spin" />Validating...</>
+              <><Loader2 className="w-5 h-5 animate-spin" />Checking answers...</>
             ) : isSubmitting ? (
               <><Loader2 className="w-5 h-5 animate-spin" />Submitting...</>
             ) : (

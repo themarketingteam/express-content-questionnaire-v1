@@ -679,6 +679,18 @@ export default function Questionnaire() {
       // Step 1: Run submit-time text validation
       setIsSubmitValidatingText(true);
       
+      // Create validation started event
+      createDraftEvent({
+        eventType: "submit_text_validation_started",
+        questionId: "",
+        questionType: "submit_validation",
+        value: {
+          session_id: questionnaireSessionId,
+          fields_checked: ["differentiation", "idealClient"],
+          startedAt: new Date().toISOString(),
+        },
+      });
+      
       const validationResult = await runSubmitTextValidation({
         formData: rawFormData,
         validationStatus: textValidation.getAllFieldStatuses(),
@@ -687,6 +699,20 @@ export default function Questionnaire() {
         onFieldResult: (fieldName, result) => {
           // Update canonical validation status
           textValidation.setFieldValidation(fieldName, result);
+          
+          // Create field validation result event
+          createDraftEvent({
+            eventType: "submit_text_field_validated",
+            questionId: FIELD_TO_QUESTION[fieldName] || "",
+            questionType: "submit_validation",
+            value: {
+              fieldName,
+              status: result.status,
+              message: result.message,
+              reason_codes: result.reason_codes,
+              validatedAt: new Date().toISOString(),
+            },
+          });
         },
       });
       
@@ -724,8 +750,10 @@ export default function Questionnaire() {
           questionId: "",
           questionType: "submit_validation",
           value: {
+            session_id: questionnaireSessionId,
             blockingIssues: validationResult.blockingIssues,
             warnings: validationResult.warnings,
+            blockedAt: new Date().toISOString(),
           },
         });
         
@@ -737,6 +765,18 @@ export default function Questionnaire() {
       if (validationResult.warnings.length > 0) {
         setSubmitValidationWarnings(validationResult.warnings);
       }
+      
+      // Create validation passed event
+      createDraftEvent({
+        eventType: "submit_text_validation_passed",
+        questionId: "",
+        questionType: "submit_validation",
+        value: {
+          session_id: questionnaireSessionId,
+          warnings: validationResult.warnings,
+          passedAt: new Date().toISOString(),
+        },
+      });
       
       setIsSubmitValidatingText(false);
       
