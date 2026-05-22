@@ -21,6 +21,7 @@ import {
 } from "@/lib/localRecoveryBackup";
 import { useExpressTextValidation } from "@/lib/hooks/useExpressTextValidation";
 import { isExpressTextValidationField } from "@/lib/expressTextValidation";
+import { runSubmitTextValidation } from "@/lib/expressSubmitTextValidation";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -230,6 +231,9 @@ export default function Questionnaire() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localRecoveryBackupId, setLocalRecoveryBackupId] = useState("");
   const [latestLocalRecoveryBackup, setLatestLocalRecoveryBackup] = useState(null);
+  const [submitValidationIssues, setSubmitValidationIssues] = useState([]);
+  const [submitValidationWarnings, setSubmitValidationWarnings] = useState([]);
+  const [isSubmitValidatingText, setIsSubmitValidatingText] = useState(false);
 
   // Text validation hook
   const textValidation = useExpressTextValidation();
@@ -642,7 +646,7 @@ export default function Questionnaire() {
 
   const handleConfirmSubmit = useCallback(async (businessName, domain) => {
     // Prevent duplicate submits
-    if (isSubmitting || submitInFlightRef.current) return;
+    if (isSubmitting || submitInFlightRef.current || isSubmitValidatingText) return;
     
     // Check for active submit attempt
     if (hasActiveSubmitAttemptForSession(questionnaireSessionId)) {
@@ -666,10 +670,76 @@ export default function Questionnaire() {
     setIsSubmitting(true);
     setSubmitError(null);
     setRecoveryCode("");
+    setSubmitValidationIssues([]);
+    setSubmitValidationWarnings([]);
 
     const rawFormData = { ...formData };
 
     try {
+      // Step 1: Run submit-time text validation
+      setIsSubmitValidatingText(true);
+      
+      const validationResult = await runSubmitTextValidation({
+        formData: rawFormData,
+        validationStatus: textValidation.getAllFieldStatuses(),
+        businessName,
+        domain,
+        onFieldResult: (fieldName, result) => {
+          // Update canonical validation status
+          textValidation.setFieldValidation(fieldName, result);
+        },
+      });
+      
+      // Save updated validation status to draft
+      const updatedValidationStatus = textValidation.getAllFieldStatuses();
+      await saveDraftSnapshot({
+        sessionId: questionnaireSessionId,
+        responses: rawFormData,
+        validationStatus: updatedValidationStatus,
+        touchedQuestions,
+        expandedQuestions: Object.fromEntries(
+          Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+        ),
+        credentials: urlCredentials,
+        businessNameParam,
+        domainParam,
+        currentQuestionId: "",
+        lastChangedQuestionId: "",
+        status: "draft",
+        submitError: "",
+        finalSubmissionId: "",
+      });
+      
+      // Check for blocking issues
+      if (validationResult.blockingIssues.length > 0) {
+        setSubmitValidationIssues(validationResult.blockingIssues);
+        setIsSubmitValidatingText(false);
+        setIsSubmitting(false);
+        submitInFlightRef.current = false;
+        clearActiveSubmitAttempt(submitAttemptId);
+        
+        // Create draft event for blocked submit
+        createDraftEvent({
+          eventType: "submit_text_validation_blocked",
+          questionId: "",
+          questionType: "submit_validation",
+          value: {
+            blockingIssues: validationResult.blockingIssues,
+            warnings: validationResult.warnings,
+          },
+        });
+        
+        // Keep modal open, show user-safe error
+        return;
+      }
+      
+      // Handle warnings (don't block, but track)
+      if (validationResult.warnings.length > 0) {
+        setSubmitValidationWarnings(validationResult.warnings);
+      }
+      
+      setIsSubmitValidatingText(false);
+      
       const result = await submitExpressQuestionnaire({
         businessName,
         domain,
@@ -1323,6 +1393,9 @@ export default function Questionnaire() {
           initialBusinessName={initialBusinessName}
           initialDomain={initialDomain}
           isSubmitting={isSubmitting}
+          isSubmitValidatingText={isSubmitValidatingText}
+          submitValidationIssues={submitValidationIssues}
+          submitValidationWarnings={submitValidationWarnings}
           submitError={submitError}
           recoveryCode={recoveryCode}
           submitAttemptId={activeSubmitAttemptIdRef.current}
