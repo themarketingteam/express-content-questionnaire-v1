@@ -1,105 +1,120 @@
 import { base44 } from "@/api/base44Client";
+import { serializeExpressError } from "@/lib/expressQuestionnairePayload";
 
-// Constants
 const DEFAULT_FALLBACK_TIMEOUT_MS = 15000;
 const DEFAULT_FALLBACK_ATTEMPTS = 2;
 
-// Safe error serializer (fallback if not available from payload utils)
-function serializeErrorSafe(error) {
-  if (!error) return null;
-  if (typeof error === "string") {
-    try {
-      return JSON.stringify({ message: error });
-    } catch {
-      return JSON.stringify({ message: "Unknown error" });
-    }
-  }
-  try {
-    return JSON.stringify({
-      message: error?.message || "Unknown error",
-      name: error?.name || "Error",
-      status: error?.status || error?.response?.status,
-      statusText: error?.statusText || error?.response?.statusText,
-      kind: error?.failureKind || null,
-    });
-  } catch {
-    return JSON.stringify({ message: "Serialization failed" });
-  }
-}
-
-// Timer API for timeout management
+// Timer API for timeout wrapper
 function getTimerApi() {
   let timeoutId = null;
-  let timeoutPromise = null;
+  let settled = false;
 
-  const createTimeout = (ms) => {
-    timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        const error = new Error("Fallback invocation timed out");
-        error.failureKind = "timeout";
-        error.isTimeout = true;
-        reject(error);
-      }, ms);
-    });
-  };
-
-  const clearTimeout = () => {
+  const clear = () => {
     if (timeoutId !== null) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }
-    timeoutPromise = null;
   };
 
-  return { createTimeout, clearTimeout, getTimeoutPromise: () => timeoutPromise };
+  const withTimeout = (promise, timeoutMs) => {
+    return new Promise((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          clear();
+          reject(new Error("Fallback invocation timed out"));
+        }
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          if (!settled) {
+            settled = true;
+            clear();
+            resolve(value);
+          }
+        })
+        .catch((err) => {
+          if (!settled) {
+            settled = true;
+            clear();
+            reject(err);
+          }
+        });
+    });
+  };
+
+  return { withTimeout, clear };
 }
 
-// Delay helper
+// Simple delay helper
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Wrap promise with timeout
+// Wrap a promise factory in a timeout
 async function withFallbackTimeout(promiseFactory, timeoutMs = DEFAULT_FALLBACK_TIMEOUT_MS) {
   const timer = getTimerApi();
-  timer.createTimeout(timeoutMs);
-
   try {
-    const result = await Promise.race([promiseFactory(), timer.getTimeoutPromise()]);
-    return result;
+    return await timer.withTimeout(promiseFactory(), timeoutMs);
   } finally {
-    timer.clearTimeout();
+    timer.clear();
   }
 }
 
-// Determine if fallback error is retryable
+// Determine if an error is retryable
 function isRetryableFallbackError(error) {
   if (!error) return false;
 
-  const kind = error?.failureKind || error?.kind;
-  const status = error?.status || error?.response?.status;
-  const message = error?.message?.toLowerCase() || "";
+  const message = (error.message || "").toLowerCase();
+  const kind = (error.failureKind || "").toLowerCase();
+  const status = error.status ?? error.code ?? null;
 
-  // Explicit timeout
-  if (kind === "timeout" || error?.isTimeout) return true;
+  // Explicit failure kinds
+  if (["timeout", "network", "rate_limit", "server", "unknown"].includes(kind)) {
+    return true;
+  }
 
-  // Network errors
-  if (kind === "network") return true;
-  if (message.includes("fetch") || message.includes("network") || message.includes("cors") || message.includes("offline")) return true;
+  // Timeout indicators
+  if (message.includes("timed out") || message.includes("timeout") || message.includes("aborted")) {
+    return true;
+  }
+
+  // Network indicators
+  if (message.includes("network") || message.includes("fetch") || message.includes("cors") || message.includes("offline")) {
+    return true;
+  }
 
   // Rate limit
-  if (kind === "rate_limit" || status === 429) return true;
+  if (status === 429) {
+    return true;
+  }
 
   // Server errors
-  if (kind === "server" || (status && status >= 500 && status <= 599)) return true;
+  if (status && status >= 500 && status < 600) {
+    return true;
+  }
 
-  // Unknown errors without HTTP status (likely network-related)
-  if (kind === "unknown" && !status) return true;
+  // Unknown without HTTP status -> retry once
+  if (kind === "unknown" && !status) {
+    return true;
+  }
 
   return false;
 }
 
-// Build fallback request body
+// Normalize error for safe serialization
+function normalizeFallbackError(error) {
+  const serialized = serializeExpressError(error);
+  return {
+    message: error?.message || "Fallback invocation failed",
+    failureKind: error?.failureKind || "unknown",
+    status: error?.status ?? null,
+    serialized,
+  };
+}
+
+// Build the fallback body expected by submitExpressQuestionnaireFallback
 export function buildExpressFallbackBody({
   transformedPayload,
   rawResponses,
@@ -117,29 +132,23 @@ export function buildExpressFallbackBody({
     transformedPayload: transformedPayload || null,
     rawResponses: rawResponses || null,
     responseSnapshot: responseSnapshot || null,
-    questionnaireSessionId: questionnaireSessionId || null,
+    questionnaireSessionId: questionnaireSessionId || "",
     transformFailed: Boolean(transformFailed),
     validationFailed: Boolean(validationFailed),
-    transformError: transformError ? serializeErrorSafe(transformError) : null,
-    validationError: validationError ? serializeErrorSafe(validationError) : null,
-    primaryError: primaryError
-      ? {
-          failureKind: primaryError?.failureKind || primaryError?.kind || "unknown",
-          message: primaryError?.message || "Unknown error",
-          serialized: serializeErrorSafe(primaryError),
-        }
-      : null,
+    transformError: transformError ? serializeExpressError(transformError) : null,
+    validationError: validationError ? serializeExpressError(validationError) : null,
+    primaryError: primaryError ? serializeExpressError(primaryError) : null,
     submitContext: submitContext || null,
     diagnostics: diagnostics || null,
   };
 }
 
-// Main fallback invocation function
+// Invoke the server fallback function with timeout and retry
 export async function invokeExpressSubmissionFallback(body, options = {}) {
   const {
     attempts = DEFAULT_FALLBACK_ATTEMPTS,
     timeoutMs = DEFAULT_FALLBACK_TIMEOUT_MS,
-    baseDelayMs = 1000,
+    baseDelayMs = 500,
   } = options;
 
   let lastError = null;
@@ -153,61 +162,45 @@ export async function invokeExpressSubmissionFallback(body, options = {}) {
 
       const data = result?.data || result;
 
-      return {
-        ok: true,
-        data,
-        received: Boolean(data?.received),
-        submissionCreated: Boolean(data?.submissionCreated),
-        submission: data?.submission || null,
-        submissionId: data?.submissionId || data?.submission?.id || "",
-        intakeId: data?.intakeId || "",
-        usedFallback: true,
-        zapierSent: Boolean(data?.zapierSent),
-      };
-    } catch (error) {
-      lastError = error;
+      if (data?.success || data?.received) {
+        return {
+          ok: true,
+          data,
+          received: Boolean(data?.received),
+          submissionCreated: Boolean(data?.submissionCreated),
+          submission: data?.submission || null,
+          submissionId: data?.submissionId || data?.submission?.id || "",
+          intakeId: data?.intakeId || "",
+          usedFallback: true,
+          zapierSent: Boolean(data?.zapierSent),
+        };
+      }
 
-      // Determine if we should retry
-      const shouldRetry = attempt < attempts && isRetryableFallbackError(error);
+      // Treat unexpected shape as failure
+      lastError = new Error("Fallback returned unexpected response");
+      lastError.failureKind = "unknown";
+    } catch (err) {
+      lastError = err;
+      lastError.failureKind = err?.failureKind || "unknown";
 
-      if (shouldRetry) {
+      // Retry only if retryable and attempts remain
+      if (isRetryableFallbackError(err) && attempt < attempts) {
         const delayMs = baseDelayMs * attempt;
         await delay(delayMs);
         continue;
       }
 
-      // Non-retryable or final attempt failed
-      return {
-        ok: false,
-        data: null,
-        error: {
-          message: error?.message || "Fallback invocation failed",
-          failureKind: error?.failureKind || error?.kind || "unknown",
-          isTimeout: error?.isTimeout || false,
-          status: error?.status || error?.response?.status,
-          serialized: serializeErrorSafe(error),
-        },
-        received: false,
-        submissionCreated: false,
-        submission: null,
-        submissionId: "",
-        intakeId: "",
-        usedFallback: true,
-      };
+      // Non-retryable or out of attempts
+      break;
     }
   }
 
-  // Fallback after all attempts exhausted
+  const normalizedError = normalizeFallbackError(lastError);
+
   return {
     ok: false,
     data: null,
-    error: {
-      message: lastError?.message || "Fallback invocation failed after all attempts",
-      failureKind: lastError?.failureKind || lastError?.kind || "unknown",
-      isTimeout: lastError?.isTimeout || false,
-      status: lastError?.status || lastError?.response?.status,
-      serialized: serializeErrorSafe(lastError),
-    },
+    error: normalizedError,
     received: false,
     submissionCreated: false,
     submission: null,
@@ -216,14 +209,3 @@ export async function invokeExpressSubmissionFallback(body, options = {}) {
     usedFallback: true,
   };
 }
-
-// Named exports for clarity
-export {
-  DEFAULT_FALLBACK_TIMEOUT_MS,
-  DEFAULT_FALLBACK_ATTEMPTS,
-  getTimerApi,
-  delay,
-  withFallbackTimeout,
-  isRetryableFallbackError,
-  serializeErrorSafe,
-};
