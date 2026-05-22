@@ -1,22 +1,23 @@
 import { base44 } from "@/api/base44Client";
-import { serializeSubmitError } from "@/lib/expressSubmissionResilience";
-import { cleanExpressDomain } from "@/lib/expressQuestionnairePayload";
+import { serializeExpressError } from "@/lib/expressQuestionnairePayload";
 
-// Constants
+//lib/expressQuestionnairePayload";
+
+// Default timeout for Zapier delivery
 export const DEFAULT_ZAPIER_TIMEOUT_MS = 8000;
 
 /**
- * Timeout wrapper for promises with client-side protection.
+ * Client-side timeout wrapper for promises
  * @param {Function} promiseFactory - Function that returns a promise
  * @param {number} timeoutMs - Timeout in milliseconds
- * @returns {Promise} - Resolves with promise result or rejects with TimeoutError
+ * @returns {Promise<any>} - Resolves with promise result or rejects with timeout error
  */
 export function withClientTimeout(promiseFactory, timeoutMs = DEFAULT_ZAPIER_TIMEOUT_MS) {
   return Promise.race([
     promiseFactory(),
     new Promise((_, reject) =>
       setTimeout(
-        () => reject(new Error(`Zapier delivery timed out after ${timeoutMs}ms`)),
+        () => reject(new Error(`Operation timed out after ${timeoutMs}ms`)),
         timeoutMs
       )
     ),
@@ -24,92 +25,84 @@ export function withClientTimeout(promiseFactory, timeoutMs = DEFAULT_ZAPIER_TIM
 }
 
 /**
- * Build a clean Express Zapier payload from the full transformed payload.
- * @param {Object} payload - Full Express transformed payload with metadata and userdata
- * @returns {Object} - Clean payload with only metadata and userdata
+ * Build Zapier delivery payload from Express transformed payload
+ * @param {Object} transformedPayload - Full Express transformed payload with metadata and userdata
+ * @returns {Object} - Cleaned payload with only metadata and userdata for Zapier
  */
-export function buildExpressZapierPayload(payload) {
-  if (!payload || !payload.metadata || !payload.userdata) {
-    throw new Error("Invalid Express payload: missing metadata or userdata");
+export function buildExpressZapierPayload(transformedPayload) {
+  if (!transformedPayload || !transformedPayload.metadata || !transformedPayload.userdata) {
+    throw new Error('Invalid transformed payload: missing metadata or userdata');
   }
 
-  // Clean business domain
-  const businessDomain = cleanExpressDomain(payload.metadata.businessDomain);
+  // Clean business domain using existing helper
+  const cleanDomain = (domain) => {
+    if (!domain) return "";
+    const str = String(domain);
+    return str
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www\./i, '')
+      .replace(/\/+$/, '')
+      .trim();
+  };
 
   return {
     metadata: {
-      ...payload.metadata,
-      businessDomain: businessDomain,
-      service_type: "express", // Force express service type
+      business_name: transformedPayload.metadata.business_name || "",
+      businessDomain: cleanDomain(transformedPayload.metadata.businessDomain || transformedPayload.metadata.business_domain || ""),
+      submission_datetime: transformedPayload.metadata.submission_datetime || new Date().toISOString(),
+      service_type: "express", // Force service_type to express
+      questionnaire_session_id: transformedPayload.metadata.questionnaire_session_id || "",
     },
-    userdata: { ...payload.userdata },
+    userdata: { ...transformedPayload.userdata },
   };
 }
 
 /**
- * Send Express questionnaire payload to Zapier via server-side function.
- * Never exposes the raw webhook URL to the browser.
- * 
- * @param {Object} payload - Express payload with metadata and userdata
+ * Send Express payload to Zapier via server-side function
+ * @param {Object} payload - Express payload (metadata + userdata)
  * @param {Object} options - Optional configuration
- * @param {number} options.timeoutMs - Client-side timeout in ms (default: 8000)
- * @returns {Promise<Object>} - Normalized result: { ok: boolean, error?, response?, zapierStatus?, zapierBody? }
+ * @param {number} options.timeoutMs - Custom timeout in milliseconds
+ * @returns {Promise<Object>} - Result with ok, error, zapierStatus, zapierBody
  */
 export async function sendExpressZapierSafe(payload, options = {}) {
   const { timeoutMs = DEFAULT_ZAPIER_TIMEOUT_MS } = options;
 
   try {
-    // Build clean payload (metadata + userdata only)
-    const cleanPayload = buildExpressZapierPayload(payload);
-
-    // Invoke server-side function with timeout protection
+    // Invoke server-side function with timeout
     const response = await withClientTimeout(
-      () => base44.functions.invoke("sendExpressToZapier", cleanPayload),
+      () => base44.functions.invoke("sendExpressToZapier", payload),
       timeoutMs
     );
 
-    // Check response success
-    if (response?.data?.success === false) {
-      // Server-side Zapier call failed
-      const result = {
+    const data = response?.data;
+
+    // Check if server-side function reported failure
+    if (data?.success === false) {
+      return {
         ok: false,
-        error: response.data.error || "Zapier delivery failed",
-        zapierStatus: response.data.zapierStatus || null,
-        zapierBody: response.data.zapierBody || null,
+        error: data.error || 'Zapier delivery failed',
+        zapierStatus: data.zapierStatus || null,
+        zapierBody: data.zapierBody || null,
       };
-
-      // Log in development
-      if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
-        console.warn("[Express Zapier] Delivery failed:", result);
-      }
-
-      return result;
     }
 
     // Success
-    const result = {
+    return {
       ok: true,
-      response: response.data,
+      response: data,
     };
-
-    // Log in development
-    if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
-      console.log("[Express Zapier] Delivery successful:", result);
-    }
-
-    return result;
   } catch (error) {
-    // Client-side error (timeout, network, etc.)
-    const result = {
-      ok: false,
-      error: error?.message || "Zapier delivery failed",
-    };
-
-    // Log in development
-    if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
-      console.error("[Express Zapier] Delivery error:", error);
+    // Log error in development
+    const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+    if (isDev) {
+      console.error('[sendExpressZapierSafe] Error:', serializeExpressError(error));
     }
 
-    return result;
+    return {
+      ok: false,
+      error: error.message || 'Failed to invoke Zapier delivery function',
+      zapierStatus: null,
+      zapierBody: null,
+    };
   }
 }

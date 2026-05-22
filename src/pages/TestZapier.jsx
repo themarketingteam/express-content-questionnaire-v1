@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Toaster } from "sonner";
 import { FlaskConical, Send, Loader2 } from "lucide-react";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
+import { sendExpressZapierSafe, buildExpressZapierPayload } from "@/lib/expressZapierDelivery";
 
 const MOCK_DEFAULTS = {
   businessName: "Acme IT Solutions",
@@ -46,9 +47,6 @@ export default function TestZapier() {
   const [showModal, setShowModal] = useState(false);
   const [submittedData, setSubmittedData] = useState(null);
 
-  const cleanDomain = (raw) =>
-    raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!businessName.trim() || !domain.trim()) {
@@ -61,9 +59,10 @@ export default function TestZapier() {
     const payload = {
       metadata: {
         business_name: businessName,
-        businessDomain: cleanDomain(domain),
+        businessDomain: domain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim(),
         submission_datetime: new Date().toISOString(),
-        service_type: "express_test",
+        service_type: "express",
+        questionnaire_session_id: "test-zapier",
       },
       userdata: {
         it_company_type: formData.itCompanyType,
@@ -82,13 +81,14 @@ export default function TestZapier() {
     };
 
     try {
-      await fetch(`https://hooks.zapier.com/hooks/catch/23529934/u0ajvtt/`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      toast.success("Test submission sent to Zapier successfully.");
-      setSubmittedData({ businessName, domain, formData });
-      setShowModal(true);
+      const result = await sendExpressZapierSafe(payload);
+      if (result.ok) {
+        toast.success("Test submission sent successfully via server-side wrapper.");
+        setSubmittedData({ businessName, domain, formData });
+        setShowModal(true);
+      } else {
+        toast.error(`Submission failed: ${result.error || "Unknown error"}`);
+      }
     } catch (err) {
       toast.error(`Submission failed: ${err.message}`);
     } finally {
@@ -120,7 +120,7 @@ export default function TestZapier() {
         <div className="rounded-lg px-4 py-3 flex items-start gap-3 text-sm" style={{ backgroundColor: "#FFF8E6", border: "1px solid #FDB913" }}>
           <span className="text-lg leading-none">⚠️</span>
           <p style={{ color: "#7D5A00", fontFamily: "Lato, sans-serif" }}>
-            <strong>Internal use only.</strong> This page sends a real webhook to Zapier with test data and immediately triggers the Thank You modal and PDF download for QA purposes.
+            <strong>Internal use only.</strong> This page sends test data through the Base44 sendExpressToZapier function. Configure EXPRESS_ZAPIER_WEBHOOK_URL in the Base44 function environment.
           </p>
         </div>
       </div>
