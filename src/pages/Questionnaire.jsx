@@ -38,6 +38,7 @@ import InfoModal from "../components/questionnaire/InfoModal";
 import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
+import QuestionnaireErrorBoundary from "../components/questionnaire/QuestionnaireErrorBoundary";
 import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
