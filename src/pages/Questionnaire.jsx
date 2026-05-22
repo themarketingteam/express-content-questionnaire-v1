@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
@@ -24,6 +24,8 @@ import { isExpressTextValidationField, createAnswerHash } from "@/lib/expressTex
 import { runSubmitTextValidation } from "@/lib/expressSubmitTextValidation";
 import { getExpressQuestionDisplayStatus } from "@/lib/questionValidationStatus";
 import QuestionValidationBadge from "@/components/questionnaire/QuestionValidationBadge";
+import IncompleteQuestionSummary from "@/components/questionnaire/IncompleteQuestionSummary";
+import { buildIncompleteQuestionSummary, getFirstBlockingQuestionId } from "@/lib/incompleteQuestionSummary";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -238,6 +240,17 @@ export default function Questionnaire() {
   const [submitValidationIssues, setSubmitValidationIssues] = useState([]);
   const [submitValidationWarnings, setSubmitValidationWarnings] = useState([]);
   const [isSubmitValidatingText, setIsSubmitValidatingText] = useState(false);
+
+  // Memoized incomplete question summary
+  const incompleteSummary = React.useMemo(() => {
+    return buildIncompleteQuestionSummary({
+      formData,
+      touchedQuestions,
+      validationStatus: textValidation.getAllFieldStatuses(),
+      validatingFields: textValidation.validatingFields || [],
+      isQuestionComplete,
+    });
+  }, [formData, touchedQuestions, textValidation, isQuestionComplete]);
 
   // Text validation hook
   const textValidation = useExpressTextValidation();
@@ -651,6 +664,27 @@ export default function Questionnaire() {
     }, 0);
   };
 
+  const goToQuestion = (questionId) => {
+    const qId = String(questionId);
+    const qNum = Number(questionId);
+    
+    // Ensure question is open
+    setOpenQuestions(prev => {
+      if (prev.includes(qNum)) {
+        return prev;
+      }
+      return [...prev, qNum];
+    });
+
+    // Scroll to question after it opens
+    setTimeout(() => {
+      const questionElement = questionRefs.current[qId];
+      if (questionElement) {
+        questionElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+  };
+
   const isFormValid = () => {
     for (let i = 1; i <= 12; i++) {
       if (!isQuestionComplete(i)) return false;
@@ -1041,6 +1075,15 @@ export default function Questionnaire() {
             <Info className="w-4 h-4" />
             Answer Quality Guide
           </button>
+        </div>
+
+        {/* Inline incomplete question summary */}
+        <div className="mb-8">
+          <IncompleteQuestionSummary
+            summary={incompleteSummary}
+            onGoToQuestion={goToQuestion}
+            onOpenValidationGuide={() => setShowValidationGuide(true)}
+          />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-16">
