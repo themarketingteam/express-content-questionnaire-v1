@@ -9,6 +9,13 @@ import {
   writeDraftFailureBackup,
 } from "@/lib/draftPersistence";
 import { submitExpressQuestionnaire, SubmitFlowError } from "@/lib/expressQuestionnaireSubmit";
+import {
+  createSubmitAttemptId,
+  readActiveSubmitAttempt,
+  writeActiveSubmitAttempt,
+  clearActiveSubmitAttempt,
+  hasActiveSubmitAttemptForSession,
+} from "@/lib/submitAttempt";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -216,6 +223,9 @@ export default function Questionnaire() {
   const [submitError, setSubmitError] = useState(null);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submitInFlightRef = useRef(false);
+  const activeSubmitAttemptIdRef = useRef("");
 
   const questionRefs = useRef({});
   const draftSaveTimeoutRef = useRef(null);
