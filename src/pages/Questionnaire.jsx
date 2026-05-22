@@ -3,7 +3,6 @@ import { useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
-import { invokeExpressSubmissionFallback, buildExpressFallbackBody } from "@/lib/expressSubmissionFallback";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
 import {
   createFindExistingDraftBySessionId,
@@ -221,7 +220,6 @@ export default function Questionnaire() {
   const draftRecordIdRef = useRef("");
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
-  const lastSubmitPayloadRef = useRef(null);
 
   const [questionnaireSessionId] = useState(() => getOrCreateQuestionnaireSessionId());
 
@@ -644,7 +642,7 @@ export default function Questionnaire() {
     }
   };
 
-  const handleConfirmSubmit = async (businessName, domain) => {
+  const handleConfirmSubmit = useCallback(async (businessName, domain) => {
     const rawFormData = { ...formData };
     const payload = {
       _rawFormData: rawFormData,
@@ -679,9 +677,6 @@ export default function Questionnaire() {
         ideal_client: formData.idealClient
       }
     };
-
-    // Store payload for potential fallback use
-    lastSubmitPayloadRef.current = payload;
 
     // Mark draft as submit_attempted before the async call
     try {
@@ -760,53 +755,10 @@ export default function Questionnaire() {
         value: { session_id: questionnaireSessionId, error: serializedError, business_name: businessName, domain },
       });
 
-      // Durable intake fallback bridge: best-effort call to server fallback
-      const serializedSubmitError = serializeExpressError(error);
-      const fallbackBody = buildExpressFallbackBody({
-        transformedPayload: lastSubmitPayloadRef.current,
-        rawResponses: rawFormData,
-        responseSnapshot: rawFormData,
-        questionnaireSessionId,
-        transformFailed: false,
-        validationFailed: false,
-        transformError: null,
-        validationError: null,
-        primaryError: { message: serializedSubmitError, failureKind: "submit_error" },
-        submitContext: {
-          business_name: businessName,
-          domain,
-          user_email: urlCredentials.userEmail || "",
-          user_id: urlCredentials.userId || "",
-          created_at_client: new Date().toISOString(),
-        },
-        diagnostics: {
-          source: "questionnaire_submit_error_bridge",
-          browserOnline: typeof navigator !== "undefined" ? navigator.onLine : null,
-          pagePath: typeof window !== "undefined" ? window.location.pathname : null,
-        },
-      });
-
-      const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
-
-      // Update draft status if fallback received the intake
-      if (fallbackResult.ok && fallbackResult.received) {
-        try {
-          await saveDraftNow({
-            status: fallbackResult.submissionCreated ? "submitted" : "submit_failed",
-            submitError: fallbackResult.submissionCreated ? "" : serializedSubmitError,
-            finalSubmissionId: fallbackResult.submissionCreated ? fallbackResult.submissionId : "",
-            responsesSnapshot: rawFormData,
-          });
-        } catch {
-          // non-blocking
-        }
-      }
-
       // Preserve existing user-facing failure alert; modal stays open for retry
-      const recoveryCode = questionnaireSessionId ? `Recovery code: ${questionnaireSessionId}` : "";
-      alert(`There was an error submitting your form. Please try again or contact support.${recoveryCode ? "\n\n" + recoveryCode : ""}`);
+      alert('There was an error submitting your form. Please try again or contact support.');
     }
-  };
+  }, [saveDraftNow, submitMutation, questionnaireSessionId, formData, touchedQuestions, openQuestions]);
 
   const handleReset = () => {
     setFormData(getInitialExpressFormData());
