@@ -1066,9 +1066,10 @@ export default function Questionnaire() {
         <ConfirmModal
           formData={formData}
           onConfirm={handleConfirmSubmit}
-          onCancel={() => setShowConfirmModal(false)}
+          onCancel={() => !submitMutation.isPending && setShowConfirmModal(false)}
           initialBusinessName={initialBusinessName}
           initialDomain={initialDomain}
+          isSubmitting={submitMutation.isPending}
         />
       )}
 

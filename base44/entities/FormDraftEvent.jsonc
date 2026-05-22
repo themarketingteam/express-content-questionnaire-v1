@@ -1,0 +1,96 @@
+{
+  "name": "FormDraftEvent",
+  "type": "object",
+  "required": [
+    "session_id"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Linked questionnaire session ID"
+    },
+    "event_type": {
+      "type": "string",
+      "description": "Draft activity event type (e.g. field_change, question_opened, submit_attempted, submitted, submit_failed)"
+    },
+    "question_id": {
+      "type": "string",
+      "description": "Question identifier"
+    },
+    "question_type": {
+      "type": "string",
+      "description": "Question field type (e.g. checkbox, radio, textarea, geographic, numeric_range)"
+    },
+    "value_json": {
+      "type": "string",
+      "description": "Serialized event value"
+    },
+    "value_summary": {
+      "type": "string",
+      "description": "Human-friendly value summary"
+    },
+    "value_length": {
+      "type": "number",
+      "description": "Value length or serialized length"
+    },
+    "selected_option_count": {
+      "type": "number",
+      "description": "Count of selected options or values"
+    },
+    "business_name": {
+      "type": "string",
+      "description": "Business name for the session"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Business domain for the session"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "Client user ID if available"
+    },
+    "created_at_iso": {
+      "type": "string",
+      "description": "When the event was created (ISO 8601)"
+    }
+  },
+  "rls": {
+    "create": {},
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
