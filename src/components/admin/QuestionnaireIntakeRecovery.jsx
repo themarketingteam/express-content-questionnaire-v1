@@ -728,6 +728,14 @@ export default function QuestionnaireIntakeRecovery() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => handleCopyRetryDiagnostics(record)}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copy Retry Diagnostics
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleCopyPayload(record)}
                     >
                       <Copy className="w-4 h-4 mr-2" />
