@@ -320,10 +320,12 @@ export async function createExpressFormSubmissionWithFallback(args) {
     if (primaryResult.ok) {
       return {
         ok: true,
+        accepted: true,
         submission: primaryResult.submission,
         submissionId: primaryResult.submission?.id || primaryResult.submission?.data?.id,
-        usedFallback: false,
+        submissionCreated: true,
         receivedViaIntake: false,
+        usedFallback: false,
         primaryResult,
         fallbackResult: null,
       };
@@ -365,20 +367,24 @@ export async function createExpressFormSubmissionWithFallback(args) {
       if (fallbackResult.submissionId) {
         return {
           ok: true,
+          accepted: true,
           submission: fallbackResult.submission,
           submissionId: fallbackResult.submissionId,
-          usedFallback: true,
+          submissionCreated: true,
           receivedViaIntake: false,
+          usedFallback: true,
           primaryResult,
           fallbackResult,
         };
       } else if (fallbackResult.intakeId) {
         return {
           ok: true,
+          accepted: true,
           submission: null,
           intakeId: fallbackResult.intakeId,
-          usedFallback: true,
+          submissionCreated: false,
           receivedViaIntake: true,
+          usedFallback: true,
           primaryResult,
           fallbackResult,
         };
@@ -432,20 +438,24 @@ export async function createExpressFormSubmissionWithFallback(args) {
       if (fallbackResult.submissionId) {
         return {
           ok: true,
+          accepted: true,
           submission: fallbackResult.submission,
           submissionId: fallbackResult.submissionId,
-          usedFallback: true,
+          submissionCreated: true,
           receivedViaIntake: false,
+          usedFallback: true,
           primaryResult: null,
           fallbackResult,
         };
       } else if (fallbackResult.intakeId) {
         return {
           ok: true,
+          accepted: true,
           submission: null,
           intakeId: fallbackResult.intakeId,
-          usedFallback: true,
+          submissionCreated: false,
           receivedViaIntake: true,
+          usedFallback: true,
           primaryResult: null,
           fallbackResult,
         };

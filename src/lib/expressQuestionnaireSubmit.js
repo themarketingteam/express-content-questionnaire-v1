@@ -251,20 +251,28 @@ export async function submitExpressQuestionnaire(args) {
       if (onFinalSubmitSuccess) {
         onFinalSubmitSuccess({
           ok: true,
+          accepted: true,
           receivedViaIntake: true,
+          submissionCreated: false,
           intakeId: fallbackResult.intakeId,
           submissionId: null,
           submission: null,
           recoveryCode,
+          zapierSent: false,
+          zapierError: null,
         });
       }
       return {
         ok: true,
+        accepted: true,
         receivedViaIntake: true,
+        submissionCreated: false,
         intakeId: fallbackResult.intakeId,
         submissionId: null,
         submission: null,
         recoveryCode,
+        zapierSent: false,
+        zapierError: null,
       };
     }
 
@@ -445,6 +453,8 @@ export async function submitExpressQuestionnaire(args) {
     if (onFinalSubmitSuccess) {
       onFinalSubmitSuccess({
         ok: true,
+        accepted: true,
+        submissionCreated: submitResult.submissionCreated || false,
         receivedViaIntake: submitResult.receivedViaIntake || false,
         intakeId: submitResult.intakeId || null,
         submissionId: submitResult.submissionId,
@@ -457,6 +467,8 @@ export async function submitExpressQuestionnaire(args) {
 
     return {
       ok: true,
+      accepted: true,
+      submissionCreated: submitResult.submissionCreated || false,
       receivedViaIntake: submitResult.receivedViaIntake || false,
       intakeId: submitResult.intakeId || null,
       submissionId: submitResult.submissionId,
