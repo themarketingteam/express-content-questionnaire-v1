@@ -650,7 +650,8 @@ export default function Questionnaire() {
         business_name: businessName,
         businessDomain: domain,
         submission_datetime: new Date().toISOString(),
-        service_type: "express"
+        service_type: "express",
+        questionnaire_session_id: questionnaireSessionId,
       },
       userdata: {
         it_company_type: formData.itCompanyType,
