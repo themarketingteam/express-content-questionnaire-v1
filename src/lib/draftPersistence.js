@@ -8,6 +8,12 @@ import {
   safeJsonStringify,
   serializeExpressError
 } from "@/lib/expressQuestionnairePayload";
+import {
+  normalizeExpressFormData,
+  normalizeValidationStatus,
+  normalizeTouchedQuestions,
+  normalizeExpandedQuestions
+} from "@/lib/expressPersistedState";
 
 function safeNowIso() {
   try {
@@ -86,8 +92,26 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
     const businessName = businessNameParam || creds.businessName || "";
     const domain = domainParam || creds.domain || "";
 
+    // Normalize all state sections before saving
+    let normalizedResponses, normalizedValidationStatus, normalizedTouchedQuestions, normalizedExpandedQuestions;
+    let normalizationError = "";
+    
+    try {
+      normalizedResponses = normalizeExpressFormData(responses || {});
+      normalizedValidationStatus = normalizeValidationStatus(validationStatus || {});
+      normalizedTouchedQuestions = normalizeTouchedQuestions(touchedQuestions || {});
+      normalizedExpandedQuestions = normalizeExpandedQuestions(expandedQuestions || {});
+    } catch (err) {
+      // If normalization fails, use defaults and continue
+      normalizationError = err?.message || "Normalization failed";
+      normalizedResponses = normalizeExpressFormData({});
+      normalizedValidationStatus = normalizeValidationStatus({});
+      normalizedTouchedQuestions = normalizeTouchedQuestions({});
+      normalizedExpandedQuestions = normalizeExpandedQuestions({});
+    }
+
     const mappedPayload = buildExpressSubmissionPayload({
-      formData: responses || {},
+      formData: normalizedResponses,
       businessName,
       domain,
       sessionId,
@@ -102,7 +126,11 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       app: "express_questionnaire",
       source: "real_time_draft",
       path: typeof window !== "undefined" ? window.location.pathname : "",
-      userAgent: safeGetUserAgent()
+      userAgent: safeGetUserAgent(),
+      schema_version: "2",
+      normalized: true,
+      normalization_source: "draft_save",
+      normalization_error: normalizationError || ""
     };
 
     const draftRecord = {
@@ -115,15 +143,15 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       status,
       current_question_id: String(currentQuestionId || ""),
       last_changed_question_id: String(lastChangedQuestionId || ""),
-      responses_json: safeJsonStringify(responses || {}),
-      validation_status_json: safeJsonStringify(validationStatus || {}),
-      touched_questions_json: safeJsonStringify(touchedQuestions || {}),
-      expanded_questions_json: safeJsonStringify(expandedQuestions || {}),
+      responses_json: safeJsonStringify(normalizedResponses),
+      validation_status_json: safeJsonStringify(normalizedValidationStatus),
+      touched_questions_json: safeJsonStringify(normalizedTouchedQuestions),
+      expanded_questions_json: safeJsonStringify(normalizedExpandedQuestions),
       metadata_json: safeJsonStringify(mappedPayload.metadata),
       userdata_json: safeJsonStringify(mappedPayload.userdata),
       mapped_payload_json: safeJsonStringify({ metadata: mappedPayload.metadata, userdata: mappedPayload.userdata }),
       draft_metadata_json: safeJsonStringify(draftMetadata),
-      save_error: saveError || "",
+      save_error: saveError || normalizationError || "",
       submit_error: submitError || "",
       final_submission_id: finalSubmissionId || "",
       submit_attempted_at: isSubmitAttempted ? now : "",
