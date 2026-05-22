@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
-import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
+import { getOrCreateQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
 import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions } from "@/lib/expressPersistedState";
+import { clearExpressQuestionnaireLocalState, createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
 import {
   createFindExistingDraftBySessionId,
@@ -1031,29 +1032,46 @@ export default function Questionnaire() {
   };
 
   const handleResetLocalState = () => {
-    // Clear persisted state cookie
-    deleteCookie(STORAGE_KEY);
-    // Clear local recovery backup
-    try {
-      localStorage.removeItem(`express_questionnaire_local_backup_${questionnaireSessionId}`);
-    } catch {
-      // Ignore storage errors
+    // Use centralized reset utility
+    const result = clearExpressQuestionnaireLocalState({
+      clearSession: true,
+      clearSubmitAttempt: true,
+      clearFailedBackups: false,
+    });
+    
+    // Log result in development
+    if (import.meta.env.DEV) {
+      console.log('[reset] Local state cleared:', result);
     }
-    // Clear session ID to force regeneration
-    clearQuestionnaireSessionId();
+    
+    // Reload page after reset
+    window.location.reload();
+  };
+
+  const handleLocalStateRecovery = () => {
+    const confirmed = window.confirm(
+      'This will clear locally saved questionnaire answers and recovery session data in this browser only. Server-side drafts and submissions will not be deleted. Continue?'
+    );
+    
+    if (!confirmed) return;
+    
+    handleResetLocalState();
   };
 
   const handleBeforeReset = ({ error, errorInfo }) => {
-    // Write diagnostic backup before reset
+    // Write diagnostic backup before reset using centralized utility
+    const diagnostic = createLocalStateResetDiagnostic('error_boundary_caught');
+    
     try {
       localStorage.setItem(
         `express_questionnaire_error_diagnostic_${questionnaireSessionId}`,
         JSON.stringify({
+          ...diagnostic,
           session_id: questionnaireSessionId,
           stage: "error_boundary_caught",
           error_message: error?.message || "Unknown error",
           has_error_info: !!errorInfo,
-          timestamp: new Date().toISOString(),
+          component_stack: import.meta.env.DEV ? errorInfo?.componentStack : undefined,
         })
       );
     } catch {
@@ -1706,6 +1724,20 @@ export default function Questionnaire() {
             >
               Clear All
             </button>
+          </div>
+
+          {/* Local state recovery option */}
+          <div className="pt-6 border-t" style={{ borderColor: '#E0E0E0' }}>
+            <button
+              type="button"
+              onClick={handleLocalStateRecovery}
+              className="text-sm text-slate-500 hover:text-red-600 transition-colors underline underline-offset-2"
+            >
+              Having trouble? Reset saved browser data
+            </button>
+            <p className="text-xs text-slate-400 mt-2">
+              Use this only if the form appears stuck or old browser data will not clear.
+            </p>
           </div>
         </form>
 

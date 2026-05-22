@@ -1,70 +1,51 @@
 /**
  * Local Questionnaire State Reset Utility
  * 
- * Safely clears browser-local questionnaire state without touching server-side records.
- * Used by error boundary and reset recovery flows.
- * 
- * DOES NOT clear:
- * - FormDraft entities
- * - FormDraftEvent entities
- * - FormSubmissionIntake entities
- * - FormSubmission entities
- * - Any server-side data
+ * Provides safe browser-local state clearing without touching server-side records.
+ * Used by error boundary and recovery flows.
  */
 
-import { EXPRESS_COOKIE_KEY } from "@/lib/expressPersistedState";
-import { clearQuestionnaireSessionId } from "@/lib/sessionId";
-import { clearActiveSubmitAttempt } from "@/lib/submitAttempt";
-import { 
-  readLatestLocalFailedSubmissionBackup,
-  clearLocalFailedSubmissionBackup 
-} from "@/lib/localRecoveryBackup";
-
-/**
- * Known legacy localStorage keys to clean up
- */
-const LEGACY_STORAGE_KEYS = [
-  "msp_questionnaire_data_v2",
-  "express_questionnaire_session_id",
-];
+import { EXPRESS_COOKIE_KEY } from './expressPersistedState';
+import { clearQuestionnaireSessionId } from './sessionId';
+import { clearActiveSubmitAttempt } from './submitAttempt';
+import { clearLocalFailedSubmissionBackup } from './localRecoveryBackup';
 
 /**
  * Clear a cookie by name for both current path and root path
- * @param {string} name - Cookie name to clear
- * @returns {{ success: boolean, error?: string }}
  */
-export function clearCookieByName(name) {
+export const clearCookieByName = (name) => {
+  const cleared = [];
+  const errors = [];
+
   try {
     // Clear for current path
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax`;
-    
-    // Clear for root path explicitly
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/`;
-    
-    return { success: true };
-  } catch (error) {
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : String(error) 
-    };
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${window.location.pathname}; SameSite=Lax`;
+    cleared.push(`${name} (path=${window.location.pathname})`);
+  } catch (err) {
+    errors.push(`Failed to clear ${name} for current path: ${err.message}`);
   }
-}
+
+  try {
+    // Clear for root path
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax`;
+    cleared.push(`${name} (path=/)`);
+  } catch (err) {
+    errors.push(`Failed to clear ${name} for root path: ${err.message}`);
+  }
+
+  return { ok: errors.length === 0, cleared, errors };
+};
 
 /**
  * Clear Express questionnaire local state
  * 
- * @param {Object} options - Clear options
+ * @param {Object} options
  * @param {boolean} [options.clearSession=true] - Clear questionnaire session ID
  * @param {boolean} [options.clearSubmitAttempt=true] - Clear active submit attempt lock
  * @param {boolean} [options.clearFailedBackups=false] - Clear local failed submission backups
- * 
- * @returns {{ 
- *   ok: boolean, 
- *   cleared: string[], 
- *   errors?: Array<{ item: string, error: string }> 
- * }}
+ * @returns {Object} Result with cleared items and any errors
  */
-export function clearExpressQuestionnaireLocalState(options = {}) {
+export const clearExpressQuestionnaireLocalState = (options = {}) => {
   const {
     clearSession = true,
     clearSubmitAttempt = true,
@@ -74,95 +55,79 @@ export function clearExpressQuestionnaireLocalState(options = {}) {
   const cleared = [];
   const errors = [];
 
-  // 1. Clear Express persisted state cookie
-  const cookieResult = clearCookieByName(EXPRESS_COOKIE_KEY);
-  if (cookieResult.success) {
-    cleared.push(EXPRESS_COOKIE_KEY);
-  } else {
-    errors.push({ item: `cookie:${EXPRESS_COOKIE_KEY}`, error: cookieResult.error });
+  // Always clear the Express questionnaire cookie
+  try {
+    const cookieResult = clearCookieByName(EXPRESS_COOKIE_KEY);
+    cleared.push(...cookieResult.cleared);
+    if (!cookieResult.ok) {
+      errors.push(...cookieResult.errors);
+    }
+  } catch (err) {
+    errors.push(`Failed to clear questionnaire cookie: ${err.message}`);
   }
 
-  // 2. Clear questionnaire session ID (if enabled)
+  // Clear legacy cookie keys if they exist
+  const legacyKeys = ['msp_questionnaire_data_v2', 'express_questionnaire_session_id'];
+  legacyKeys.forEach((key) => {
+    try {
+      const result = clearCookieByName(key);
+      if (result.cleared.length > 0) {
+        cleared.push(...result.cleared.map((c) => `${key} (legacy)`));
+      }
+    } catch {
+      // Ignore legacy key errors
+    }
+  });
+
+  // Clear session ID if requested
   if (clearSession) {
     try {
       clearQuestionnaireSessionId();
-      cleared.push("questionnaire_session_id");
-    } catch (error) {
-      errors.push({ 
-        item: "questionnaire_session_id", 
-        error: error instanceof Error ? error.message : String(error) 
-      });
+      cleared.push('questionnaire_session_id');
+    } catch (err) {
+      errors.push(`Failed to clear session ID: ${err.message}`);
     }
   }
 
-  // 3. Clear active submit attempt lock (if enabled)
+  // Clear active submit attempt if requested
   if (clearSubmitAttempt) {
     try {
-      // Clear for any session - the utility handles session-specific cleanup
-      clearActiveSubmitAttempt();
-      cleared.push("active_submit_attempt");
-    } catch (error) {
-      errors.push({ 
-        item: "active_submit_attempt", 
-        error: error instanceof Error ? error.message : String(error) 
-      });
+      // Clear from localStorage
+      const attemptKey = 'express_questionnaire_submit_attempt';
+      localStorage.removeItem(attemptKey);
+      cleared.push(`${attemptKey} (localStorage)`);
+    } catch (err) {
+      errors.push(`Failed to clear submit attempt: ${err.message}`);
     }
   }
 
-  // 4. Clear local failed submission backups (only if explicitly requested)
+  // Clear failed backups only if explicitly requested
   if (clearFailedBackups) {
     try {
-      // Read latest backup to get session ID for targeted cleanup
-      // Note: This is a best-effort cleanup - we clear what we can find
-      const backup = readLatestLocalFailedSubmissionBackup();
-      if (backup) {
-        clearLocalFailedSubmissionBackup(backup.id);
-        cleared.push("failed_submission_backup");
-      }
-    } catch (error) {
-      // Don't fail the entire operation if backup cleanup fails
-      errors.push({ 
-        item: "failed_submission_backup", 
-        error: error instanceof Error ? error.message : String(error) 
-      });
+      clearLocalFailedSubmissionBackup();
+      cleared.push('local_failed_submission_backups');
+    } catch (err) {
+      errors.push(`Failed to clear failed backups: ${err.message}`);
     }
   }
-
-  // 5. Clear legacy storage keys (best effort)
-  LEGACY_STORAGE_KEYS.forEach(key => {
-    try {
-      localStorage.removeItem(key);
-      cleared.push(`legacy:${key}`);
-    } catch (error) {
-      // Ignore errors for legacy key cleanup
-      errors.push({ 
-        item: `legacy:${key}`, 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-    }
-  });
 
   return {
     ok: errors.length === 0,
     cleared,
-    ...(errors.length > 0 && { errors }),
+    errors,
   };
-}
+};
 
 /**
- * Create a diagnostic record for local state reset
+ * Create a local state reset diagnostic record
  * 
- * @param {string} reason - Reason for the reset (e.g. "error_boundary_caught", "user_requested")
- * @returns {{
- *   reason: string,
- *   at: string,
- *   app: string
- * }}
+ * @param {string} reason - Reason for the reset (e.g. "corrupted_state", "user_requested")
+ * @returns {Object} Diagnostic record with timestamp and context
  */
-export function createLocalStateResetDiagnostic(reason) {
+export const createLocalStateResetDiagnostic = (reason) => {
   return {
     reason,
     at: new Date().toISOString(),
-    app: "express_questionnaire",
+    app: 'express_questionnaire',
   };
-}
+};

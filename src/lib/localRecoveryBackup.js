@@ -216,6 +216,31 @@ export function removeLocalFailedSubmissionBackup(id) {
   }
 }
 
+/**
+ * Clear all failed submission backups
+ */
+export function clearLocalFailedSubmissionBackup() {
+  try {
+    if (!safeStorageAvailable()) return;
+    
+    const index = readBackupIndex();
+    
+    // Remove all backup records
+    index.forEach(entry => {
+      try {
+        localStorage.removeItem(`${FAILED_BACKUP_PREFIX}${entry.id}`);
+      } catch {
+        // ignore
+      }
+    });
+    
+    // Clear index
+    localStorage.removeItem(FAILED_BACKUP_INDEX_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 // Internal helpers
 
 function readBackupIndex() {
