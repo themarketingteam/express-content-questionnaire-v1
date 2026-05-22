@@ -169,6 +169,7 @@ export async function submitExpressQuestionnaire(args) {
     createDraftEvent,
     onFinalSubmitSuccess,
     onFinalSubmitFailure,
+    submitAttemptId,
   } = args;
 
   const recoveryCode = questionnaireSessionId || "unknown-session";
@@ -234,6 +235,7 @@ export async function submitExpressQuestionnaire(args) {
       businessName,
       domain,
       sessionId: questionnaireSessionId,
+      submitAttemptId,
     });
   } catch (transformErr) {
     const serializedError = serializeExpressError(transformErr);

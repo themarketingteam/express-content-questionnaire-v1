@@ -40,7 +40,7 @@ export function getInitialExpressFormData() {
   };
 }
 
-export function buildExpressSubmissionPayload({ formData, businessName, domain, sessionId }) {
+export function buildExpressSubmissionPayload({ formData, businessName, domain, sessionId, submitAttemptId }) {
   const fd = formData || {};
   return {
     _rawFormData: { ...fd },
@@ -49,7 +49,8 @@ export function buildExpressSubmissionPayload({ formData, businessName, domain, 
       businessDomain: cleanExpressDomain(domain),
       submission_datetime: new Date().toISOString(),
       service_type: "express",
-      questionnaire_session_id: sessionId || ""
+      questionnaire_session_id: sessionId || "",
+      submit_attempt_id: submitAttemptId || ""
     },
     userdata: {
       it_company_type: fd.itCompanyType,

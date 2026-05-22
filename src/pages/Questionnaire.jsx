@@ -612,8 +612,28 @@ export default function Questionnaire() {
   };
 
   const handleConfirmSubmit = useCallback(async (businessName, domain) => {
-    if (isSubmitting) return;
+    // Prevent duplicate submits
+    if (isSubmitting || submitInFlightRef.current) return;
     
+    // Check for active submit attempt
+    if (hasActiveSubmitAttemptForSession(questionnaireSessionId)) {
+      const active = readActiveSubmitAttempt();
+      if (active) {
+        // Active attempt exists and is not expired - prevent duplicate
+        return;
+      }
+    }
+    
+    // Create new submit attempt
+    const submitAttemptId = createSubmitAttemptId(questionnaireSessionId);
+    activeSubmitAttemptIdRef.current = submitAttemptId;
+    writeActiveSubmitAttempt({
+      sessionId: questionnaireSessionId,
+      attemptId: submitAttemptId,
+      startedAt: new Date().toISOString(),
+    });
+    
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
     setRecoveryCode("");
@@ -635,6 +655,7 @@ export default function Questionnaire() {
         questionnaireSessionId,
         saveDraftNow,
         createDraftEvent,
+        submitAttemptId: activeSubmitAttemptIdRef.current,
         onFinalSubmitSuccess: (successResult) => {
           hasFinalSubmittedRef.current = true;
           if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
@@ -676,7 +697,9 @@ export default function Questionnaire() {
       // Show user-safe message
       alert(`We saved your progress, but final submission could not complete. Please try again. Recovery code: ${recoveryCodeValue}`);
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
+      clearActiveSubmitAttempt(activeSubmitAttemptIdRef.current);
     }
   }, [isSubmitting, formData, touchedQuestions, openQuestions, questionnaireSessionId, urlCredentials, domainParam, saveDraftNow, createDraftEvent]);
 

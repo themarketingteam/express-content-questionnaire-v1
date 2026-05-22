@@ -35,6 +35,9 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
     };
   }, [onCancel, isSubmitting]);
 
+  // Prevent backdrop click during submit
+  const handleBackdropClick = isSubmitting ? undefined : onCancel;
+
   const formatAnswer = (value) => {
     if (Array.isArray(value)) {
       return value.length > 0 ? value.join(", ") : "Not answered";
@@ -161,7 +164,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={isSubmitting ? undefined : onCancel}
+      onClick={handleBackdropClick}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
