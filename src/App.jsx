@@ -8,6 +8,7 @@ import { pagesConfig } from './pages.config'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import AdminSubmitIntake from './pages/AdminSubmitIntake';
+import FormDraftRecovery from './pages/FormDraftRecovery';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 
@@ -61,6 +62,11 @@ const AuthenticatedApp = () => {
           }
         />
       ))}
+      <Route path="/admin/draft-recovery" element={
+        <LayoutWrapper currentPageName={"admin/draft-recovery"}>
+          <FormDraftRecovery />
+        </LayoutWrapper>
+      } />
       <Route path="/admin/submit-intake" element={
         <LayoutWrapper currentPageName={"admin/submit-intake"}>
           <AdminSubmitIntake />
