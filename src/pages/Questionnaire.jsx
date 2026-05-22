@@ -40,6 +40,7 @@ import ConfirmModal from "../components/questionnaire/ConfirmModal";
 import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
 import QuestionnaireErrorBoundary from "../components/questionnaire/QuestionnaireErrorBoundary";
+import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidator";
 import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
@@ -1150,14 +1151,54 @@ export default function Questionnaire() {
   const initialBusinessName = businessNameParam;
   const initialDomain = domainParam;
 
+  // Helper functions for converting between openQuestions array and expandedQuestions object
+  const openQuestionsToExpandedQuestionsObject = (openQuestionsArray) => {
+    return Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestionsArray.includes(i + 1)])
+    );
+  };
+
+  const expandedQuestionsObjectToOpenQuestions = (expandedQuestionsObject) => {
+    const openNums = [];
+    for (let i = 1; i <= 12; i++) {
+      if (expandedQuestionsObject[String(i)]) {
+        openNums.push(i);
+      }
+    }
+    return openNums.length > 0 ? openNums : [1];
+  };
+
   return (
-    <QuestionnaireErrorBoundary
-      onResetLocalState={handleResetLocalState}
-      onBeforeReset={handleBeforeReset}
-      recoveryCode={questionnaireSessionId}
-    >
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-        <header className="shadow-sm" style={{
+    <>
+      {/* Self-healing data validator - monitors and repairs malformed persisted state */}
+      <ExpressDataValidator
+        formData={formData}
+        validationStatus={textValidation.getAllFieldStatuses()}
+        touchedQuestions={touchedQuestions}
+        expandedQuestions={openQuestionsToExpandedQuestionsObject(openQuestions)}
+        setFormData={setFormData}
+        setValidationStatus={textValidation.setFieldValidation}
+        setTouchedQuestions={setTouchedQuestions}
+        setExpandedQuestions={(nextExpandedObject) => {
+          setOpenQuestions(expandedQuestionsObjectToOpenQuestions(nextExpandedObject));
+        }}
+        createDraftEvent={createDraftEvent}
+        disabled={hasFinalSubmittedRef.current}
+        onRepair={(result) => {
+          if (import.meta.env.DEV) {
+            console.info("[Express Questionnaire] Self-healing repairs applied", result.repairs);
+          }
+          // Queue draft save with repaired form data
+          queueDraftSave("self_healing", result.formData);
+        }}
+      />
+      <QuestionnaireErrorBoundary
+        onResetLocalState={handleResetLocalState}
+        onBeforeReset={handleBeforeReset}
+        recoveryCode={questionnaireSessionId}
+      >
+        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+          <header className="shadow-sm" style={{
                       backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
                       backgroundSize: 'cover',
                       backgroundPosition: 'center'
@@ -1796,7 +1837,8 @@ export default function Questionnaire() {
       />
 
       <Toaster richColors position="top-center" />
-    </div>
-    </QuestionnaireErrorBoundary>
+        </div>
+      </QuestionnaireErrorBoundary>
+    </>
   );
 }
