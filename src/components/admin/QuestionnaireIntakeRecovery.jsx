@@ -229,7 +229,7 @@ export default function QuestionnaireIntakeRecovery() {
         forceRetry,
       });
 
-      const data = response?.data;
+      const data = response?.data || response;
 
       if (data?.success) {
         if (data.alreadySubmitted) {

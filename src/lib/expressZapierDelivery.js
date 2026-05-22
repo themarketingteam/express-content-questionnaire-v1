@@ -74,7 +74,7 @@ export async function sendExpressZapierSafe(payload, options = {}) {
       timeoutMs
     );
 
-    const data = response?.data;
+    const data = response?.data || response;
 
     // Check if server-side function reported failure
     if (data?.success === false) {
