@@ -996,10 +996,10 @@ export default function Questionnaire() {
             return;
           }
           
-          // Full success: clear cookie, session, reset form
+          // Full success: clear cookie, session, reset form silently
           deleteCookie(STORAGE_KEY);
           clearQuestionnaireSessionId();
-          handleReset();
+          resetQuestionnaireStateAfterFullSuccess();
           setShowThankYouModal(true);
         },
         onFinalSubmitFailure: (failureResult) => {
@@ -1103,6 +1103,30 @@ export default function Questionnaire() {
       setShowClearAllConfirm(false);
     }
   }, [questionnaireSessionId, textValidation, saveDraftNow, createDraftEvent]);
+
+  // Silent reset after full successful submission (no confirmation modal)
+  const resetQuestionnaireStateAfterFullSuccess = useCallback(() => {
+    const clearedFormData = getInitialExpressFormData();
+    const clearedTouchedQuestions = {};
+    const defaultExpanded = getDefaultExpandedQuestions();
+    const defaultOpenQuestions = Object.entries(defaultExpanded)
+      .filter(([_, isOpen]) => isOpen)
+      .map(([num]) => Number(num));
+    
+    // Reset state silently
+    setFormData(clearedFormData);
+    textValidation.resetAllFields();
+    setTouchedQuestions(clearedTouchedQuestions);
+    setOpenQuestions(defaultOpenQuestions.length > 0 ? defaultOpenQuestions : [1]);
+    setSubmitValidationIssues([]);
+    setSubmitValidationWarnings([]);
+    setSubmitError(null);
+    setRecoveryCode("");
+    setLocalRecoveryBackupId("");
+    setLatestLocalRecoveryBackup(null);
+    
+    // Do NOT save to draft, do NOT create events, do NOT open confirmation modal
+  }, [textValidation]);
 
   const handleReset = () => {
     setShowClearAllConfirm(true);
@@ -1841,6 +1865,10 @@ export default function Questionnaire() {
             </button>
           </div>
 
+          <p className="text-xs text-slate-500 mt-3">
+            This clears the answers shown in the form, but does not delete server-side recovery records.
+          </p>
+
           {/* Show incomplete questions only after submit attempt */}
           {submitAttemptedWithIncomplete && (
             <div className="mt-8">
@@ -1852,10 +1880,6 @@ export default function Questionnaire() {
               />
             </div>
           )}
-
-          <p className="text-xs text-slate-500 mt-3">
-            This clears the answers shown in the form, but does not delete server-side recovery records.
-          </p>
 
           {/* Local state recovery option */}
           <div className="pt-6 border-t mt-8" style={{ borderColor: '#E0E0E0' }}>
