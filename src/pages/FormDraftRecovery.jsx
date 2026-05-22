@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -22,6 +22,16 @@ function safeJsonParse(value, fallback = null) {
     return JSON.parse(value);
   } catch {
     return fallback;
+  }
+}
+
+function canParseJson(value) {
+  if (!value) return false;
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -57,11 +67,15 @@ function StatusBadge({ status }) {
 function DraftRow({ draft, isDuplicate }) {
   const [expanded, setExpanded] = useState(false);
 
+  const responsesParseOk = canParseJson(draft.responses_json);
+  const mappedParseOk = canParseJson(draft.mapped_payload_json);
+  const validationParseOk = canParseJson(draft.validation_status_json);
+
   const responses = safeJsonParse(draft.responses_json, {});
   const validationStatus = safeJsonParse(draft.validation_status_json, {});
   const metadata = safeJsonParse(draft.metadata_json, {});
   const userdata = safeJsonParse(draft.userdata_json, {});
-  const mappedPayload = safeJsonParse(draft.mapped_payload_json, {});
+  const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(responses, null, 2));
@@ -86,6 +100,26 @@ function DraftRow({ draft, isDuplicate }) {
     navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
     toast.success("Recovery bundle copied.");
   };
+
+  const handleCopySubmitIntake = () => {
+    // Prefer mapped_payload_json; fallback to metadata + userdata
+    let base = mappedPayload && mappedPayload.metadata && mappedPayload.userdata
+      ? { metadata: { ...mappedPayload.metadata }, userdata: { ...mappedPayload.userdata } }
+      : { metadata: { ...metadata }, userdata: { ...userdata } };
+
+    // Force express service type and ensure session id is present
+    base.metadata.service_type = "express";
+    if (!base.metadata.questionnaire_session_id) {
+      base.metadata.questionnaire_session_id = draft.session_id || "";
+    }
+
+    navigator.clipboard.writeText(JSON.stringify(base, null, 2));
+    toast.success("Submit-intake payload copied.");
+  };
+
+  const hasResponses = Object.keys(responses).length > 0;
+  const hasMapped = mappedPayload !== null && Object.keys(mappedPayload).length > 0;
+  const hasValidation = Object.keys(validationStatus).length > 0;
 
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -140,6 +174,34 @@ function DraftRow({ draft, isDuplicate }) {
             <Detail label="Last saved at" value={formatDate(draft.last_saved_at)} />
           </div>
 
+          {/* Availability summary */}
+          <div className="flex flex-wrap gap-4 text-xs text-slate-600 bg-white border border-slate-200 rounded px-3 py-2">
+            <span>
+              <span className="font-medium text-slate-500">Mapped Payload:</span>{" "}
+              <span className={hasMapped ? "text-green-700" : "text-slate-400"}>{hasMapped ? "Yes" : "No"}</span>
+            </span>
+            <span>
+              <span className="font-medium text-slate-500">Responses:</span>{" "}
+              <span className={hasResponses ? "text-green-700" : "text-slate-400"}>{hasResponses ? "Yes" : "No"}</span>
+            </span>
+            <span>
+              <span className="font-medium text-slate-500">Validation Status:</span>{" "}
+              <span className={hasValidation ? "text-green-700" : "text-slate-400"}>{hasValidation ? "Yes" : "No"}</span>
+            </span>
+          </div>
+
+          {/* Parse warnings */}
+          {draft.responses_json && !responsesParseOk && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Responses JSON could not be parsed.
+            </p>
+          )}
+          {draft.mapped_payload_json && !mappedParseOk && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Mapped payload JSON could not be parsed.
+            </p>
+          )}
+
           {draft.save_error && (
             <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
               <span className="font-semibold">Save error:</span> {draft.save_error}
@@ -162,10 +224,13 @@ function DraftRow({ draft, isDuplicate }) {
             <Button size="sm" variant="outline" onClick={handleCopyBundle} className="text-xs gap-1.5">
               <Copy className="w-3.5 h-3.5" /> Copy Recovery Bundle
             </Button>
+            <Button size="sm" variant="outline" onClick={handleCopySubmitIntake} className="text-xs gap-1.5">
+              <Copy className="w-3.5 h-3.5" /> Copy Submit-Intake Payload
+            </Button>
           </div>
 
           {/* Parsed responses */}
-          {Object.keys(responses).length > 0 && (
+          {hasResponses && (
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1">Parsed Responses</p>
               <pre className="bg-white border border-slate-200 rounded p-3 text-xs font-mono overflow-auto max-h-64 text-slate-700 whitespace-pre-wrap">
@@ -213,8 +278,8 @@ export default function FormDraftRecovery() {
 
   // Auth check on mount
   useEffect(() => {
-    base44.auth.isAuthenticated().then(async (isAuthed) => {
-      if (isAuthed) {
+    base44.auth.isAuthenticated().then(async (isAuth) => {
+      if (isAuth) {
         const me = await base44.auth.me();
         setUser(me);
         setAuthed(true);
@@ -223,7 +288,7 @@ export default function FormDraftRecovery() {
     });
   }, []);
 
-  // Load drafts only after auth succeeds
+  // Load drafts only after auth
   useEffect(() => {
     if (!authed) return;
     setLoading(true);
@@ -240,7 +305,6 @@ export default function FormDraftRecovery() {
       .finally(() => setLoading(false));
   }, [authed]);
 
-  // Build duplicate session id set
   const duplicateSessionIds = useMemo(() => {
     const counts = {};
     drafts.forEach((d) => {
@@ -263,21 +327,25 @@ export default function FormDraftRecovery() {
     });
   }, [drafts, search, statusFilter]);
 
-  // Auth loading state
+  // Auth loading
   if (loadingAuth) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="w-6 h-6 border-4 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
       </div>
     );
   }
 
-  // Unauthenticated state
+  // Not authenticated
   if (!authed) {
     return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center gap-4">
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-slate-600 text-sm">Please sign in to view Express draft recovery data.</p>
-        <Button onClick={() => base44.auth.redirectToLogin(window.location.pathname)}>
+        <Button
+          onClick={() => base44.auth.redirectToLogin(window.location.pathname)}
+          style={{ backgroundColor: "#004B87", color: "white", borderRadius: "2px" }}
+          className="px-8 py-2 font-bold text-sm uppercase tracking-wider hover:opacity-90"
+        >
           Sign in
         </Button>
       </div>
