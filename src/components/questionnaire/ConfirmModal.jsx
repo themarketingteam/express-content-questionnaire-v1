@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X, CheckCircle, AlertCircle, Download, Loader2 } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Download, Loader2, Copy } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { generatePDF } from "./PDFGenerator";
@@ -16,10 +16,23 @@ const capitalizeBusinessName = (name) => {
     .join(' ');
 };
 
-export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain, isSubmitting = false, submitError = null, recoveryCode = "" }) {
+export default function ConfirmModal({ 
+  formData, 
+  onConfirm, 
+  onCancel, 
+  initialBusinessName, 
+  initialDomain, 
+  isSubmitting = false, 
+  submitError = null, 
+  recoveryCode = "",
+  submitAttemptId = "",
+  localRecoveryBackupId = "",
+  latestLocalRecoveryBackup = null
+}) {
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isCopyingRecovery, setIsCopyingRecovery] = useState(false);
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -77,6 +90,36 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
       toast.error("Failed to generate PDF. Please try again.");
     } finally {
       setIsGeneratingPDF(false);
+    }
+  };
+
+  const handleCopyRecoveryDetails = async () => {
+    if (isCopyingRecovery) return;
+    
+    setIsCopyingRecovery(true);
+    try {
+      const errorMessage = submitError?.message || submitError?.error?.message || "Submission failed";
+      
+      const recoveryBundle = {
+        recovery_code: recoveryCode || "",
+        submit_attempt_id: submitAttemptId || "",
+        local_backup_id: localRecoveryBackupId || "",
+        business_name: businessName.trim(),
+        domain: cleanDomain(domain),
+        error_message: typeof errorMessage === "string" ? errorMessage : JSON.stringify(errorMessage),
+        backup_created_at: latestLocalRecoveryBackup?.created_at || "",
+        backup_stage: latestLocalRecoveryBackup?.stage || "",
+        support_note: "Use the recovery code to search Express FormDraft, FormDraftEvent, or FormSubmissionIntake admin tools."
+      };
+
+      const bundleText = JSON.stringify(recoveryBundle, null, 2);
+      await navigator.clipboard.writeText(bundleText);
+      toast.success("Recovery details copied");
+    } catch (err) {
+      console.error("[recovery-copy] failed:", err);
+      toast.error("Could not copy recovery details");
+    } finally {
+      setIsCopyingRecovery(false);
     }
   };
 
@@ -276,7 +319,7 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
 
         {/* Error display */}
         {submitError && (
-          <div className="mx-6 mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+          <div className="mx-6 mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl space-y-3">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
               <div className="flex-1">
@@ -289,6 +332,24 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
                   </p>
                 )}
               </div>
+            </div>
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p className="text-xs text-amber-800 mb-2">
+                If this keeps happening, copy these recovery details and send them to support.
+              </p>
+              <button
+                type="button"
+                onClick={handleCopyRecoveryDetails}
+                disabled={isCopyingRecovery}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 disabled:bg-amber-50 text-amber-900 text-sm font-semibold rounded-lg transition-colors"
+              >
+                {isCopyingRecovery ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" />Copying...</>
+                ) : (
+                  <><Copy className="w-4 h-4" />Copy Recovery Details</>
+                )}
+              </button>
             </div>
           </div>
         )}

@@ -16,6 +16,9 @@ import {
   clearActiveSubmitAttempt,
   hasActiveSubmitAttemptForSession,
 } from "@/lib/submitAttempt";
+import {
+  readLatestLocalFailedSubmissionBackup,
+} from "@/lib/localRecoveryBackup";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -223,6 +226,8 @@ export default function Questionnaire() {
   const [submitError, setSubmitError] = useState(null);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [localRecoveryBackupId, setLocalRecoveryBackupId] = useState("");
+  const [latestLocalRecoveryBackup, setLatestLocalRecoveryBackup] = useState(null);
 
   const submitInFlightRef = useRef(false);
   const activeSubmitAttemptIdRef = useRef("");
@@ -684,6 +689,19 @@ export default function Questionnaire() {
         onFinalSubmitFailure: (failureResult) => {
           setSubmitError(failureResult.error);
           setRecoveryCode(failureResult.recoveryCode || questionnaireSessionId);
+          
+          // Read latest local backup for recovery bundle
+          const latestBackup = readLatestLocalFailedSubmissionBackup(questionnaireSessionId);
+          if (latestBackup) {
+            setLocalRecoveryBackupId(latestBackup.id || "");
+            setLatestLocalRecoveryBackup({
+              id: latestBackup.id,
+              created_at: latestBackup.created_at,
+              stage: latestBackup.stage,
+              business_name: latestBackup.business_name,
+              domain: latestBackup.domain,
+            });
+          }
         },
       });
 
@@ -1127,6 +1145,9 @@ export default function Questionnaire() {
           isSubmitting={isSubmitting}
           submitError={submitError}
           recoveryCode={recoveryCode}
+          submitAttemptId={activeSubmitAttemptIdRef.current}
+          localRecoveryBackupId={localRecoveryBackupId}
+          latestLocalRecoveryBackup={latestLocalRecoveryBackup}
         />
       )}
 
