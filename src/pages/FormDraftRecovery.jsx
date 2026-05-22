@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, Copy, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -374,6 +375,11 @@ export default function FormDraftRecovery() {
           ))}
         </div>
       )}
+
+      {/* Local Browser Recovery Backups Panel */}
+      <div className="mt-8">
+        <LocalRecoveryBackupsPanel />
+      </div>
     </div>
   );
 }
