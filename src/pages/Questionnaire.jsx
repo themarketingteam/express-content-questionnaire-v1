@@ -19,6 +19,8 @@ import {
 import {
   readLatestLocalFailedSubmissionBackup,
 } from "@/lib/localRecoveryBackup";
+import { useExpressTextValidation } from "@/lib/hooks/useExpressTextValidation";
+import { isExpressTextValidationField } from "@/lib/expressTextValidation";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -228,6 +230,9 @@ export default function Questionnaire() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localRecoveryBackupId, setLocalRecoveryBackupId] = useState("");
   const [latestLocalRecoveryBackup, setLatestLocalRecoveryBackup] = useState(null);
+
+  // Text validation hook
+  const textValidation = useExpressTextValidation();
 
   const submitInFlightRef = useRef(false);
   const activeSubmitAttemptIdRef = useRef("");
@@ -493,7 +498,22 @@ export default function Questionnaire() {
       : qType === "radio" ? "selection_changed"
       : "answer_changed";
     queueDraftEvent({ eventType, questionId: qId, questionType: qType, value });
-  }, [queueDraftSave, questionnaireSessionId]);
+    
+    // Mark text validation fields as dirty if they have a validation result
+    if (isExpressTextValidationField(field)) {
+      const status = textValidation.getFieldStatus(field);
+      if (status.status !== 'unknown' && status.status !== 'dirty') {
+        textValidation.markFieldDirty(field);
+        // Create draft event for validation dirty
+        createDraftEvent({
+          eventType: "validation_dirty",
+          questionId,
+          questionType: qType,
+          value: { fieldName: field, previousStatus: status.status },
+        });
+      }
+    }
+  }, [queueDraftSave, questionnaireSessionId, textValidation, createDraftEvent]);
 
   const updateArrayField = useCallback((field, value, limit = 3, otherField = null) => {
     const questionId = FIELD_TO_QUESTION[field] || "";
@@ -729,6 +749,36 @@ export default function Questionnaire() {
     setRecoveryCode("");
   };
 
+  // Handle text field validation
+  const handleValidateTextField = useCallback(async (fieldName) => {
+    const answer = formData[fieldName] || "";
+    const questionId = FIELD_TO_QUESTION[fieldName] || "";
+    const { type: qType } = getQuestionMetaForField(fieldName);
+    
+    // Call validation
+    const result = await textValidation.validateField(fieldName, answer, {
+      businessName: urlCredentials.businessName,
+      domain: urlCredentials.domain,
+      formData,
+    });
+    
+    // Create draft event for validation completed
+    createDraftEvent({
+      eventType: "validation_completed",
+      questionId,
+      questionType: qType,
+      value: {
+        fieldName,
+        status: result.status,
+        score: result.score,
+        reason_codes: result.reason_codes,
+      },
+    });
+    
+    // Queue draft save after validation
+    queueDraftSave(questionId, formData);
+  }, [formData, textValidation, urlCredentials, createDraftEvent, queueDraftSave]);
+
   const initialBusinessName = businessNameParam;
   const initialDomain = domainParam;
 
@@ -874,6 +924,56 @@ export default function Questionnaire() {
                 isOpen={openQuestions.includes(3)}
                 onClick={() => handleQuestionClick(3)}
               />
+              
+              {/* Validation controls for differentiation */}
+              {openQuestions.includes(3) && (
+                <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleValidateTextField("differentiation")}
+                      disabled={textValidation.isFieldValidating("differentiation")}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white text-sm font-semibold rounded-lg transition-colors"
+                    >
+                      {textValidation.isFieldValidating("differentiation") ? "Validating..." : "Validate Answer"}
+                    </button>
+                  </div>
+                  
+                  {(() => {
+                    const status = textValidation.getFieldStatus("differentiation");
+                    if (status.status === 'unknown') return null;
+                    
+                    const statusConfig = {
+                      complete: { color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', label: 'Looks complete' },
+                      needs_work: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', label: 'Could use a little more detail' },
+                      incomplete: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', label: 'Needs more detail before submission' },
+                      dirty: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Edited since last validation' },
+                      error: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Validation unavailable right now' },
+                    };
+                    
+                    const config = statusConfig[status.status] || statusConfig.error;
+                    
+                    return (
+                      <div className={`p-3 rounded-lg border ${config.bg} ${config.border}`}>
+                        <p className={`text-sm font-semibold ${config.color}`}>{config.label}</p>
+                        {status.message && status.status !== 'dirty' && (
+                          <p className="text-xs text-slate-600 mt-1">{status.message}</p>
+                        )}
+                        {status.suggestions?.length > 0 && status.status !== 'dirty' && (
+                          <ul className="mt-2 space-y-1">
+                            {status.suggestions.map((suggestion, idx) => (
+                              <li key={idx} className="text-xs text-slate-600 flex items-start gap-2">
+                                <span className="text-slate-400">•</span>
+                                <span>{suggestion}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             <div ref={el => questionRefs.current[4] = el}>
@@ -1076,6 +1176,56 @@ export default function Questionnaire() {
                 isOpen={openQuestions.includes(12)}
                 onClick={() => handleQuestionClick(12)}
               />
+              
+              {/* Validation controls for idealClient */}
+              {openQuestions.includes(12) && (
+                <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleValidateTextField("idealClient")}
+                      disabled={textValidation.isFieldValidating("idealClient")}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white text-sm font-semibold rounded-lg transition-colors"
+                    >
+                      {textValidation.isFieldValidating("idealClient") ? "Validating..." : "Validate Answer"}
+                    </button>
+                  </div>
+                  
+                  {(() => {
+                    const status = textValidation.getFieldStatus("idealClient");
+                    if (status.status === 'unknown') return null;
+                    
+                    const statusConfig = {
+                      complete: { color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', label: 'Looks complete' },
+                      needs_work: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', label: 'Could use a little more detail' },
+                      incomplete: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', label: 'Needs more detail before submission' },
+                      dirty: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Edited since last validation' },
+                      error: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Validation unavailable right now' },
+                    };
+                    
+                    const config = statusConfig[status.status] || statusConfig.error;
+                    
+                    return (
+                      <div className={`p-3 rounded-lg border ${config.bg} ${config.border}`}>
+                        <p className={`text-sm font-semibold ${config.color}`}>{config.label}</p>
+                        {status.message && status.status !== 'dirty' && (
+                          <p className="text-xs text-slate-600 mt-1">{status.message}</p>
+                        )}
+                        {status.suggestions?.length > 0 && status.status !== 'dirty' && (
+                          <ul className="mt-2 space-y-1">
+                            {status.suggestions.map((suggestion, idx) => (
+                              <li key={idx} className="text-xs text-slate-600 flex items-start gap-2">
+                                <span className="text-slate-400">•</span>
+                                <span>{suggestion}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </section>
 
