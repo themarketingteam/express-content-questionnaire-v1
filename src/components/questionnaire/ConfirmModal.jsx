@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { X, CheckCircle, AlertCircle } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Download, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { generatePDF } from "./PDFGenerator";
 
 const capitalizeBusinessName = (name) => {
   return name
@@ -17,6 +19,7 @@ const capitalizeBusinessName = (name) => {
 export default function ConfirmModal({ formData, onConfirm, onCancel, initialBusinessName, initialDomain }) {
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -51,6 +54,26 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
   const handleConfirm = () => {
     if (isFormValid) {
       onConfirm(businessName, cleanDomain(domain));
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!businessName.trim()) {
+      toast.error("Please enter a business name before downloading.");
+      return;
+    }
+    setIsGeneratingPDF(true);
+    try {
+      const result = await generatePDF(formData, businessName.trim(), cleanDomain(domain));
+      if (result?.success) {
+        toast.success(`PDF downloaded: ${result.filename}`);
+      } else {
+        toast.error("Failed to generate PDF. Please try again.");
+      }
+    } catch {
+      toast.error("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsGeneratingPDF(false);
     }
   };
 
@@ -250,11 +273,23 @@ export default function ConfirmModal({ formData, onConfirm, onCancel, initialBus
         <div className="sticky bottom-0 bg-white border-t border-slate-200 p-6 flex gap-3">
           <button
             onClick={handleConfirm}
-            disabled={!isFormValid}
+            disabled={!isFormValid || isGeneratingPDF}
             className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
           >
             <CheckCircle className="w-5 h-5" />
             Confirm & Submit
+          </button>
+          <button
+            onClick={handleDownloadPDF}
+            disabled={isGeneratingPDF}
+            type="button"
+            className="px-6 py-3 border-2 border-blue-400 hover:border-blue-500 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed text-blue-700 font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+          >
+            {isGeneratingPDF ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Generating...</>
+            ) : (
+              <><Download className="w-4 h-4" />Download PDF</>
+            )}
           </button>
           <button
             onClick={onCancel}
