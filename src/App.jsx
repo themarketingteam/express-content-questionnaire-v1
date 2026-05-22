@@ -10,7 +10,7 @@ import PageNotFound from './lib/PageNotFound';
 import AdminSubmitIntake from './pages/AdminSubmitIntake';
 import FormDraftRecovery from './pages/FormDraftRecovery';
 import AdminOnly from '@/components/admin/AdminOnly';
-import QuestionnaireIntakeRecovery from './components/admin/QuestionnaireIntakeRecovery';
+import QuestionnaireIntakeRecoveryPage from './pages/QuestionnaireIntakeRecovery';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 
@@ -81,7 +81,7 @@ const AuthenticatedApp = () => {
       <Route path="/admin/questionnaire-intake-recovery" element={
         <AdminOnly>
           <LayoutWrapper currentPageName={"admin/questionnaire-intake-recovery"}>
-            <QuestionnaireIntakeRecovery />
+            <QuestionnaireIntakeRecoveryPage />
           </LayoutWrapper>
         </AdminOnly>
       } />
