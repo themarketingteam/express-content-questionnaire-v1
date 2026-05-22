@@ -192,6 +192,14 @@ Deno.serve(async (req) => {
       diagnostics,
     } = body;
 
+    // Resolve submit attempt ID from multiple sources
+    const submitAttemptId =
+      transformedPayload?.metadata?.submit_attempt_id ||
+      body?.submitAttemptId ||
+      submitContext?.submitAttemptId ||
+      submitContext?.submit_attempt_id ||
+      null;
+
     // 1. Session ID is required
     if (!questionnaireSessionId) {
       return Response.json({
@@ -240,12 +248,6 @@ Deno.serve(async (req) => {
     const source =
       submitContext?.source ||
       'questionnaire_submit_fallback';
-
-    const submitAttemptId =
-      transformedPayload?.metadata?.submit_attempt_id ||
-      submitContext?.submitAttemptId ||
-      submitContext?.submit_attempt_id ||
-      null;
 
     // 2. If payload is invalid/missing or required metadata is absent → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&
