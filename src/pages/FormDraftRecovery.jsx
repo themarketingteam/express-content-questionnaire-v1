@@ -109,7 +109,7 @@ function DraftRow({ draft, isDuplicate }) {
       zapier_error: mappedPayload?.zapier_error_json,
     };
     navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-    toast.success("Recovery bundle copied.");
+    toast.success("Recovery bundle with validation status copied.");
   };
 
   const handleCopySubmitIntake = () => {
@@ -198,6 +198,11 @@ function DraftRow({ draft, isDuplicate }) {
               <span className="font-medium text-slate-500">Validation Status:</span>{" "}
               <span className={hasValidation ? "text-green-700" : "text-slate-400"}>{hasValidation ? "Yes" : "No"}</span>
             </span>
+            {hasValidation && (
+              <span className="text-xs text-slate-500">
+                ({Object.keys(validationStatus).length} fields validated)
+              </span>
+            )}
           </div>
 
           {draft.responses_json && !responsesParseOk && (
@@ -258,6 +263,42 @@ function DraftRow({ draft, isDuplicate }) {
               <pre className="bg-white border border-slate-200 rounded p-3 text-xs font-mono overflow-auto max-h-64 text-slate-700 whitespace-pre-wrap">
                 {JSON.stringify(responses, null, 2)}
               </pre>
+            </div>
+          )}
+
+          {hasValidation && (
+            <div>
+              <p className="text-xs font-semibold text-slate-600 mb-1">Validation Status Details</p>
+              <div className="bg-white border border-slate-200 rounded p-3 text-xs space-y-2">
+                {Object.entries(validationStatus).map(([fieldName, status]) => (
+                  <div key={fieldName} className="border-b border-slate-100 pb-2 last:border-b-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-slate-700">{fieldName}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                        status.status === 'complete' ? 'bg-green-100 text-green-700' :
+                        status.status === 'needs_work' ? 'bg-amber-100 text-amber-700' :
+                        status.status === 'incomplete' ? 'bg-red-100 text-red-700' :
+                        status.status === 'dirty' ? 'bg-slate-100 text-slate-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {status.status}
+                      </span>
+                    </div>
+                    {status.answerHash && (
+                      <p className="text-slate-500 font-mono text-xs">Hash: {status.answerHash}</p>
+                    )}
+                    {status.validatedAt && (
+                      <p className="text-slate-500 text-xs">Validated: {formatDate(status.validatedAt)}</p>
+                    )}
+                    {status.source && (
+                      <p className="text-slate-500 text-xs">Source: {status.source}</p>
+                    )}
+                    {status.message && (
+                      <p className="text-slate-600 mt-1">{status.message}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

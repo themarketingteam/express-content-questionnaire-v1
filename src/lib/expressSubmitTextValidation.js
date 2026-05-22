@@ -10,6 +10,25 @@ import {
 } from "@/lib/expressTextValidation";
 
 /**
+ * Create a simple stable hash for answer comparison
+ * Uses normalized string + simple hash for local state only
+ * @param {string} answer - The answer text
+ * @returns {string} Hash string
+ */
+export function createAnswerHash(answer) {
+  const normalized = (answer || "").toString().trim().toLowerCase();
+  
+  // Simple non-cryptographic hash (djb2 algorithm)
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i++) {
+    hash = ((hash << 5) + hash) + normalized.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  return `hash_${Math.abs(hash).toString(16)}`;
+}
+
+/**
  * Statuses that block submission
  */
 export const TEXT_SUBMIT_BLOCKING_STATUSES = new Set([
@@ -34,24 +53,7 @@ export function getSubmitTextValidationFields() {
   return ["differentiation", "idealClient"];
 }
 
-/**
- * Create a simple stable hash for answer comparison
- * Uses normalized string + simple hash for local state only
- * @param {string} answer - The answer text
- * @returns {string} Hash string
- */
-export function createAnswerHash(answer) {
-  const normalized = (answer || "").toString().trim().toLowerCase();
-  
-  // Simple non-cryptographic hash (djb2 algorithm)
-  let hash = 5381;
-  for (let i = 0; i < normalized.length; i++) {
-    hash = ((hash << 5) + hash) + normalized.charCodeAt(i);
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  
-  return `hash_${Math.abs(hash).toString(16)}`;
-}
+
 
 /**
  * Check if validation status is fresh enough for submission

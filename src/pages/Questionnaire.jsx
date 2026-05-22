@@ -20,7 +20,7 @@ import {
   readLatestLocalFailedSubmissionBackup,
 } from "@/lib/localRecoveryBackup";
 import { useExpressTextValidation } from "@/lib/hooks/useExpressTextValidation";
-import { isExpressTextValidationField } from "@/lib/expressTextValidation";
+import { isExpressTextValidationField, createAnswerHash } from "@/lib/expressTextValidation";
 import { runSubmitTextValidation } from "@/lib/expressSubmitTextValidation";
 import { getExpressQuestionDisplayStatus } from "@/lib/questionValidationStatus";
 import QuestionValidationBadge from "@/components/questionnaire/QuestionValidationBadge";
@@ -428,37 +428,57 @@ export default function Questionnaire() {
 
 
 
-  // Load saved data
+  // Load saved data and validation status
   useEffect(() => {
     const saved = getCookie(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        
+        // Handle both old format (form data only) and new format (object with formData + validationStatus)
+        const formDataToRestore = parsed.formData || parsed;
+        const validationStatusToRestore = parsed.validationStatus;
+        
         // Migrate old array format to string for companyGoals if needed
-        if (Array.isArray(parsed.companyGoals)) {
-          parsed.companyGoals = parsed.companyGoals.length > 0 ? parsed.companyGoals[0] : "";
+        if (Array.isArray(formDataToRestore.companyGoals)) {
+          formDataToRestore.companyGoals = formDataToRestore.companyGoals.length > 0 ? formDataToRestore.companyGoals[0] : "";
         }
-        setFormData(prev => ({ ...prev, ...parsed }));
+        
+        // Restore form data
+        setFormData(prev => ({ ...prev, ...formDataToRestore }));
+        
+        // Restore validation status if available
+        if (validationStatusToRestore && typeof validationStatusToRestore === 'object') {
+          // Restore each field's validation status
+          Object.entries(validationStatusToRestore).forEach(([fieldName, status]) => {
+            textValidation.setFieldValidation(fieldName, status);
+          });
+        }
       } catch (e) {
         console.error("Failed to parse saved data", e);
       }
     }
   }, []);
 
-  // Auto-save
+  // Auto-save with validation status
   useEffect(() => {
     if (hasFinalSubmittedRef.current) {
       return;
     }
 
     const saveTimer = setTimeout(() => {
-      setCookie(STORAGE_KEY, JSON.stringify(formData));
+      const validationStatus = textValidation.getAllFieldStatuses();
+      // Save in new format with both formData and validationStatus
+      setCookie(STORAGE_KEY, JSON.stringify({
+        formData,
+        validationStatus,
+      }));
       setShowSaveIndicator(true);
       setTimeout(() => setShowSaveIndicator(false), 3000);
     }, 300);
 
     return () => clearTimeout(saveTimer);
-  }, [formData]);
+  }, [formData, textValidation]);
 
   // Save before page unload
   useEffect(() => {
@@ -509,18 +529,25 @@ export default function Questionnaire() {
       : "answer_changed";
     queueDraftEvent({ eventType, questionId: qId, questionType: qType, value });
     
-    // Mark text validation fields as dirty if they have a validation result
+    // Mark text validation fields as dirty if they have a validation result and answer changed
     if (isExpressTextValidationField(field)) {
       const status = textValidation.getFieldStatus(field);
       if (status.status !== 'unknown' && status.status !== 'dirty') {
-        textValidation.markFieldDirty(field);
-        // Create draft event for validation dirty
-        createDraftEvent({
-          eventType: "validation_dirty",
-          questionId,
-          questionType: qType,
-          value: { fieldName: field, previousStatus: status.status },
-        });
+        // Compare answer hash to detect if answer changed since validation
+        const currentHash = createAnswerHash(value);
+        const previousHash = status.answerHash;
+        
+        // Only mark dirty if hash changed (answer actually changed)
+        if (previousHash && previousHash !== currentHash) {
+          textValidation.markFieldDirty(field);
+          // Create draft event for validation dirty
+          createDraftEvent({
+            eventType: "validation_dirty",
+            questionId,
+            questionType: qType,
+            value: { fieldName: field, previousStatus: status.status, previousHash, currentHash },
+          });
+        }
       }
     }
   }, [queueDraftSave, questionnaireSessionId, textValidation, createDraftEvent]);

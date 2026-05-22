@@ -1,5 +1,24 @@
 import { base44 } from "@/api/base44Client";
 
+/**
+ * Create a simple stable hash for answer comparison
+ * Uses normalized string + simple hash for local state only
+ * @param {string} answer - The answer text
+ * @returns {string} Hash string
+ */
+export function createAnswerHash(answer) {
+  const normalized = (answer || "").toString().trim().toLowerCase();
+  
+  // Simple non-cryptographic hash (djb2 algorithm)
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i++) {
+    hash = ((hash << 5) + hash) + normalized.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  return `hash_${Math.abs(hash).toString(16)}`;
+}
+
 // Express text fields that support AI/light-touch validation
 export const EXPRESS_TEXT_VALIDATION_FIELDS = {
   differentiation: {
@@ -98,6 +117,7 @@ export function isExpressTextValidationField(fieldName) {
 export function runLocalExpressTextValidation({ fieldName, answer }) {
   const config = EXPRESS_TEXT_VALIDATION_FIELDS[fieldName];
   const isOptionalOther = OPTIONAL_OTHER_TEXT_FIELDS.includes(fieldName);
+  const answerHash = createAnswerHash(answer);
   
   // Optional field, empty is OK
   if (isOptionalOther && (!answer || !answer.trim())) {
@@ -110,6 +130,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
       reason_codes: [],
       fieldName,
       questionId: config?.questionId || '',
+      answerHash,
+      validatedAt: new Date().toISOString(),
     };
   }
   
@@ -128,6 +150,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
       reason_codes: ['blank_answer'],
       fieldName,
       questionId: config?.questionId || '',
+      answerHash,
+      validatedAt: new Date().toISOString(),
     };
   }
   
@@ -143,6 +167,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
         reason_codes: ['placeholder_detected'],
         fieldName,
         questionId: config?.questionId || '',
+        answerHash,
+        validatedAt: new Date().toISOString(),
       };
     }
   }
@@ -159,6 +185,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
         reason_codes: ['junk_content'],
         fieldName,
         questionId: config?.questionId || '',
+        answerHash,
+        validatedAt: new Date().toISOString(),
       };
     }
   }
@@ -174,6 +202,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
       reason_codes: ['too_short'],
       fieldName,
       questionId: config?.questionId || '',
+      answerHash,
+      validatedAt: new Date().toISOString(),
     };
   }
   
@@ -192,6 +222,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
       reason_codes: ['not_enough_detail'],
       fieldName,
       questionId: config?.questionId || '',
+      answerHash,
+      validatedAt: new Date().toISOString(),
     };
   }
   
@@ -209,6 +241,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
       reason_codes: ['lacks_business_context'],
       fieldName,
       questionId: config?.questionId || '',
+      answerHash,
+      validatedAt: new Date().toISOString(),
     };
   }
   
@@ -222,6 +256,8 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
     reason_codes: [],
     fieldName,
     questionId: config?.questionId || '',
+    answerHash,
+    validatedAt: new Date().toISOString(),
   };
 }
 
@@ -263,6 +299,8 @@ export function normalizeExpressValidationResult(result, fallbackContext = {}) {
     message: data.message || '',
     suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
     reason_codes: Array.isArray(data.reason_codes) ? data.reason_codes : [],
+    answerHash: fallbackContext.answerHash,
+    validatedAt: new Date().toISOString(),
     ...fallbackContext,
   };
 }
@@ -273,6 +311,7 @@ export function normalizeExpressValidationResult(result, fallbackContext = {}) {
 export async function validateExpressTextAnswer({ fieldName, answer, businessName = '', domain = '', context = {} }) {
   const config = EXPRESS_TEXT_VALIDATION_FIELDS[fieldName];
   const isOptionalOther = OPTIONAL_OTHER_TEXT_FIELDS.includes(fieldName);
+  const answerHash = createAnswerHash(answer);
   
   // Unsupported field: return safe complete result
   if (!config && !isOptionalOther) {
@@ -285,6 +324,8 @@ export async function validateExpressTextAnswer({ fieldName, answer, businessNam
       reason_codes: [],
       fieldName,
       questionId: '',
+      answerHash,
+      validatedAt: new Date().toISOString(),
     };
   }
   
@@ -312,6 +353,7 @@ export async function validateExpressTextAnswer({ fieldName, answer, businessNam
     const normalized = normalizeExpressValidationResult(response, {
       fieldName,
       questionId: config?.questionId || '',
+      answerHash,
     });
     
     return normalized;

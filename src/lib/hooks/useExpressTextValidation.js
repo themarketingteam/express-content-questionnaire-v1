@@ -3,6 +3,7 @@ import {
   validateExpressTextAnswer,
   runLocalExpressTextValidation,
   isExpressTextValidationField,
+  createAnswerHash,
 } from "@/lib/expressTextValidation";
 
 // Debounce helper
@@ -55,7 +56,7 @@ export function useExpressTextValidation() {
         context: context.extra || {},
       });
       
-      // Update validation status
+      // Update validation status with hash from result
       setValidationStatus(prev => ({
         ...prev,
         [fieldName]: {
@@ -63,7 +64,8 @@ export function useExpressTextValidation() {
           message: result.message || '',
           suggestions: result.suggestions || [],
           reason_codes: result.reason_codes || [],
-          validatedAt: new Date().toISOString(),
+          validatedAt: result.validatedAt || new Date().toISOString(),
+          answerHash: result.answerHash || createAnswerHash(answer),
           dirtySince: null,
           source: result.reason_codes?.includes('server_validation_unavailable') ? 'local_fallback' : 'server',
         },
@@ -81,7 +83,8 @@ export function useExpressTextValidation() {
           message: localResult.message || '',
           suggestions: localResult.suggestions || [],
           reason_codes: [...(localResult.reason_codes || []), 'server_validation_unavailable'],
-          validatedAt: new Date().toISOString(),
+          validatedAt: localResult.validatedAt || new Date().toISOString(),
+          answerHash: localResult.answerHash || createAnswerHash(answer),
           dirtySince: null,
           source: 'local_fallback',
         },
@@ -125,7 +128,8 @@ export function useExpressTextValidation() {
         message: result.message || '',
         suggestions: result.suggestions || [],
         reason_codes: result.reason_codes || [],
-        validatedAt: new Date().toISOString(),
+        validatedAt: result.validatedAt || new Date().toISOString(),
+        answerHash: result.answerHash,
         dirtySince: null,
         source: result.source || 'manual',
       },
