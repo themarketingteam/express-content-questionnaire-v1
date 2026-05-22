@@ -22,6 +22,8 @@ import {
 import { useExpressTextValidation } from "@/lib/hooks/useExpressTextValidation";
 import { isExpressTextValidationField } from "@/lib/expressTextValidation";
 import { runSubmitTextValidation } from "@/lib/expressSubmitTextValidation";
+import { getExpressQuestionDisplayStatus } from "@/lib/questionValidationStatus";
+import QuestionValidationBadge from "@/components/questionnaire/QuestionValidationBadge";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
 import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
@@ -861,6 +863,18 @@ export default function Questionnaire() {
     setOpenQuestions([1]);
     setSubmitError(null);
     setRecoveryCode("");
+  };
+
+  // Get display status for each question
+  const getQuestionDisplayStatus = (questionId) => {
+    return getExpressQuestionDisplayStatus({
+      questionId: String(questionId),
+      formData,
+      touchedQuestions,
+      validationStatus: textValidation.getAllFieldStatuses(),
+      validatingFields: textValidation.validatingFields || [],
+      isQuestionComplete,
+    });
   };
 
   // Handle text field validation

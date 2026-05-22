@@ -1,76 +1,278 @@
-// Question validation status constants and utilities
+/**
+ * Express Question Validation Status Helpers
+ * 
+ * Calculates display status for each questionnaire question by combining:
+ * - Required-field completion status
+ * - Touched state
+ * - Text validation status (for questions 3 and 12)
+ */
 
+// Status constants
 export const QUESTION_STATUS = {
-  not_started: "not_started",
-  in_progress: "in_progress",
-  complete: "complete",
-  needs_attention: "needs_attention",
-  needs_validation: "needs_validation",
-  validating: "validating",
-  dirty: "dirty",
-  error: "error",
+  not_started: 'not_started',
+  in_progress: 'in_progress',
+  complete: 'complete',
+  needs_attention: 'needs_attention',
+  needs_validation: 'needs_validation',
+  validating: 'validating',
+  dirty: 'dirty',
+  error: 'error',
+};
+
+// Status label mapping
+export const STATUS_LABELS = {
+  [QUESTION_STATUS.not_started]: 'Not started',
+  [QUESTION_STATUS.in_progress]: 'In progress',
+  [QUESTION_STATUS.complete]: 'Complete',
+  [QUESTION_STATUS.needs_attention]: 'Needs attention',
+  [QUESTION_STATUS.needs_validation]: 'Needs validation',
+  [QUESTION_STATUS.validating]: 'Validating',
+  [QUESTION_STATUS.dirty]: 'Edited since validation',
+  [QUESTION_STATUS.error]: 'Validation unavailable',
+};
+
+// Status tone mapping
+export const STATUS_TONES = {
+  [QUESTION_STATUS.not_started]: 'slate',
+  [QUESTION_STATUS.in_progress]: 'blue',
+  [QUESTION_STATUS.complete]: 'green',
+  [QUESTION_STATUS.needs_attention]: 'amber',
+  [QUESTION_STATUS.needs_validation]: 'amber',
+  [QUESTION_STATUS.validating]: 'blue',
+  [QUESTION_STATUS.dirty]: 'amber',
+  [QUESTION_STATUS.error]: 'red',
 };
 
 /**
- * Get human-readable label for a question status
+ * Get human-readable label for status
  */
 export function getQuestionStatusLabel(status) {
-  const labels = {
-    [QUESTION_STATUS.not_started]: "Not started",
-    [QUESTION_STATUS.in_progress]: "In progress",
-    [QUESTION_STATUS.complete]: "Complete",
-    [QUESTION_STATUS.needs_attention]: "Needs attention",
-    [QUESTION_STATUS.needs_validation]: "Needs validation",
-    [QUESTION_STATUS.validating]: "Validating",
-    [QUESTION_STATUS.dirty]: "Edited since validation",
-    [QUESTION_STATUS.error]: "Validation unavailable",
-  };
-  
-  return labels[status] || labels[QUESTION_STATUS.not_started];
+  return STATUS_LABELS[status] || STATUS_LABELS[QUESTION_STATUS.not_started];
 }
 
 /**
- * Get color tone for a question status
+ * Get tone name for status (for Tailwind color classes)
  */
 export function getQuestionStatusTone(status) {
-  const tones = {
-    [QUESTION_STATUS.not_started]: "slate",
-    [QUESTION_STATUS.in_progress]: "blue",
-    [QUESTION_STATUS.complete]: "green",
-    [QUESTION_STATUS.needs_attention]: "amber",
-    [QUESTION_STATUS.needs_validation]: "amber",
-    [QUESTION_STATUS.validating]: "blue",
-    [QUESTION_STATUS.dirty]: "slate",
-    [QUESTION_STATUS.error]: "red",
-  };
-  
-  return tones[status] || "slate";
+  return STATUS_TONES[status] || STATUS_TONES[QUESTION_STATUS.not_started];
 }
 
 /**
  * Normalize unknown status values to valid status
  */
 export function normalizeQuestionStatus(status) {
-  const validStatuses = Object.values(QUESTION_STATUS);
-  
-  if (validStatuses.includes(status)) {
+  if (Object.values(QUESTION_STATUS).includes(status)) {
     return status;
   }
+  return QUESTION_STATUS.not_started;
+}
+
+// Map question IDs to their form fields
+export const EXPRESS_QUESTION_FIELD_MAP = {
+  "1": ["itCompanyType", "itCompanyTypeOther"],
+  "2": ["serviceOfferings", "serviceOfferingsOther"],
+  "3": ["differentiation"],
+  "4": ["geographicAreas", "geographicAreaMeta"],
+  "5": ["pricingPackaging", "pricingPackagingOther"],
+  "6": ["companyGoals", "companyGoalsOther"],
+  "7": ["brandTone", "brandToneOther"],
+  "8": ["targetIndustries", "targetIndustriesOther"],
+  "9": ["clientSize"],
+  "10": ["clientChallenges", "clientChallengesOther"],
+  "11": ["clientOutcomes", "clientOutcomesOther"],
+  "12": ["idealClient"],
+};
+
+/**
+ * Check if a question has been touched
+ */
+export function getQuestionTouched(questionId, touchedQuestions) {
+  if (!touchedQuestions) return false;
+  return !!touchedQuestions[questionId];
+}
+
+/**
+ * Check if a value has meaningful content
+ */
+export function hasMeaningfulValue(value) {
+  // Arrays: check length
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
   
-  // Map common variations
-  const mappings = {
-    "not-started": QUESTION_STATUS.not_started,
-    "notstarted": QUESTION_STATUS.not_started,
-    "in-progress": QUESTION_STATUS.in_progress,
-    "inprogress": QUESTION_STATUS.in_progress,
-    "needs-attention": QUESTION_STATUS.needs_attention,
-    "needsattention": QUESTION_STATUS.needs_attention,
-    "needs-validation": QUESTION_STATUS.needs_validation,
-    "needsvalidation": QUESTION_STATUS.needs_validation,
-    "edited": QUESTION_STATUS.dirty,
-    "validation-error": QUESTION_STATUS.error,
-    "validationerror": QUESTION_STATUS.error,
+  // Strings: check trimmed length
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+  
+  // Objects: check for geographic meta or other meaningful structure
+  if (value && typeof value === 'object') {
+    // Geographic meta with label
+    if (value.label) {
+      return value.label.trim().length > 0;
+    }
+    // Other objects: check if any non-empty string value exists
+    return Object.values(value).some(v => 
+      (typeof v === 'string' && v.trim().length > 0) ||
+      (Array.isArray(v) && v.length > 0)
+    );
+  }
+  
+  // Other types: treat as not meaningful
+  return false;
+}
+
+/**
+ * Get basic completion status for a question (before validation overlay)
+ */
+export function getBasicQuestionCompletionStatus({ 
+  questionId, 
+  formData, 
+  touchedQuestions,
+  isQuestionComplete 
+}) {
+  // Check if question is complete using existing logic
+  if (isQuestionComplete && isQuestionComplete(questionId)) {
+    return QUESTION_STATUS.complete;
+  }
+  
+  const isTouched = getQuestionTouched(questionId, touchedQuestions);
+  const fields = EXPRESS_QUESTION_FIELD_MAP[questionId] || [];
+  
+  // Check if any field has meaningful value
+  const hasValue = fields.some(field => {
+    const value = formData?.[field];
+    return hasMeaningfulValue(value);
+  });
+  
+  if (isTouched && hasValue) {
+    return QUESTION_STATUS.in_progress;
+  }
+  
+  if (isTouched && !hasValue) {
+    return QUESTION_STATUS.needs_attention;
+  }
+  
+  return QUESTION_STATUS.not_started;
+}
+
+/**
+ * Get text validation status for a question
+ */
+export function getTextValidationQuestionStatus({ 
+  questionId, 
+  fieldName, 
+  validationStatus,
+  isValidating 
+}) {
+  // Check if currently validating
+  if (isValidating && isValidating(fieldName)) {
+    return QUESTION_STATUS.validating;
+  }
+  
+  // Get validation status for field
+  const fieldStatus = validationStatus?.[fieldName];
+  
+  if (!fieldStatus || !fieldStatus.status) {
+    return QUESTION_STATUS.needs_validation;
+  }
+  
+  const status = fieldStatus.status;
+  
+  // Map validation status to question status
+  if (status === 'complete') {
+    return QUESTION_STATUS.complete;
+  }
+  
+  if (status === 'needs_work') {
+    return QUESTION_STATUS.needs_attention;
+  }
+  
+  if (status === 'incomplete') {
+    return QUESTION_STATUS.needs_attention;
+  }
+  
+  if (status === 'dirty') {
+    return QUESTION_STATUS.dirty;
+  }
+  
+  if (status === 'error') {
+    return QUESTION_STATUS.error;
+  }
+  
+  return QUESTION_STATUS.needs_validation;
+}
+
+/**
+ * Get final display status for an Express question
+ * 
+ * Combines base completion status with text validation status for questions 3 and 12
+ */
+export function getExpressQuestionDisplayStatus({ 
+  questionId, 
+  formData, 
+  touchedQuestions, 
+  validationStatus, 
+  validatingFields,
+  isQuestionComplete 
+}) {
+  // Get base completion status
+  const baseStatus = getBasicQuestionCompletionStatus({
+    questionId,
+    formData,
+    touchedQuestions,
+    isQuestionComplete,
+  });
+  
+  // Questions 3 and 12 have text validation overlay
+  const textValidationFields = {
+    "3": "differentiation",
+    "12": "idealClient",
   };
   
-  return mappings[status] || QUESTION_STATUS.not_started;
+  const textField = textValidationFields[questionId];
+  
+  // If not a text validation question, return base status
+  if (!textField) {
+    return baseStatus;
+  }
+  
+  // If base status is not complete, return base status
+  if (baseStatus !== QUESTION_STATUS.complete) {
+    return baseStatus;
+  }
+  
+  // Base is complete, check text validation status
+  const isValidating = (fieldName) => {
+    return validatingFields?.includes(fieldName) || false;
+  };
+  
+  const validationQuestionStatus = getTextValidationQuestionStatus({
+    questionId,
+    fieldName: textField,
+    validationStatus,
+    isValidating,
+  });
+  
+  // If validation is missing/dirty/error, return validation status
+  if (
+    validationQuestionStatus === QUESTION_STATUS.needs_validation ||
+    validationQuestionStatus === QUESTION_STATUS.dirty ||
+    validationQuestionStatus === QUESTION_STATUS.error
+  ) {
+    return validationQuestionStatus;
+  }
+  
+  // If validation is complete, return complete
+  if (validationQuestionStatus === QUESTION_STATUS.complete) {
+    return QUESTION_STATUS.complete;
+  }
+  
+  // If validation shows needs_attention, return that
+  if (validationQuestionStatus === QUESTION_STATUS.needs_attention) {
+    return QUESTION_STATUS.needs_attention;
+  }
+  
+  // Fallback to base status
+  return baseStatus;
 }
