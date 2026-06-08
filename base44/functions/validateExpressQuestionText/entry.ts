@@ -1,90 +1,45 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PLACEHOLDER_ANSWERS = new Set([
-  'test',
-  'asdf',
-  'n/a',
-  'na',
-  'none',
-  'not sure',
-  'idk',
-  'i don\'t know',
-  'unknown',
-  'tbd',
-  'todo',
-  'placeholder',
-  'example',
-  'sample',
-  'xxx',
-  'aaa',
-  'bbb',
-  'ccc',
-  '123',
-  'abc',
+  'test', 'asdf', 'n/a', 'na', 'none', 'not sure', 'idk', "i don't know",
+  'unknown', 'tbd', 'todo', 'placeholder', 'example', 'sample',
+  'xxx', 'aaa', 'bbb', 'ccc', '123', 'abc',
 ]);
 
 const SUPPORTED_TEXT_FIELDS = {
-  '3': {
-    fieldName: 'differentiation',
-    purpose: 'explain what makes the IT company different',
-    minWords: 4,
-    minLength: 40,
-  },
-  '12': {
-    fieldName: 'idealClient',
-    purpose: 'describe the ideal client',
-    minWords: 4,
-    minLength: 40,
-  },
+  '3': { fieldName: 'differentiation', purpose: 'explain what makes the IT company different', minWords: 4, minLength: 40 },
+  '12': { fieldName: 'idealClient', purpose: 'describe the ideal client', minWords: 4, minLength: 40 },
 };
 
 const OTHER_FIELDS = new Set([
-  'itCompanyTypeOther',
-  'serviceOfferingsOther',
-  'pricingPackagingOther',
-  'companyGoalsOther',
-  'brandToneOther',
-  'targetIndustriesOther',
-  'clientChallengesOther',
-  'clientOutcomesOther',
+  'itCompanyTypeOther', 'serviceOfferingsOther', 'pricingPackagingOther',
+  'companyGoalsOther', 'brandToneOther', 'targetIndustriesOther',
+  'clientChallengesOther', 'clientOutcomesOther',
 ]);
 
 // ─── Helper Functions ─────────────────────────────────────────────────────────
-
-function safeJsonStringify(value) {
-  if (value === null || value === undefined) return null;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
 
 function classifyError(error) {
   if (!error) return 'unknown';
   const msg = (error.message || '').toLowerCase();
   const name = (error.name || '').toLowerCase();
 
-  if (name === 'aborterror' || msg.includes('timeout') || msg.includes('aborted')) {
-    return 'timeout';
-  }
-  if (msg.includes('auth') || msg.includes('token') || msg.includes('unauthorized')) {
-    return 'auth';
-  }
-  if (msg.includes('permission') || msg.includes('forbidden')) {
-    return 'permission';
-  }
-  if (msg.includes('rate limit')) {
-    return 'rate_limit';
-  }
-  if (msg.includes('network') || msg.includes('fetch') || msg.includes('cors')) {
-    return 'network';
-  }
-  if (msg.includes('internal server') || msg.includes('bad gateway')) {
-    return 'server';
-  }
+  if (name === 'aborterror' || msg.includes('timeout') || msg.includes('aborted')) return 'timeout';
+  if (msg.includes('auth') || msg.includes('token') || msg.includes('unauthorized')) return 'auth';
+  if (msg.includes('permission') || msg.includes('forbidden')) return 'permission';
+  if (msg.includes('rate limit')) return 'rate_limit';
+  if (msg.includes('network') || msg.includes('fetch') || msg.includes('cors')) return 'network';
+  if (msg.includes('internal server') || msg.includes('bad gateway')) return 'server';
   return 'unknown';
 }
 
@@ -103,163 +58,53 @@ function isOnlyPunctuation(text) {
 }
 
 function looksLikePlaceholder(text) {
-  const lower = text.toLowerCase().trim();
-  return PLACEHOLDER_ANSWERS.has(lower);
+  return PLACEHOLDER_ANSWERS.has(text.toLowerCase().trim());
 }
 
 function buildLocalValidationResult(answer, questionId, fieldName) {
   const trimmed = (answer || '').trim();
-  
-  // Blank or nearly blank
+
   if (trimmed.length === 0) {
-    return {
-      success: true,
-      status: 'incomplete',
-      score: 0,
-      message: 'Please provide an answer for this question.',
-      suggestions: ['Add a brief response to help us understand your business better.'],
-      reason_codes: ['blank_answer'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'incomplete', score: 0, message: 'Please provide an answer for this question.', suggestions: ['Add a brief response to help us understand your business better.'], reason_codes: ['blank_answer'], questionId, fieldName };
   }
-
-  // Only punctuation or whitespace
   if (isOnlyPunctuation(trimmed)) {
-    return {
-      success: true,
-      status: 'incomplete',
-      score: 0,
-      message: 'Your answer appears to contain only punctuation or special characters.',
-      suggestions: ['Please enter actual words or text that describe your business.'],
-      reason_codes: ['punctuation_only'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'incomplete', score: 0, message: 'Your answer appears to contain only punctuation or special characters.', suggestions: ['Please enter actual words or text that describe your business.'], reason_codes: ['punctuation_only'], questionId, fieldName };
   }
-
-  // Repeated characters
   if (hasRepeatedCharacters(trimmed)) {
-    return {
-      success: true,
-      status: 'incomplete',
-      score: 5,
-      message: 'Your answer contains repeated characters that look like placeholder text.',
-      suggestions: ['Replace with a meaningful response about your business.'],
-      reason_codes: ['repeated_characters'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'incomplete', score: 5, message: 'Your answer contains repeated characters that look like placeholder text.', suggestions: ['Replace with a meaningful response about your business.'], reason_codes: ['repeated_characters'], questionId, fieldName };
   }
-
-  // Placeholder text
   if (looksLikePlaceholder(trimmed)) {
-    return {
-      success: true,
-      status: 'incomplete',
-      score: 5,
-      message: 'Your answer looks like placeholder text.',
-      suggestions: ['Please provide a real answer about your business.'],
-      reason_codes: ['placeholder_detected'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'incomplete', score: 5, message: 'Your answer looks like placeholder text.', suggestions: ['Please provide a real answer about your business.'], reason_codes: ['placeholder_detected'], questionId, fieldName };
   }
-
-  // For "other" fields - light validation only if non-empty
   if (OTHER_FIELDS.has(fieldName)) {
-    return {
-      success: true,
-      status: 'complete',
-      score: 100,
-      message: 'Answer accepted.',
-      suggestions: [],
-      reason_codes: ['other_field_accepted'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'complete', score: 100, message: 'Answer accepted.', suggestions: [], reason_codes: ['other_field_accepted'], questionId, fieldName };
   }
 
-  // Main text fields validation
   const config = SUPPORTED_TEXT_FIELDS[questionId];
   if (!config) {
-    // Unsupported field - return safe pass-through
-    return {
-      success: true,
-      status: 'complete',
-      score: 100,
-      message: 'Answer accepted (field not configured for validation).',
-      suggestions: [],
-      reason_codes: ['unsupported_field'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'complete', score: 100, message: 'Answer accepted (field not configured for validation).', suggestions: [], reason_codes: ['unsupported_field'], questionId, fieldName };
   }
 
   const wordCount = countMeaningfulWords(trimmed);
   const charLength = trimmed.length;
 
-  // Too short for main text questions
   if (charLength < 15) {
-    return {
-      success: true,
-      status: 'incomplete',
-      score: 10,
-      message: 'Your answer is too short.',
-      suggestions: [`Please provide at least 15 characters. Current: ${charLength} characters.`],
-      reason_codes: ['too_short'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'incomplete', score: 10, message: 'Your answer is too short.', suggestions: [`Please provide at least 15 characters. Current: ${charLength} characters.`], reason_codes: ['too_short'], questionId, fieldName };
   }
-
-  // Fewer than 4 meaningful words
   if (wordCount < config.minWords) {
-    return {
-      success: true,
-      status: 'incomplete',
-      score: 20,
-      message: 'Your answer needs more meaningful content.',
-      suggestions: [`Please provide at least ${config.minWords} meaningful words. Current: ${wordCount} words.`],
-      reason_codes: ['insufficient_words'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'incomplete', score: 20, message: 'Your answer needs more meaningful content.', suggestions: [`Please provide at least ${config.minWords} meaningful words. Current: ${wordCount} words.`], reason_codes: ['insufficient_words'], questionId, fieldName };
   }
-
-  // Under minimum length but not clearly junk - needs_work
   if (charLength < config.minLength) {
-    return {
-      success: true,
-      status: 'needs_work',
-      score: 50,
-      message: 'Your answer is a bit short. Consider adding more detail.',
-      suggestions: [`Aim for at least ${config.minLength} characters to provide a complete response. Current: ${charLength} characters.`],
-      reason_codes: ['below_recommended_length'],
-      questionId,
-      fieldName,
-    };
+    return { success: true, status: 'needs_work', score: 50, message: 'Your answer is a bit short. Consider adding more detail.', suggestions: [`Aim for at least ${config.minLength} characters to provide a complete response. Current: ${charLength} characters.`], reason_codes: ['below_recommended_length'], questionId, fieldName };
   }
 
-  // Passed all checks - complete
-  return {
-    success: true,
-    status: 'complete',
-    score: 100,
-    message: 'Answer looks good!',
-    suggestions: [],
-    reason_codes: ['validation_passed'],
-    questionId,
-    fieldName,
-  };
+  return { success: true, status: 'complete', score: 100, message: 'Answer looks good!', suggestions: [], reason_codes: ['validation_passed'], questionId, fieldName };
 }
 
-async function invokeAiValidation({ answer, questionTitle, questionPrompt, businessName, domain, questionId, fieldName }) {
+async function invokeAiValidation({ answer, questionTitle, questionPrompt, businessName, domain, questionId, fieldName, base44 }) {
   try {
     const config = SUPPORTED_TEXT_FIELDS[questionId];
-    if (!config) {
-      return null; // AI validation only for supported fields
-    }
+    if (!config) return null;
 
     const prompt = `You are a friendly, light-touch validator for business questionnaire responses. Your goal is to check if the answer is usable, not to grade writing quality or marketing effectiveness.
 
@@ -308,73 +153,61 @@ Reason codes can be: blank_answer, placeholder_detected, too_short, insufficient
     return response;
   } catch (error) {
     console.error('[validateExpressQuestionText] AI validation failed:', error.message);
-    return null; // AI unavailable - fall back to local validation
+    return null;
   }
 }
 
-// ─── Main Validation Handler ──────────────────────────────────────────────────
+// ─── Handler ──────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (req.method !== 'POST') {
+    return Response.json({ success: false, error: { message: 'Method not allowed' } }, { status: 405, headers: corsHeaders });
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ success: false, error: { message: 'Invalid JSON body' } }, { status: 400, headers: corsHeaders });
+  }
+
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
 
-    const {
-      questionId,
-      fieldName,
-      questionTitle,
-      questionPrompt,
-      answer,
-      businessName,
-      domain,
-      context,
-    } = body;
+    const { questionId, fieldName, questionTitle, questionPrompt, answer, businessName, domain, context } = body;
 
-    // Validate required fields
     if (!questionId || !fieldName || answer === undefined || answer === null) {
       return Response.json({
-        success: false,
-        status: 'error',
-        score: 0,
+        success: false, status: 'error', score: 0,
         message: 'Missing required validation parameters.',
-        suggestions: [],
-        reason_codes: ['missing_parameters'],
+        suggestions: [], reason_codes: ['missing_parameters'],
         questionId: questionId || 'unknown',
         fieldName: fieldName || 'unknown',
-      }, { status: 400 });
+      }, { status: 400, headers: corsHeaders });
     }
 
-    // Run local heuristic validation first (fast, always available)
     const localResult = buildLocalValidationResult(answer, questionId, fieldName);
 
-    // For "other" fields or unsupported fields, skip AI validation
     if (OTHER_FIELDS.has(fieldName) || !SUPPORTED_TEXT_FIELDS[questionId]) {
-      return Response.json(localResult);
+      return Response.json(localResult, { headers: corsHeaders });
     }
 
-    // If local validation already determined incomplete, return early
     if (localResult.status === 'incomplete') {
-      return Response.json(localResult);
+      return Response.json(localResult, { headers: corsHeaders });
     }
 
-    // Try AI validation for nuanced cases (vague, irrelevant, unfinished)
-    const aiResult = await invokeAiValidation({
-      answer,
-      questionTitle,
-      questionPrompt,
-      businessName,
-      domain,
-      questionId,
-      fieldName,
-    });
+    const aiResult = await invokeAiValidation({ answer, questionTitle, questionPrompt, businessName, domain, questionId, fieldName, base44 });
 
-    // If AI unavailable, use local validation result
     if (!aiResult) {
-      return Response.json(localResult);
+      return Response.json(localResult, { headers: corsHeaders });
     }
 
-    // Merge AI result with local validation metadata
-    const mergedResult = {
+    return Response.json({
       success: true,
       status: aiResult.status,
       score: aiResult.score,
@@ -383,23 +216,19 @@ Deno.serve(async (req) => {
       reason_codes: aiResult.reason_codes,
       questionId,
       fieldName,
-    };
-
-    return Response.json(mergedResult);
+    }, { headers: corsHeaders });
 
   } catch (error) {
     const errorKind = classifyError(error);
     console.error('[validateExpressQuestionText] Handler error:', error.message, errorKind);
 
     return Response.json({
-      success: false,
-      status: 'error',
-      score: 0,
+      success: false, status: 'error', score: 0,
       message: 'Validation could not be completed right now.',
       suggestions: ['Please try again in a moment.'],
       reason_codes: ['validator_error'],
       questionId: 'unknown',
       fieldName: 'unknown',
-    }, { status: 500 });
+    }, { status: 500, headers: corsHeaders });
   }
 });

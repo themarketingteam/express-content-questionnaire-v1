@@ -293,7 +293,6 @@ export function buildExpressSubmitDiagnostics(args) {
 }
 
 // Create FormSubmission with fallback
-// Server function is now the PRIMARY durable submit path — no browser-side FormSubmission.create
 export async function createExpressFormSubmissionWithFallback(args) {
   const {
     payload,
@@ -308,79 +307,83 @@ export async function createExpressFormSubmissionWithFallback(args) {
     draftId,
     submitContext,
     diagnostics,
+    onPrimaryFailure,
     onFallbackAttempt,
     onFallbackSuccess,
     onFallbackFailure,
   } = args;
 
-  // Always go directly to the server function as the primary durable submit path
-  if (onFallbackAttempt) {
-    onFallbackAttempt();
-  }
-
-  const fallbackBody = buildExpressFallbackBody({
-    transformedPayload: payload,
-    responseSnapshot,
-    rawResponses,
-    transformFailed: transformFailed || false,
-    transformError: transformError || null,
-    validationFailed: validationFailed || false,
-    validationError: validationError || null,
-    questionnaireSessionId,
-    draftId,
-    submitContext,
-    diagnostics,
-    primaryError: null,
-  });
-
-  const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
-
-  if (fallbackResult.ok) {
-    if (onFallbackSuccess) {
-      onFallbackSuccess(fallbackResult);
+  // Server is now the primary submit path — skip browser-side FormSubmission.create
+  // and go directly to the server fallback function for all valid payloads.
+  if (formSubmissionRecord || transformFailed || validationFailed) {
+    if (onFallbackAttempt) {
+      onFallbackAttempt();
     }
 
-    if (fallbackResult.submissionId) {
+    const fallbackBody = buildExpressFallbackBody({
+      transformedPayload: payload,
+      responseSnapshot,
+      rawResponses,
+      transformFailed,
+      transformError,
+      validationFailed,
+      validationError,
+      questionnaireSessionId,
+      draftId,
+      submitContext,
+      diagnostics,
+      primaryError: null,
+    });
+
+    const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
+
+    if (fallbackResult.ok) {
+      if (onFallbackSuccess) {
+        onFallbackSuccess(fallbackResult);
+      }
+
+      // intakeId-only is a full success — admin can recover
+      const submissionId = fallbackResult.submissionId || null;
+      const intakeId = fallbackResult.intakeId || null;
+      const receivedViaIntake = !submissionId && !!intakeId;
+
       return {
         ok: true,
         accepted: true,
-        submission: fallbackResult.submission,
-        submissionId: fallbackResult.submissionId,
-        submissionCreated: true,
-        receivedViaIntake: false,
+        submission: fallbackResult.submission || null,
+        submissionId,
+        intakeId,
+        submissionCreated: !!submissionId,
+        receivedViaIntake,
         usedFallback: true,
         primaryResult: null,
         fallbackResult,
       };
     }
 
-    // intakeId only — still a successful accepted submission from user perspective
+    if (onFallbackFailure) {
+      onFallbackFailure(fallbackResult);
+    }
+
     return {
-      ok: true,
-      accepted: true,
+      ok: false,
       submission: null,
-      submissionId: null,
-      intakeId: fallbackResult.intakeId || "",
-      submissionCreated: false,
-      receivedViaIntake: true,
+      error: fallbackResult.error,
       usedFallback: true,
+      failureKind: fallbackResult.failureKind,
       primaryResult: null,
       fallbackResult,
     };
   }
 
-  // Server function failed entirely
-  if (onFallbackFailure) {
-    onFallbackFailure(fallbackResult);
-  }
-
+  // Nothing to submit
   return {
     ok: false,
     submission: null,
-    error: fallbackResult.error,
-    usedFallback: true,
-    failureKind: fallbackResult.failureKind,
+    error: new Error("No valid submission record and no fallback trigger"),
+    usedFallback: false,
+    failureKind: "unknown",
     primaryResult: null,
-    fallbackResult,
+    fallbackResult: null,
   };
 }

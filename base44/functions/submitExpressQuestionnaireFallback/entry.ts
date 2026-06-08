@@ -1,4 +1,12 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,31 +35,27 @@ function classifyError(error) {
   const name = (error.name || '').toLowerCase();
   const status = error.status || error.statusCode || 0;
 
-  if (name === 'aborterror' || msg.includes('timeout') || msg.includes('aborted') || msg.includes('timed out')) {
-    return 'timeout';
-  }
-  if (status === 401 || msg.includes('auth') || msg.includes('token') || msg.includes('session') || msg.includes('unauthorized')) {
-    return 'auth';
-  }
-  if (status === 403 || msg.includes('permission') || msg.includes('rls') || msg.includes('policy') || msg.includes('access denied') || msg.includes('forbidden')) {
-    return 'permission';
-  }
-  if (status === 429 || msg.includes('rate limit') || msg.includes('too many requests')) {
-    return 'rate_limit';
-  }
-  if ((status === 400 || status === 422) && (msg.includes('schema') || msg.includes('invalid field') || msg.includes('unknown field'))) {
-    return 'schema';
-  }
-  if ((status === 400 || status === 422) && (msg.includes('validation') || msg.includes('required') || msg.includes('missing'))) {
-    return 'validation';
-  }
-  if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors') || msg.includes('offline') || msg.includes('net::')) {
-    return 'network';
-  }
-  if (status >= 500 || msg.includes('internal server') || msg.includes('bad gateway') || msg.includes('service unavailable') || msg.includes('gateway timeout')) {
-    return 'server';
-  }
+  if (name === 'aborterror' || msg.includes('timeout') || msg.includes('aborted') || msg.includes('timed out')) return 'timeout';
+  if (status === 401 || msg.includes('auth') || msg.includes('token') || msg.includes('session') || msg.includes('unauthorized')) return 'auth';
+  if (status === 403 || msg.includes('permission') || msg.includes('rls') || msg.includes('policy') || msg.includes('access denied') || msg.includes('forbidden')) return 'permission';
+  if (status === 429 || msg.includes('rate limit') || msg.includes('too many requests')) return 'rate_limit';
+  if ((status === 400 || status === 422) && (msg.includes('schema') || msg.includes('invalid field') || msg.includes('unknown field'))) return 'schema';
+  if ((status === 400 || status === 422) && (msg.includes('validation') || msg.includes('required') || msg.includes('missing'))) return 'validation';
+  if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors') || msg.includes('offline') || msg.includes('net::')) return 'network';
+  if (status >= 500 || msg.includes('internal server') || msg.includes('bad gateway') || msg.includes('service unavailable') || msg.includes('gateway timeout')) return 'server';
   return 'unknown';
+}
+
+// Sanitize geographic_area_meta: remove null lat/lon/place_id
+function sanitizeGeoMeta(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out = {};
+  if (typeof raw.label === 'string' && raw.label.trim()) out.label = raw.label.trim();
+  if (typeof raw.lat === 'number' && isFinite(raw.lat)) out.lat = raw.lat;
+  if (typeof raw.lon === 'number' && isFinite(raw.lon)) out.lon = raw.lon;
+  if (raw.place_id && typeof raw.place_id === 'string' && raw.place_id.trim()) out.place_id = raw.place_id.trim();
+  if (typeof raw.source === 'string' && raw.source.trim()) out.source = raw.source.trim();
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function normalizePayload(payload, questionnaireSessionId, primaryError) {
@@ -63,17 +67,14 @@ function normalizePayload(payload, questionnaireSessionId, primaryError) {
   meta.submission_path = 'server_fallback';
   meta.browser_create_failed = true;
   meta.primary_failure_kind = primaryError?.failureKind || null;
-  // preserve business identity fields
-  // meta.business_name and meta.businessDomain are kept as-is
 
   return { metadata: meta, userdata };
 }
 
-function mapExpressPayloadToFormSubmissionRecord(payload) {
+function mapExpressPayloadToFormSubmissionRecord(payload, questionnaireSessionId, submitAttemptId) {
   const meta = payload?.metadata || {};
   const ud = payload?.userdata || {};
 
-  // company_goals: array, string→array, or []
   let companyGoals = ud.company_goals ?? meta.company_goals;
   if (Array.isArray(companyGoals)) {
     // fine
@@ -83,17 +84,18 @@ function mapExpressPayloadToFormSubmissionRecord(payload) {
     companyGoals = [];
   }
 
-  return {
+  const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta ?? meta.geographic_area_meta);
+
+  const record = {
     business_name:            ud.business_name        ?? meta.business_name        ?? null,
     submission_datetime:      meta.submission_datetime                              ?? nowIso(),
-    service_type:             meta.service_type                                     ?? 'express',
+    service_type:             'express',
     it_company_type:          ud.it_company_type       ?? meta.it_company_type      ?? [],
     it_company_type_other:    ud.it_company_type_other ?? meta.it_company_type_other ?? null,
     service_offerings:        ud.service_offerings     ?? meta.service_offerings    ?? [],
     service_offerings_other:  ud.service_offerings_other ?? meta.service_offerings_other ?? null,
     differentiation:          ud.differentiation       ?? meta.differentiation      ?? null,
     geographic_areas:         ud.geographic_areas      ?? meta.geographic_areas     ?? null,
-    geographic_area_meta:     ud.geographic_area_meta  ?? meta.geographic_area_meta ?? null,
     pricing_packaging:        ud.pricing_packaging     ?? meta.pricing_packaging    ?? null,
     pricing_packaging_other:  ud.pricing_packaging_other ?? meta.pricing_packaging_other ?? null,
     company_goals:            companyGoals,
@@ -108,7 +110,18 @@ function mapExpressPayloadToFormSubmissionRecord(payload) {
     client_outcomes:          ud.client_outcomes       ?? meta.client_outcomes      ?? [],
     client_outcomes_other:    ud.client_outcomes_other ?? meta.client_outcomes_other ?? null,
     ideal_client:             ud.ideal_client          ?? meta.ideal_client         ?? null,
+    questionnaire_session_id: questionnaireSessionId   ?? meta.questionnaire_session_id ?? '',
+    submit_attempt_id:        submitAttemptId          ?? meta.submit_attempt_id    ?? '',
+    zapier_delivery_status:   'not_attempted',
+    zapier_sent:              false,
+    zapier_sent_at:           '',
+    zapier_error_json:        '',
+    zapier_attempt_count:     0,
   };
+
+  if (geoMeta) record.geographic_area_meta = geoMeta;
+
+  return record;
 }
 
 async function getIntakeBySession(base44, questionnaireSessionId) {
@@ -132,21 +145,9 @@ async function upsertIntake(base44, questionnaireSessionId, nextData) {
 }
 
 function buildIntakePayload({
-  status,
-  intakeReason,
-  businessName,
-  businessDomain,
-  userEmail,
-  userId,
-  submitAttemptId,
-  primaryError,
-  fallbackError,
-  transformedPayload,
-  rawResponses,
-  diagnostics,
-  source,
-  createdAtClient,
-  linkedSubmissionId,
+  status, intakeReason, businessName, businessDomain, userEmail, userId,
+  submitAttemptId, primaryError, fallbackError, transformedPayload,
+  rawResponses, diagnostics, source, createdAtClient, linkedSubmissionId,
 }) {
   return {
     status,
@@ -174,9 +175,24 @@ function buildIntakePayload({
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (req.method !== 'POST') {
+    return Response.json({ success: false, error: { message: 'Method not allowed' } }, { status: 405, headers: corsHeaders });
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ success: false, error: { message: 'Invalid JSON body' } }, { status: 400, headers: corsHeaders });
+  }
+
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
 
     const {
       transformedPayload,
@@ -200,17 +216,15 @@ Deno.serve(async (req) => {
       submitContext?.submit_attempt_id ||
       null;
 
-    // 1. Session ID is required
+    // Session ID is required
     if (!questionnaireSessionId) {
       return Response.json({
-        success: false,
-        received: false,
-        usedFallback: true,
+        success: false, received: false, usedFallback: true,
         error: { message: 'Missing questionnaire session' },
-      }, { status: 400 });
+      }, { status: 400, headers: corsHeaders });
     }
 
-    // Resolve business identity - support both camelCase and snake_case
+    // Resolve business identity
     const businessName =
       transformedPayload?.metadata?.business_name ||
       transformedPayload?.userdata?.business_name ||
@@ -221,8 +235,6 @@ Deno.serve(async (req) => {
     const businessDomain =
       transformedPayload?.metadata?.businessDomain ||
       transformedPayload?.metadata?.business_domain ||
-      transformedPayload?.userdata?.businessDomain ||
-      transformedPayload?.userdata?.business_domain ||
       submitContext?.businessDomain ||
       submitContext?.business_domain ||
       submitContext?.domain ||
@@ -249,7 +261,7 @@ Deno.serve(async (req) => {
       submitContext?.source ||
       'questionnaire_submit_fallback';
 
-    // 2. If payload is invalid/missing or required metadata is absent → intake only
+    // If payload is invalid/missing → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&
       transformedPayload &&
       transformedPayload.metadata &&
@@ -281,18 +293,62 @@ Deno.serve(async (req) => {
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
 
       return Response.json({
-        success: true,
-        received: true,
-        submissionCreated: false,
-        intakeId: intake?.id || null,
-        usedFallback: true,
-        zapierSent: false,
-      });
+        success: true, received: true, submissionCreated: false,
+        intakeId: intake?.id || null, usedFallback: true, zapierSent: false,
+      }, { headers: corsHeaders });
     }
 
-    // 3. Valid payload → attempt FormSubmission create
+    // Idempotency: check for existing submission by session id
+    let existingSubmissionId = null;
+    try {
+      const existing = await base44.asServiceRole.entities.FormSubmission.filter(
+        { questionnaire_session_id: questionnaireSessionId }, '-created_date', 1
+      );
+      if (existing && existing.length > 0) {
+        existingSubmissionId = existing[0].id;
+      }
+    } catch {
+      // filter may not be supported - continue
+    }
+
+    // Also check by submit_attempt_id if available
+    if (!existingSubmissionId && submitAttemptId) {
+      try {
+        const existingByAttempt = await base44.asServiceRole.entities.FormSubmission.filter(
+          { submit_attempt_id: submitAttemptId }, '-created_date', 1
+        );
+        if (existingByAttempt && existingByAttempt.length > 0) {
+          existingSubmissionId = existingByAttempt[0].id;
+        }
+      } catch {
+        // filter may not be supported - continue
+      }
+    }
+
+    if (existingSubmissionId) {
+      // Already submitted - upsert intake and return idempotent success
+      const intakeData = buildIntakePayload({
+        status: 'submitted',
+        intakeReason: 'already_submitted_deduped',
+        businessName, businessDomain, userEmail, userId, submitAttemptId,
+        primaryError,
+        transformedPayload,
+        rawResponses: rawResponses || responseSnapshot,
+        diagnostics, source, createdAtClient,
+        linkedSubmissionId: existingSubmissionId,
+      });
+      const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
+
+      return Response.json({
+        success: true, received: true, alreadySubmitted: true,
+        submissionCreated: false, submissionId: existingSubmissionId,
+        intakeId: intake?.id || null, usedFallback: true, zapierSent: false,
+      }, { headers: corsHeaders });
+    }
+
+    // Attempt FormSubmission create
     const normalized = normalizePayload(transformedPayload, questionnaireSessionId, primaryError);
-    const record = mapExpressPayloadToFormSubmissionRecord(normalized);
+    const record = mapExpressPayloadToFormSubmissionRecord(normalized, questionnaireSessionId, submitAttemptId);
 
     let submission = null;
     let submissionError = null;
@@ -309,69 +365,46 @@ Deno.serve(async (req) => {
       const intakeData = buildIntakePayload({
         status: 'submitted',
         intakeReason: 'server_fallback_submission_created',
-        businessName,
-        businessDomain,
-        userEmail,
-        userId,
-        submitAttemptId,
+        businessName, businessDomain, userEmail, userId, submitAttemptId,
         primaryError,
         transformedPayload: normalized,
         rawResponses: rawResponses || responseSnapshot,
-        diagnostics,
-        source,
-        createdAtClient,
+        diagnostics, source, createdAtClient,
         linkedSubmissionId: submissionId,
       });
 
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
 
       return Response.json({
-        success: true,
-        received: true,
-        submissionCreated: true,
-        submissionId,
-        submission,
-        intakeId: intake?.id || null,
-        usedFallback: true,
-        zapierSent: false,
-      });
+        success: true, received: true, submissionCreated: true,
+        submissionId, submission, intakeId: intake?.id || null,
+        usedFallback: true, zapierSent: false,
+      }, { headers: corsHeaders });
     }
 
-    // 4. Final create failed → intake only
+    // FormSubmission create failed → intake only (still a success from user perspective)
     const intakeData = buildIntakePayload({
       status: 'received_intake',
       intakeReason: 'form_submission_create_failed',
-      businessName,
-      businessDomain,
-      userEmail,
-      userId,
-      submitAttemptId,
+      businessName, businessDomain, userEmail, userId, submitAttemptId,
       primaryError,
       fallbackError: submissionError,
       transformedPayload: normalized,
       rawResponses: rawResponses || responseSnapshot,
-      diagnostics,
-      source,
-      createdAtClient,
+      diagnostics, source, createdAtClient,
     });
 
     const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
 
     return Response.json({
-      success: true,
-      received: true,
-      submissionCreated: false,
-      intakeId: intake?.id || null,
-      usedFallback: true,
-      zapierSent: false,
-    });
+      success: true, received: true, submissionCreated: false,
+      intakeId: intake?.id || null, usedFallback: true, zapierSent: false,
+    }, { headers: corsHeaders });
 
   } catch (error) {
     return Response.json({
-      success: false,
-      received: false,
-      usedFallback: true,
+      success: false, received: false, usedFallback: true,
       error: { message: error.message },
-    }, { status: 500 });
+    }, { status: 500, headers: corsHeaders });
   }
 });

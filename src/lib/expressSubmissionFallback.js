@@ -162,15 +162,18 @@ export async function invokeExpressSubmissionFallback(body, options = {}) {
 
       const data = result?.data || result;
 
-      if (data?.success || data?.received) {
+      // Accept: success:true OR received:true OR intakeId present
+      if (data?.success || data?.received || data?.intakeId) {
+        const submissionId = data?.submissionId || data?.submission?.id || "";
+        const intakeId = data?.intakeId || "";
         return {
           ok: true,
           data,
-          received: Boolean(data?.received),
+          received: Boolean(data?.received || data?.success),
           submissionCreated: Boolean(data?.submissionCreated),
           submission: data?.submission || null,
-          submissionId: data?.submissionId || data?.submission?.id || "",
-          intakeId: data?.intakeId || "",
+          submissionId,
+          intakeId,
           usedFallback: true,
           zapierSent: Boolean(data?.zapierSent),
         };

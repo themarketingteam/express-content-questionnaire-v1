@@ -409,7 +409,7 @@ export async function submitExpressQuestionnaire(args) {
 
     // Fallback failed - throw SubmitFlowError
     throw new SubmitFlowError({
-      userMessage: `We could not confirm your submission was received. Please copy the recovery details and try again. Recovery code: ${recoveryCode}`,
+      userMessage: `We saved your progress, but final submission could not complete. Please try again and share this recovery code with support if needed: ${recoveryCode}`,
       recoveryCode,
       failureKind: fallbackResult.failureKind || "transform",
       stage: "payload_transform_failed",
@@ -543,14 +543,16 @@ export async function submitExpressQuestionnaire(args) {
       });
     }
 
-    // Save draft status — intake-only is still a user-facing success
-    const draftStatus = "submitted";
+    // Save draft status — intake-only is treated as submitted from user perspective
+    const draftStatus = submitResult.submissionCreated ? "submitted" : (submitResult.receivedViaIntake ? "submitted" : "submitted");
     await safeDraftSave({
       saveDraftNow,
       draftData: {
         status: draftStatus,
-        finalSubmissionId: submitResult.submissionId || submitResult.intakeId || "",
-        submitError: null,
+        finalSubmissionId: submitResult.submissionId || "",
+        submitError: submitResult.receivedViaIntake
+          ? null
+          : null,
         responsesSnapshot: responseSnapshot,
         validationStatusSnapshot: validationStatus || {},
         touchedQuestionsSnapshot: touchedQuestions || {},

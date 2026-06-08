@@ -14,6 +14,17 @@ export function cleanExpressDomain(rawDomain) {
     .trim();
 }
 
+export function sanitizeGeoMeta(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out = {};
+  if (typeof raw.label === 'string' && raw.label.trim()) out.label = raw.label.trim();
+  if (typeof raw.lat === 'number' && isFinite(raw.lat)) out.lat = raw.lat;
+  if (typeof raw.lon === 'number' && isFinite(raw.lon)) out.lon = raw.lon;
+  if (raw.place_id && typeof raw.place_id === 'string' && raw.place_id.trim()) out.place_id = raw.place_id.trim();
+  if (typeof raw.source === 'string' && raw.source.trim()) out.source = raw.source.trim();
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function getInitialExpressFormData() {
   return {
     itCompanyType: [],
@@ -22,7 +33,7 @@ export function getInitialExpressFormData() {
     serviceOfferingsOther: "",
     differentiation: "",
     geographicAreas: "",
-    geographicAreaMeta: { label: "", lat: null, lon: null, place_id: null, source: "google" },
+    geographicAreaMeta: {},
     pricingPackaging: "",
     pricingPackagingOther: "",
     companyGoals: "",
@@ -73,9 +84,7 @@ export function normalizeExpressFormData(formData) {
     serviceOfferingsOther: ensureString(fd.serviceOfferingsOther, ""),
     differentiation: ensureString(fd.differentiation, ""),
     geographicAreas: ensureString(fd.geographicAreas, ""),
-    geographicAreaMeta: fd.geographicAreaMeta && typeof fd.geographicAreaMeta === "object"
-      ? fd.geographicAreaMeta
-      : { label: "", lat: null, lon: null, place_id: null, source: "google" },
+    geographicAreaMeta: sanitizeGeoMeta(fd.geographicAreaMeta) || {},
     pricingPackaging: ensureString(fd.pricingPackaging, ""),
     pricingPackagingOther: ensureString(fd.pricingPackagingOther, ""),
     companyGoals: ensureString(fd.companyGoals, ""),
@@ -160,9 +169,7 @@ export function mapExpressPayloadToFormSubmissionRecord(payload) {
     service_offerings_other: String(ud.service_offerings_other || ""),
     differentiation: String(ud.differentiation || ""),
     geographic_areas: String(ud.geographic_areas || ""),
-    geographic_area_meta: ud.geographic_area_meta && typeof ud.geographic_area_meta === "object"
-      ? ud.geographic_area_meta
-      : { label: "", lat: null, lon: null, place_id: null, source: "manual" },
+    geographic_area_meta: sanitizeGeoMeta(ud.geographic_area_meta) || undefined,
     pricing_packaging: String(ud.pricing_packaging || ""),
     pricing_packaging_other: String(ud.pricing_packaging_other || ""),
     company_goals,
