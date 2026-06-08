@@ -49,14 +49,12 @@
  */
 import Home from './pages/Home';
 import Questionnaire from './pages/Questionnaire';
-import TestZapier from './pages/TestZapier';
 import ThankYou from './pages/ThankYou';
 
 
 export const PAGES = {
     "Home": Home,
     "Questionnaire": Questionnaire,
-    "TestZapier": TestZapier,
     "ThankYou": ThankYou,
 }
 

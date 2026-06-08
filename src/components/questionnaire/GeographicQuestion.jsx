@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MapPin, X, Info, ChevronDown } from "lucide-react";
 
-const TEMP_API_KEY = "AIzaSyDyQuexeP2lIif4UEYVe845bIYrytVp6O0";
-
 const US_STATES = [
   'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 
   'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 
@@ -43,7 +41,7 @@ export default function GeographicQuestion({
       return;
     }
 
-    const apiKey = TEMP_API_KEY || window.ENV?.GOOGLE_PLACES_API_KEY || import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+    const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || window.ENV?.GOOGLE_PLACES_API_KEY;
     
     if (!apiKey) {
       console.warn("Google Places API key not configured");

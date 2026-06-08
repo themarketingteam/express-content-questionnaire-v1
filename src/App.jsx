@@ -8,6 +8,7 @@ import { pagesConfig } from './pages.config'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import AdminSubmitIntake from './pages/AdminSubmitIntake';
+import TestZapier from './pages/TestZapier';
 import FormDraftRecovery from './pages/FormDraftRecovery';
 import AdminOnly from '@/components/admin/AdminOnly';
 import QuestionnaireIntakeRecoveryPage from './pages/QuestionnaireIntakeRecovery';
@@ -99,6 +100,13 @@ const AuthenticatedApp = () => {
         <AdminOnly>
           <LayoutWrapper currentPageName={"admin/questionnaire-intake-recovery"}>
             <QuestionnaireIntakeRecoveryPage />
+          </LayoutWrapper>
+        </AdminOnly>
+      } />
+      <Route path="/TestZapier" element={
+        <AdminOnly>
+          <LayoutWrapper currentPageName={"TestZapier"}>
+            <TestZapier />
           </LayoutWrapper>
         </AdminOnly>
       } />
