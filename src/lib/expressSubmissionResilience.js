@@ -293,6 +293,7 @@ export function buildExpressSubmitDiagnostics(args) {
 }
 
 // Create FormSubmission with fallback
+// Server function is now the PRIMARY durable submit path — no browser-side FormSubmission.create
 export async function createExpressFormSubmissionWithFallback(args) {
   const {
     payload,
@@ -307,184 +308,79 @@ export async function createExpressFormSubmissionWithFallback(args) {
     draftId,
     submitContext,
     diagnostics,
-    onPrimaryFailure,
     onFallbackAttempt,
     onFallbackSuccess,
     onFallbackFailure,
   } = args;
 
-  // If we have a valid record, try primary create
-  if (formSubmissionRecord) {
-    const primaryResult = await createExpressFormSubmissionResilient(formSubmissionRecord);
+  // Always go directly to the server function as the primary durable submit path
+  if (onFallbackAttempt) {
+    onFallbackAttempt();
+  }
 
-    if (primaryResult.ok) {
+  const fallbackBody = buildExpressFallbackBody({
+    transformedPayload: payload,
+    responseSnapshot,
+    rawResponses,
+    transformFailed: transformFailed || false,
+    transformError: transformError || null,
+    validationFailed: validationFailed || false,
+    validationError: validationError || null,
+    questionnaireSessionId,
+    draftId,
+    submitContext,
+    diagnostics,
+    primaryError: null,
+  });
+
+  const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
+
+  if (fallbackResult.ok) {
+    if (onFallbackSuccess) {
+      onFallbackSuccess(fallbackResult);
+    }
+
+    if (fallbackResult.submissionId) {
       return {
         ok: true,
         accepted: true,
-        submission: primaryResult.submission,
-        submissionId: primaryResult.submission?.id || primaryResult.submission?.data?.id,
+        submission: fallbackResult.submission,
+        submissionId: fallbackResult.submissionId,
         submissionCreated: true,
         receivedViaIntake: false,
-        usedFallback: false,
-        primaryResult,
-        fallbackResult: null,
+        usedFallback: true,
+        primaryResult: null,
+        fallbackResult,
       };
     }
 
-    // Primary failed - notify callback
-    if (onPrimaryFailure) {
-      onPrimaryFailure(primaryResult);
-    }
-
-    // Invoke fallback
-    if (onFallbackAttempt) {
-      onFallbackAttempt();
-    }
-
-    const fallbackBody = buildExpressFallbackBody({
-      transformedPayload: payload,
-      responseSnapshot,
-      rawResponses,
-      transformFailed,
-      transformError,
-      validationFailed,
-      validationError,
-      questionnaireSessionId,
-      draftId,
-      submitContext,
-      diagnostics,
-      primaryError: primaryResult?.error || null,
-    });
-
-    const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
-
-    if (fallbackResult.ok) {
-      if (onFallbackSuccess) {
-        onFallbackSuccess(fallbackResult);
-      }
-
-      // Check if fallback created a submission or just received intake
-      if (fallbackResult.submissionId) {
-        return {
-          ok: true,
-          accepted: true,
-          submission: fallbackResult.submission,
-          submissionId: fallbackResult.submissionId,
-          submissionCreated: true,
-          receivedViaIntake: false,
-          usedFallback: true,
-          primaryResult,
-          fallbackResult,
-        };
-      } else if (fallbackResult.intakeId) {
-        return {
-          ok: true,
-          accepted: true,
-          submission: null,
-          intakeId: fallbackResult.intakeId,
-          submissionCreated: false,
-          receivedViaIntake: true,
-          usedFallback: true,
-          primaryResult,
-          fallbackResult,
-        };
-      }
-    }
-
-    // Fallback failed
-    if (onFallbackFailure) {
-      onFallbackFailure(fallbackResult);
-    }
-
+    // intakeId only — still a successful accepted submission from user perspective
     return {
-      ok: false,
+      ok: true,
+      accepted: true,
       submission: null,
-      error: fallbackResult.error,
+      submissionId: null,
+      intakeId: fallbackResult.intakeId || "",
+      submissionCreated: false,
+      receivedViaIntake: true,
       usedFallback: true,
-      failureKind: fallbackResult.failureKind,
-      primaryResult,
-      fallbackResult,
-    };
-  }
-
-  // No valid record - go straight to fallback if transform/validation failed
-  if (transformFailed || validationFailed) {
-    if (onFallbackAttempt) {
-      onFallbackAttempt();
-    }
-
-    const fallbackBody = buildExpressFallbackBody({
-      transformedPayload: payload,
-      responseSnapshot,
-      rawResponses,
-      transformFailed,
-      transformError,
-      validationFailed,
-      validationError,
-      questionnaireSessionId,
-      draftId,
-      submitContext,
-      diagnostics,
-      primaryError: null,
-    });
-
-    const fallbackResult = await invokeExpressSubmissionFallback(fallbackBody);
-
-    if (fallbackResult.ok) {
-      if (onFallbackSuccess) {
-        onFallbackSuccess(fallbackResult);
-      }
-
-      if (fallbackResult.submissionId) {
-        return {
-          ok: true,
-          accepted: true,
-          submission: fallbackResult.submission,
-          submissionId: fallbackResult.submissionId,
-          submissionCreated: true,
-          receivedViaIntake: false,
-          usedFallback: true,
-          primaryResult: null,
-          fallbackResult,
-        };
-      } else if (fallbackResult.intakeId) {
-        return {
-          ok: true,
-          accepted: true,
-          submission: null,
-          intakeId: fallbackResult.intakeId,
-          submissionCreated: false,
-          receivedViaIntake: true,
-          usedFallback: true,
-          primaryResult: null,
-          fallbackResult,
-        };
-      }
-    }
-
-    if (onFallbackFailure) {
-      onFallbackFailure(fallbackResult);
-    }
-
-    return {
-      ok: false,
-      submission: null,
-      error: fallbackResult.error,
-      usedFallback: true,
-      failureKind: fallbackResult.failureKind,
       primaryResult: null,
       fallbackResult,
     };
   }
 
-  // No record and no transform/validation failure - shouldn't happen
+  // Server function failed entirely
+  if (onFallbackFailure) {
+    onFallbackFailure(fallbackResult);
+  }
+
   return {
     ok: false,
     submission: null,
-    error: new Error("No valid submission record and no fallback trigger"),
-    usedFallback: false,
-    failureKind: "unknown",
+    error: fallbackResult.error,
+    usedFallback: true,
+    failureKind: fallbackResult.failureKind,
     primaryResult: null,
-    fallbackResult: null,
+    fallbackResult,
   };
 }

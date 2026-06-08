@@ -409,7 +409,7 @@ export async function submitExpressQuestionnaire(args) {
 
     // Fallback failed - throw SubmitFlowError
     throw new SubmitFlowError({
-      userMessage: `We saved your progress, but final submission could not complete. Please try again and share this recovery code with support if needed: ${recoveryCode}`,
+      userMessage: `We could not confirm your submission was received. Please copy the recovery details and try again. Recovery code: ${recoveryCode}`,
       recoveryCode,
       failureKind: fallbackResult.failureKind || "transform",
       stage: "payload_transform_failed",
@@ -543,20 +543,14 @@ export async function submitExpressQuestionnaire(args) {
       });
     }
 
-    // Save draft status
-    const draftStatus = submitResult.receivedViaIntake ? "submit_failed" : "submitted";
+    // Save draft status — intake-only is still a user-facing success
+    const draftStatus = "submitted";
     await safeDraftSave({
       saveDraftNow,
       draftData: {
         status: draftStatus,
-        finalSubmissionId: submitResult.submissionId || "",
-        submitError: submitResult.receivedViaIntake
-          ? safeJsonStringify({
-              message: "Submission received via durable intake fallback",
-              intakeId: submitResult.intakeId || "",
-              recoveryCode,
-            })
-          : null,
+        finalSubmissionId: submitResult.submissionId || submitResult.intakeId || "",
+        submitError: null,
         responsesSnapshot: responseSnapshot,
         validationStatusSnapshot: validationStatus || {},
         touchedQuestionsSnapshot: touchedQuestions || {},
@@ -687,7 +681,7 @@ export async function submitExpressQuestionnaire(args) {
 
   // Throw SubmitFlowError
   throw new SubmitFlowError({
-    userMessage: `We saved your progress, but final submission could not complete. Please try again and share this recovery code with support if needed: ${recoveryCode}`,
+    userMessage: `We could not confirm your submission was received. Please copy the recovery details and try again. Recovery code: ${recoveryCode}`,
     recoveryCode,
     failureKind: submitResult.failureKind || "unknown",
     stage: "submit_failed",

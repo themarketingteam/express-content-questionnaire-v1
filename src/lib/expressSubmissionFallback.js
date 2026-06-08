@@ -1,7 +1,7 @@
 import { base44 } from "@/api/base44Client";
 import { serializeExpressError } from "@/lib/expressQuestionnairePayload";
 
-const DEFAULT_FALLBACK_TIMEOUT_MS = 15000;
+const DEFAULT_FALLBACK_TIMEOUT_MS = 30000;
 const DEFAULT_FALLBACK_ATTEMPTS = 2;
 
 // Timer API for timeout wrapper
