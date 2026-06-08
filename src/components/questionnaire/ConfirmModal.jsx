@@ -38,7 +38,8 @@ export default function ConfirmModal({
   const normalizedFormData = normalizeExpressFormData(formData || {});
   
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
-  const [domain, setDomain] = useState(initialDomain || "");
+  // Domain is always blank — never prefilled from URL params
+  const [domain, setDomain] = useState("");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isCopyingRecovery, setIsCopyingRecovery] = useState(false);
 
@@ -70,10 +71,12 @@ export default function ConfirmModal({
   };
 
   const cleanDomain = (raw) => {
+    if (!raw || !raw.trim()) return "";
     return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
 
-  const isFormValid = businessName.trim().length > 0 && domain.trim().length > 0;
+  // Domain is optional — only business name is required
+  const isFormValid = businessName.trim().length > 0;
 
   const handleConfirm = () => {
     if (isFormValid) {
@@ -249,7 +252,7 @@ export default function ConfirmModal({
               <AlertCircle className="w-5 h-5" />
               Verify Your Business Details
             </h4>
-            <p className="text-sm text-blue-800">Please confirm or enter your business information below (required)</p>
+            <p className="text-sm text-blue-800">Please confirm or enter your business name below</p>
             
             <div className="space-y-4">
               <div>
@@ -268,7 +271,7 @@ export default function ConfirmModal({
 
               <div>
                 <label className="block text-sm font-semibold text-slate-900 mb-2">
-                  Website Domain *
+                  Website Domain <span className="font-normal text-slate-500">(optional)</span>
                 </label>
                 <input
                   type="text"
@@ -276,22 +279,15 @@ export default function ConfirmModal({
                   onChange={(e) => setDomain(e.target.value)}
                   placeholder="example.com or https://www.example.com"
                   className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
                 />
-                <p className="text-xs text-slate-500 mt-1">Any format accepted — we'll clean it up automatically.</p>
+                <p className="text-xs text-slate-500 mt-1">Optional — add it only if you know the correct website.</p>
               </div>
             </div>
 
             {!isFormValid && (
               <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <AlertCircle className="w-4 h-4" />
-                <span>
-                  {businessName.trim().length === 0 && domain.trim().length === 0
-                    ? 'Both business name and domain are required to submit'
-                    : businessName.trim().length === 0
-                    ? 'Business name is required to submit'
-                    : 'Domain is required to submit'}
-                </span>
+                <span>Business name is required to submit.</span>
               </div>
             )}
           </div>
@@ -359,7 +355,7 @@ export default function ConfirmModal({
                 </div>
                 <div className="flex items-center justify-between mt-4">
                   <p className="text-xs text-red-700 italic">
-                    Use "Go Back & Edit" to update these answers, then return to submit again.
+                    Use the Go Back button to update these answers, then return to submit again.
                   </p>
                   {typeof onOpenValidationGuide === 'function' && (
                     <button
@@ -474,7 +470,7 @@ export default function ConfirmModal({
             ) : isSubmitting ? (
               <><Loader2 className="w-5 h-5 animate-spin" />Submitting...</>
             ) : (
-              <><CheckCircle className="w-5 h-5" />Confirm & Submit</>
+              <><CheckCircle className="w-5 h-5" />Confirm &amp; Submit</>
             )}
           </button>
           <button
@@ -495,7 +491,7 @@ export default function ConfirmModal({
             disabled={isSubmitting}
             className="min-w-[120px] px-6 py-3 border-2 border-slate-300 hover:border-slate-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-semibold rounded-xl transition-all duration-200"
           >
-            Go Back & Edit
+            Go Back
           </button>
         </div>
       </motion.div>

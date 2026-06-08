@@ -325,9 +325,8 @@ export default function Questionnaire() {
   const [questionnaireSessionId] = useState(() => getOrCreateQuestionnaireSessionId());
 
   const urlParams = new URLSearchParams(window.location.search);
-  const businessNameParam = urlParams.get("businessName") || "";
-  const rawDomain = urlParams.get("domainName") || "";
-  const domainParam = rawDomain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+  const businessNameParam = urlParams.get("businessName") || urlParams.get("business_name") || urlParams.get("name") || "";
+  const domainParam = "";
   const urlCredentials = {
     businessName: businessNameParam,
     domain: domainParam,
