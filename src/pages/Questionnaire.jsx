@@ -314,6 +314,7 @@ export default function Questionnaire() {
 
   const submitInFlightRef = useRef(false);
   const activeSubmitAttemptIdRef = useRef("");
+  const isHydratedRef = useRef(false); // true after cookie/persisted state has been loaded into formData
 
   const questionRefs = useRef({});
   const draftSaveTimeoutRef = useRef(null);
@@ -355,6 +356,7 @@ export default function Questionnaire() {
     expandedQuestionsSnapshot: expandedSnapshotArg,
     submitAttemptId,
   } = {}) => {
+    if (!isHydratedRef.current && !responsesSnapshot) return; // Block pre-hydration saves unless caller passes an explicit snapshot
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
     );
@@ -380,6 +382,7 @@ export default function Questionnaire() {
 
   const queueDraftSave = useCallback((changedQuestionId, nextFormData) => {
     if (hasFinalSubmittedRef.current) return;
+    if (!isHydratedRef.current) return; // Don't save before cookie state is loaded
     lastChangedQuestionIdRef.current = String(changedQuestionId || "");
     if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
     draftSaveTimeoutRef.current = setTimeout(async () => {
@@ -595,12 +598,18 @@ export default function Questionnaire() {
         // Ignore storage errors
       }
     }
+
+    // Mark hydration complete — queueDraftSave is now safe to run
+    isHydratedRef.current = true;
   }, []);
 
   // Auto-save with validation status
   useEffect(() => {
     if (hasFinalSubmittedRef.current) {
       return;
+    }
+    if (!isHydratedRef.current) {
+      return; // Don't auto-save before cookie state is loaded
     }
 
     const saveTimer = setTimeout(() => {
@@ -1300,7 +1309,11 @@ export default function Questionnaire() {
           if (import.meta.env.DEV) {
             console.info("[Express Questionnaire] Self-healing repairs applied", result.repairs);
           }
-          queueDraftSave("self_healing", result.formData);
+          // Only queue draft save after hydration, using result.formData from the validator
+          // (which was applied to state via setFormData above)
+          if (isHydratedRef.current) {
+            queueDraftSave("self_healing", result.formData);
+          }
         }}
       />
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
