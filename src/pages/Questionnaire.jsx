@@ -943,17 +943,32 @@ export default function Questionnaire() {
 
       // Success is handled in onFinalSubmitSuccess callback
     } catch (error) {
-      // Handle SubmitFlowError or unexpected errors
+      // Handle SubmitFlowError or unexpected errors — recovery card handles UX
       const recoveryCodeValue = error.recoveryCode || questionnaireSessionId;
       setSubmitError(error);
       setRecoveryCode(recoveryCodeValue);
-      
-      // Show user-safe message
-      alert(`We saved your progress, but final submission could not complete. Please try again. Recovery code: ${recoveryCodeValue}`);
+
+      // Populate recovery card if not already set by onFinalSubmitFailure
+      setLastSubmitContext(prev => prev || {
+        businessName,
+        businessDomain: domain,
+        sessionId: questionnaireSessionId,
+        lastSubmitAttemptId: activeSubmitAttemptIdRef.current || "",
+        failedAt: new Date().toISOString(),
+        recoveryCode: recoveryCodeValue,
+        errorMessage: error.safeMessage || "Submission could not be confirmed. Your answers are saved.",
+        intakeId: error.intakeId || null,
+        intakeCaptured: false,
+      });
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);
+      setIsRetryingSubmit(false);
       clearActiveSubmitAttempt(activeSubmitAttemptIdRef.current);
+      // Close confirm modal on failure so recovery card is visible to user
+      if (!hasFinalSubmittedRef.current) {
+        setShowConfirmModal(false);
+      }
     }
   }, [isSubmitting, formData, touchedQuestions, openQuestions, questionnaireSessionId, urlCredentials, domainParam, saveDraftNow, createDraftEvent]);
 
@@ -1051,6 +1066,20 @@ export default function Questionnaire() {
   const handleReset = () => {
     setShowClearAllConfirm(true);
   };
+
+  // Retry submit from the recovery card — fresh attempt ID, same form data
+  const handleRetrySubmit = useCallback(async () => {
+    if (isRetryingSubmit || isSubmitting || submitInFlightRef.current) return;
+
+    const ctx = lastSubmitContext;
+    if (!ctx) return;
+
+    // Open the confirm modal pre-filled with the last known business details
+    // The confirm modal already holds businessName/domain from the last attempt via initialBusinessName/initialDomain
+    // Re-open it so the user can confirm (and so validation reruns)
+    setShowConfirmModal(true);
+    setIsRetryingSubmit(false);
+  }, [isRetryingSubmit, isSubmitting, lastSubmitContext]);
 
   const handleResetLocalState = () => {
     // Use centralized reset utility
@@ -1760,6 +1789,16 @@ export default function Questionnaire() {
               )}
             </div>
           </section>
+
+          {/* Recovery card — shown when submit fails, answers remain intact */}
+          {lastSubmitContext && (
+            <SubmitRecoveryCard
+              context={lastSubmitContext}
+              isRetrying={isRetryingSubmit}
+              onRetry={handleRetrySubmit}
+              onDismiss={() => setLastSubmitContext(null)}
+            />
+          )}
 
           <div className="flex gap-4 pt-8 border-t" style={{ borderColor: '#009ADD' }}>
             <button
