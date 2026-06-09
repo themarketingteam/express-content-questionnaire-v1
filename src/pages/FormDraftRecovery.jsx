@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
 import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeRecovery";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
+import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,69 @@ function DraftAiRepairSection({ draft }) {
 
 // ─── DraftRow ─────────────────────────────────────────────────────────────────
 
+function RawDraftDataSection({ draft }) {
+  const [open, setOpen] = useState(false);
+  const responses = safeJsonParse(draft.responses_json, null);
+  const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
+  const aiRepairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
+  const metadata = safeJsonParse(draft.metadata_json, null);
+
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200 transition-colors text-xs font-semibold text-slate-600"
+      >
+        <span>Raw Draft Data — internal recovery format</span>
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+      {open && (
+        <div className="p-3 bg-white border-t border-slate-100 space-y-3">
+          {responses && (
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">responses_json</p>
+              <pre className="bg-slate-50 border border-slate-200 rounded p-2 text-xs font-mono overflow-auto max-h-48 text-slate-700 whitespace-pre-wrap">
+                {JSON.stringify(responses, null, 2)}
+              </pre>
+            </div>
+          )}
+          {mappedPayload && (
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">mapped_payload_json (stored at submit time)</p>
+              <pre className="bg-slate-50 border border-slate-200 rounded p-2 text-xs font-mono overflow-auto max-h-48 text-slate-700 whitespace-pre-wrap">
+                {JSON.stringify(mappedPayload, null, 2)}
+              </pre>
+            </div>
+          )}
+          {aiRepairedPayload && (
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">ai_repaired_payload_json</p>
+              <pre className="bg-slate-50 border border-slate-200 rounded p-2 text-xs font-mono overflow-auto max-h-48 text-slate-700 whitespace-pre-wrap">
+                {JSON.stringify(aiRepairedPayload, null, 2)}
+              </pre>
+            </div>
+          )}
+          {metadata && (
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">metadata_json</p>
+              <pre className="bg-slate-50 border border-slate-200 rounded p-2 text-xs font-mono overflow-auto max-h-32 text-slate-700 whitespace-pre-wrap">
+                {JSON.stringify(metadata, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SOURCE_LABEL = {
+  mapped_payload_json: "mapped_payload_json",
+  reconstructed_from_responses_json: "reconstructed from responses_json",
+  reconstructed_from_form_data: "reconstructed from form data",
+  empty_schema: "empty schema — no data available",
+};
+
 function DraftRow({ draft, isDuplicate, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
@@ -168,13 +232,17 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
   const metadata = safeJsonParse(draft.metadata_json, {});
   const responses = safeJsonParse(draft.responses_json, {});
   const validationStatus = safeJsonParse(draft.validation_status_json, {});
-  const userdata = safeJsonParse(draft.userdata_json, {});
   const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
+  const aiRepairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
+  const aiRepairReport = safeJsonParse(draft.ai_repair_report_json, null);
   const responsesParseOk = canParseJson(draft.responses_json);
   const mappedParseOk = canParseJson(draft.mapped_payload_json);
   const hasResponses = Object.keys(responses).length > 0;
   const hasMapped = mappedPayload !== null && Object.keys(mappedPayload).length > 0;
   const hasValidation = Object.keys(validationStatus).length > 0;
+
+  // Build canonical endpoint payload preview
+  const preview = buildExpressDraftSubmissionPreview(draft);
 
   const handleAction = async (actionKey, fn) => {
     setActionLoading(actionKey);
@@ -274,7 +342,7 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
             <span><span className="text-slate-500 font-medium">Validation:</span> <span className={hasValidation ? "text-green-700" : "text-slate-400"}>{hasValidation ? `Yes (${Object.keys(validationStatus).length})` : "No"}</span></span>
           </div>
 
-          {/* Warnings */}
+          {/* Parse warnings */}
           {draft.responses_json && !responsesParseOk && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Responses JSON could not be parsed.</p>}
           {draft.mapped_payload_json && !mappedParseOk && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Mapped payload JSON could not be parsed.</p>}
           {draft.save_error && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"><span className="font-semibold">Save error:</span> {draft.save_error}</div>}
@@ -288,6 +356,37 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
 
           {/* AI Repair Section */}
           <DraftAiRepairSection draft={draft} />
+
+          {/* ── Endpoint Submission Payload ── */}
+          <div className="border border-slate-300 rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-700">Endpoint Submission Payload</p>
+              <div className="flex items-center gap-2">
+                {preview.ok
+                  ? <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">Valid</span>
+                  : <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Incomplete</span>
+                }
+              </div>
+            </div>
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-1">
+              <p className="text-[10px] text-slate-500">
+                <span className="font-semibold">Source:</span> {SOURCE_LABEL[preview.source] || preview.source}
+              </p>
+              {preview.missingRequiredFields.length > 0 && (
+                <p className="text-[10px] text-amber-700">
+                  <span className="font-semibold">Missing required:</span> {preview.missingRequiredFields.join(", ")}
+                </p>
+              )}
+              {preview.warnings.map((w, i) => (
+                <p key={i} className="text-[10px] text-amber-600 flex items-start gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" /> {w}
+                </p>
+              ))}
+            </div>
+            <pre className="bg-white p-3 text-xs font-mono overflow-auto max-h-72 text-slate-700 whitespace-pre-wrap">
+              {JSON.stringify(preview.payload, null, 2)}
+            </pre>
+          </div>
 
           {/* ── Action buttons ── */}
           <div className="space-y-2">
@@ -323,43 +422,34 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
             {/* Copy buttons */}
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" className="text-xs gap-1.5"
-                onClick={() => { navigator.clipboard.writeText(JSON.stringify(responses, null, 2)); toast.success("Responses JSON copied"); }}>
-                <Copy className="w-3 h-3" /> Copy JSON
+                onClick={() => { navigator.clipboard.writeText(JSON.stringify(preview.payload, null, 2)); toast.success("Endpoint payload copied"); }}>
+                <Copy className="w-3 h-3" /> Copy Endpoint Payload
               </Button>
               <Button size="sm" variant="outline" className="text-xs gap-1.5"
                 onClick={() => {
-                  const bundle = { session_id: draft.session_id, submit_attempt_id: metadata?.submit_attempt_id || "", business_name: draft.business_name, domain: draft.domain, status: draft.status, last_saved_at: draft.last_saved_at, submitted_at: draft.submitted_at, final_submission_id: draft.final_submission_id, metadata, userdata, mapped_payload: mappedPayload, responses, validation_status: validationStatus };
+                  const bundle = { session_id: draft.session_id, business_name: draft.business_name, domain: draft.domain, status: draft.status, last_saved_at: draft.last_saved_at, submitted_at: draft.submitted_at, final_submission_id: draft.final_submission_id, responses };
                   navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-                  toast.success("Recovery bundle copied");
+                  toast.success("Raw draft data copied");
                 }}>
-                <Copy className="w-3 h-3" /> Copy Recovery Bundle
+                <Copy className="w-3 h-3" /> Copy Raw Draft Data
               </Button>
-              <Button size="sm" variant="outline" className="text-xs gap-1.5"
-                onClick={() => {
-                  const base = mappedPayload?.metadata && mappedPayload?.userdata ? { metadata: { ...mappedPayload.metadata }, userdata: { ...mappedPayload.userdata } } : { metadata: { ...metadata }, userdata: { ...userdata } };
-                  const result = normalizeExpressSubmitIntakePayload(base);
-                  result.ok ? (navigator.clipboard.writeText(JSON.stringify(result.payload, null, 2)), toast.success("Submit-intake payload copied")) : toast.error("Could not prepare a valid submit-intake payload.");
-                }}>
-                <Copy className="w-3 h-3" /> Copy Submit-Intake Payload
-              </Button>
-              {draft.mapped_payload_json && (
+              {aiRepairedPayload && (
                 <Button size="sm" variant="outline" className="text-xs gap-1.5"
-                  onClick={() => { navigator.clipboard.writeText(draft.mapped_payload_json); toast.success("Mapped payload copied"); }}>
-                  <Copy className="w-3 h-3" /> Copy Mapped Payload
+                  onClick={() => { navigator.clipboard.writeText(JSON.stringify(aiRepairedPayload, null, 2)); toast.success("AI repaired payload copied"); }}>
+                  <Copy className="w-3 h-3" /> Copy AI Repaired Payload
+                </Button>
+              )}
+              {aiRepairReport && (
+                <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                  onClick={() => { navigator.clipboard.writeText(JSON.stringify(aiRepairReport, null, 2)); toast.success("AI repair report copied"); }}>
+                  <Copy className="w-3 h-3" /> Copy AI Repair Report
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Parsed responses preview */}
-          {hasResponses && (
-            <div>
-              <p className="text-xs font-semibold text-slate-600 mb-1">Parsed Responses</p>
-              <pre className="bg-white border border-slate-200 rounded p-3 text-xs font-mono overflow-auto max-h-64 text-slate-700 whitespace-pre-wrap">
-                {JSON.stringify(responses, null, 2)}
-              </pre>
-            </div>
-          )}
+          {/* Raw Draft Data (collapsed) */}
+          <RawDraftDataSection draft={draft} />
         </div>
       )}
     </div>
