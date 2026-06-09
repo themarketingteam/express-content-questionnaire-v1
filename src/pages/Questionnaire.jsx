@@ -43,6 +43,15 @@ import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidato
 import DestructiveActionConfirmModal from "@/components/questionnaire/DestructiveActionConfirmModal";
 import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
+import {
+  isMeaningfulAnswer,
+  updateLastNonEmptyAnswers,
+  getRecoverableAnswer,
+  serializeAnswerHistory,
+  parseAnswerHistory,
+  compactFieldHistory,
+} from "@/lib/expressAnswerHistory";
+import RecoverLastAnswerNotice from "@/components/questionnaire/RecoverLastAnswerNotice";
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
 
@@ -248,6 +257,12 @@ export default function Questionnaire() {
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
 
+  // Answer history — recovery layer only (not submitted)
+  const [lastNonEmptyAnswers, setLastNonEmptyAnswers] = useState({});
+  const [fieldHistory, setFieldHistory] = useState({});
+  // Fields whose recover notice has been dismissed this session
+  const [dismissedRecoveryFields, setDismissedRecoveryFields] = useState({});
+
   // Text validation hook - must be declared before use
   const textValidation = useExpressTextValidation();
 
@@ -380,7 +395,7 @@ export default function Questionnaire() {
     });
   }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
-  const queueDraftSave = useCallback((changedQuestionId, nextFormData) => {
+  const queueDraftSave = useCallback((changedQuestionId, nextFormData, historySnapshot) => {
     if (hasFinalSubmittedRef.current) return;
     if (!isHydratedRef.current) return; // Don't save before cookie state is loaded
     lastChangedQuestionIdRef.current = String(changedQuestionId || "");
@@ -407,6 +422,9 @@ export default function Questionnaire() {
           submitError: "",
           finalSubmissionId: "",
           submitAttemptId: "",
+          lastNonEmptyAnswers: historySnapshot || lastNonEmptyAnswers,
+          fieldHistory,
+          lastLocalPersistedAt: new Date().toISOString(),
         });
       } catch (err) {
         console.error("[draft] save failed:", err?.message || err);

@@ -86,7 +86,10 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
     saveError = "",
     submitError = "",
     finalSubmissionId = "",
-    submitAttemptId = ""
+    submitAttemptId = "",
+    lastNonEmptyAnswers = null,
+    fieldHistory = null,
+    lastLocalPersistedAt = ""
   }) {
     const creds = sanitizeCredentialsForDraft(credentials);
     const businessName = businessNameParam || creds.businessName || "";
@@ -157,7 +160,10 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       submit_attempted_at: isSubmitAttempted ? now : "",
       submitted_at: isSubmitted ? now : "",
       last_changed_at: now,
-      last_saved_at: now
+      last_saved_at: now,
+      ...(lastNonEmptyAnswers !== null ? { last_non_empty_answers_json: safeJsonStringify(lastNonEmptyAnswers) } : {}),
+      ...(fieldHistory !== null ? { field_history_json: safeJsonStringify(fieldHistory) } : {}),
+      ...(lastLocalPersistedAt ? { last_local_persisted_at: lastLocalPersistedAt } : {})
     };
 
     const existing = await findExistingDraftBySessionId({ sessionId, entities });

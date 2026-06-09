@@ -6,6 +6,11 @@ import {
   serializeExpressError,
 } from "@/lib/expressQuestionnairePayload";
 import {
+  repairExpressSubmissionPayload,
+  validateExpressSubmissionPayload,
+  safeStringifyForDiagnostics,
+} from "@/lib/expressPayloadRepair";
+import {
   createExpressFormSubmissionWithFallback,
   serializeSubmitError,
   buildExpressPayloadFeatureSummary,
@@ -417,10 +422,198 @@ export async function submitExpressQuestionnaire(args) {
     });
   }
 
-  // Step 6: Map final FormSubmission record
+  // Step 6: Deterministic payload repair
+  let payloadRepair = { repaired: false, changedPaths: [], warnings: [] };
+  try {
+    const repairResult = repairExpressSubmissionPayload(transformedPayload, {
+      businessName,
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
+    });
+    transformedPayload = repairResult.payload;
+    payloadRepair = {
+      repaired: repairResult.repaired,
+      changedPaths: repairResult.changedPaths,
+      warnings: repairResult.warnings,
+    };
+
+    if (repairResult.repaired && createDraftEvent) {
+      await createDraftEventSafe({
+        createDraftEvent,
+        event: {
+          eventType: "payload_repaired",
+          questionId: "",
+          questionType: "submit",
+          value: {
+            stage: "payload_repaired",
+            session_id: questionnaireSessionId,
+            submit_attempt_id: submitAttemptId || "",
+            changed_paths_count: repairResult.changedPaths.length,
+            warnings: repairResult.warnings,
+            changed_paths: repairResult.changedPaths,
+          },
+        },
+      });
+    }
+  } catch (repairErr) {
+    // Repair is best-effort; log and continue with original payload
+    payloadRepair.warnings.push(`Repair step threw an error: ${repairErr?.message || repairErr}`);
+  }
+
+  // Step 6b: Validate repaired payload
+  const validationResult = validateExpressSubmissionPayload(transformedPayload);
+  if (!validationResult.ok) {
+    // Record validation failure event
+    if (createDraftEvent) {
+      await createDraftEventSafe({
+        createDraftEvent,
+        event: {
+          eventType: "submit_failed",
+          questionId: "",
+          questionType: "submit",
+          value: {
+            stage: "payload_validation_failed",
+            session_id: questionnaireSessionId,
+            submit_attempt_id: submitAttemptId || "",
+            validation_errors: validationResult.errors,
+            validation_warnings: validationResult.warnings,
+            payloadRepair,
+          },
+        },
+      });
+    }
+
+    // Save draft with validation failure info
+    await safeDraftSave({
+      saveDraftNow,
+      draftData: {
+        status: "submit_failed",
+        submitError: safeJsonStringify({ stage: "payload_validation_failed", errors: validationResult.errors }),
+        responsesSnapshot: responseSnapshot,
+        validationStatusSnapshot: validationStatus || {},
+        touchedQuestionsSnapshot: touchedQuestions || {},
+        expandedQuestionsSnapshot: expandedQuestions || {},
+        submitAttemptId,
+      },
+      questionnaireSessionId,
+      submitAttemptId,
+      businessName,
+      domain,
+      responses: responseSnapshot,
+      transformedPayload,
+      validationStatus,
+      touchedQuestions,
+      expandedQuestions,
+      stage: "payload_validation_failed",
+    });
+
+    // Write local backup before routing to fallback
+    writeLocalFailedSubmissionBackup({
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
+      businessName,
+      domain,
+      responses: responseSnapshot,
+      transformedPayload,
+      validationStatus: validationStatus || {},
+      touchedQuestions: touchedQuestions || {},
+      expandedQuestions: expandedQuestions || {},
+      stage: "payload_validation_failed",
+      error: new Error(`Payload validation failed: ${validationResult.errors.join("; ")}`),
+      diagnostics: {
+        questionnaireSessionId,
+        businessNamePresent: !!businessName,
+        domainPresent: !!domain,
+        stage: "payload_validation_failed",
+        validation_errors: validationResult.errors,
+        payloadRepair,
+        timestamp,
+      },
+    });
+
+    // Route to protected fallback/intake path with validationFailed: true
+    const validationFallbackContext = {
+      businessName,
+      business_name: businessName,
+      domain,
+      businessDomain: domain,
+      business_domain: domain,
+      userEmail: credentials?.userEmail || "",
+      user_email: credentials?.userEmail || "",
+      userId: credentials?.userId || "",
+      user_id: credentials?.userId || "",
+      createdAt: timestamp,
+      created_at_client: timestamp,
+      source: "express_questionnaire_submit",
+      submitAttemptId,
+      submit_attempt_id: submitAttemptId || "",
+    };
+
+    const validationFallbackResult = await createExpressFormSubmissionWithFallback({
+      payload: transformedPayload,
+      formSubmissionRecord: null,
+      responseSnapshot,
+      rawResponses: responseSnapshot,
+      transformFailed: false,
+      transformError: null,
+      validationFailed: true,
+      validationError: new Error(validationResult.errors.join("; ")),
+      questionnaireSessionId,
+      draftId: null,
+      submitContext: validationFallbackContext,
+      diagnostics: {
+        questionnaireSessionId,
+        businessNamePresent: !!businessName,
+        domainPresent: !!domain,
+        stage: "payload_validation_failed",
+        validation_errors: validationResult.errors,
+        payloadRepair,
+        timestamp,
+      },
+    });
+
+    if (validationFallbackResult.ok && validationFallbackResult.receivedViaIntake) {
+      if (onFinalSubmitSuccess) {
+        onFinalSubmitSuccess({
+          ok: true,
+          accepted: true,
+          receivedViaIntake: true,
+          submissionCreated: false,
+          intakeId: validationFallbackResult.intakeId,
+          submissionId: null,
+          submission: null,
+          recoveryCode,
+          zapierSent: false,
+          zapierError: null,
+        });
+      }
+      return {
+        ok: true,
+        accepted: true,
+        receivedViaIntake: true,
+        submissionCreated: false,
+        intakeId: validationFallbackResult.intakeId,
+        submissionId: null,
+        submission: null,
+        recoveryCode,
+        zapierSent: false,
+        zapierError: null,
+      };
+    }
+
+    throw new SubmitFlowError({
+      userMessage: `We saved your progress, but final submission could not complete. Please try again and share this recovery code with support if needed: ${recoveryCode}`,
+      recoveryCode,
+      failureKind: "validation",
+      stage: "payload_validation_failed",
+      serializedError: { errors: validationResult.errors },
+    });
+  }
+
+  // Step 7: Map final FormSubmission record
   const formSubmissionRecord = mapExpressPayloadToFormSubmissionRecord(transformedPayload);
 
-  // Step 7: Prepare submit context and diagnostics
+  // Step 8: Prepare submit context and diagnostics
   const submitContext = {
     businessName,
     business_name: businessName,
@@ -466,11 +659,12 @@ export async function submitExpressQuestionnaire(args) {
     draftIdPresent: false,
     payloadFeatureSummary: buildExpressPayloadFeatureSummary(transformedPayload),
     validation_summary: validationSummary,
+    payloadRepair,
     timestamp,
     submitAttemptId: submitAttemptId || "",
   };
 
-  // Step 8: Submit through resilient fallback-aware flow
+  // Step 9: Submit through resilient fallback-aware flow
   const submitResult = await createExpressFormSubmissionWithFallback({
     payload: transformedPayload,
     formSubmissionRecord,

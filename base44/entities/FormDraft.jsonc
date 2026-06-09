@@ -101,6 +101,19 @@
       "type": "string",
       "description": "Linked final FormSubmission ID"
     },
+    "last_non_empty_answers_json": {
+      "type": "string",
+      "description": "JSON string keyed by field containing the last meaningful answer value."
+    },
+    "field_history_json": {
+      "type": "string",
+      "description": "JSON string containing compact field-level recovery history."
+    },
+    "last_local_persisted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the draft was last persisted locally in the browser."
+    },
     "ai_repair_status": {
       "type": "string",
       "description": "Status of the latest AI repair attempt. Values: not_started, diagnosed, repaired, applied, failed."
