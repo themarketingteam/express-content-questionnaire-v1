@@ -422,20 +422,18 @@ export async function submitExpressQuestionnaire(args) {
     });
   }
 
-  // Step 5b: Deterministic payload repair
-  let finalPayload = transformedPayload;
-  let payloadRepair = { repaired: false, changedPaths: [], warnings: [] };
+  // Step 6: Deterministic payload repair
+  let payloadRepairResult = { payload: transformedPayload, changedPaths: [], warnings: [], repaired: false };
   try {
-    const repairResult = repairExpressSubmissionPayload(transformedPayload, {
+    payloadRepairResult = repairExpressSubmissionPayload(transformedPayload, {
       businessName,
       sessionId: questionnaireSessionId,
       submitAttemptId,
     });
-    if (repairResult.payload) {
-      finalPayload = repairResult.payload;
-      payloadRepair = { repaired: repairResult.repaired, changedPaths: repairResult.changedPaths, warnings: repairResult.warnings };
-    }
-    if (repairResult.repaired && createDraftEvent) {
+    transformedPayload = payloadRepairResult.payload;
+
+    // Record repair event if any changes were made
+    if (payloadRepairResult.repaired && createDraftEvent) {
       await createDraftEventSafe({
         createDraftEvent,
         event: {
@@ -445,87 +443,110 @@ export async function submitExpressQuestionnaire(args) {
           value: {
             stage: "payload_repaired",
             session_id: questionnaireSessionId,
-            changedPaths: repairResult.changedPaths,
-            warnings: repairResult.warnings,
+            changedPaths: payloadRepairResult.changedPaths,
+            warnings: payloadRepairResult.warnings,
           },
         },
       });
     }
-  } catch {
-    // Non-fatal — continue with original payload
+  } catch (repairErr) {
+    // Repair failure is non-fatal — continue with original payload
+    payloadRepairResult.warnings.push(repairErr?.message || "Repair step threw unexpectedly");
   }
 
-  // Step 5c: Validate repaired payload
-  const payloadValidation = validateExpressSubmissionPayload(finalPayload);
+  // Step 6b: Validate repaired payload
+  const payloadValidation = validateExpressSubmissionPayload(transformedPayload);
   if (!payloadValidation.ok) {
-    // Save draft event with validation failure diagnostics
     if (createDraftEvent) {
       await createDraftEventSafe({
         createDraftEvent,
         event: {
-          eventType: "submit_failed",
+          eventType: "payload_validation_failed",
           questionId: "",
           questionType: "submit",
           value: {
             stage: "payload_validation_failed",
             session_id: questionnaireSessionId,
             validationErrors: payloadValidation.errors,
-            repairWarnings: payloadRepair.warnings,
+            warnings: payloadValidation.warnings,
           },
         },
       });
     }
 
-    // Call fallback with validationFailed: true — do not lose data
-    const submitContext0 = {
-      businessName, business_name: businessName, domain, businessDomain: domain, business_domain: domain,
-      userEmail: credentials?.userEmail || "", user_email: credentials?.userEmail || "",
-      userId: credentials?.userId || "", user_id: credentials?.userId || "",
-      createdAt: timestamp, created_at_client: timestamp,
+    // Send to intake/fallback path with validation failure flag
+    const submitContextValidFail = {
+      businessName,
+      business_name: businessName,
+      domain,
+      businessDomain: domain,
+      business_domain: domain,
+      userEmail: credentials?.userEmail || "",
+      user_email: credentials?.userEmail || "",
+      userId: credentials?.userId || "",
+      user_id: credentials?.userId || "",
+      createdAt: timestamp,
+      created_at_client: timestamp,
       source: "express_questionnaire_submit",
     };
-    const diagnostics0 = {
-      questionnaireSessionId, businessNamePresent: !!businessName, domainPresent: !!domain,
+    const diagnosticsValidFail = {
+      questionnaireSessionId,
+      businessNamePresent: !!businessName,
+      domainPresent: !!domain,
       stage: "payload_validation_failed",
-      payloadRepair,
       validationErrors: payloadValidation.errors,
+      payloadRepair: {
+        repaired: payloadRepairResult.repaired,
+        changedPaths: payloadRepairResult.changedPaths,
+        warnings: payloadRepairResult.warnings,
+      },
       timestamp,
     };
-    const fallbackResult0 = await createExpressFormSubmissionWithFallback({
-      payload: finalPayload,
+    const fallbackValidFail = await createExpressFormSubmissionWithFallback({
+      payload: transformedPayload,
       formSubmissionRecord: null,
       responseSnapshot,
       rawResponses: responseSnapshot,
       transformFailed: false,
       transformError: null,
       validationFailed: true,
-      validationError: { errors: payloadValidation.errors },
+      validationError: { errors: payloadValidation.errors, warnings: payloadValidation.warnings },
       questionnaireSessionId,
       draftId: null,
-      submitContext: submitContext0,
-      diagnostics: diagnostics0,
+      submitContext: submitContextValidFail,
+      diagnostics: diagnosticsValidFail,
     });
 
-    if (fallbackResult0.ok && fallbackResult0.receivedViaIntake) {
+    if (fallbackValidFail.ok && fallbackValidFail.receivedViaIntake) {
       if (onFinalSubmitSuccess) {
-        onFinalSubmitSuccess({ ok: true, accepted: true, receivedViaIntake: true, submissionCreated: false, intakeId: fallbackResult0.intakeId, submissionId: null, submission: null, recoveryCode, zapierSent: false, zapierError: null });
+        onFinalSubmitSuccess({
+          ok: true, accepted: true, receivedViaIntake: true,
+          submissionCreated: false, intakeId: fallbackValidFail.intakeId,
+          submissionId: null, submission: null, recoveryCode,
+          zapierSent: false, zapierError: null,
+        });
       }
-      return { ok: true, accepted: true, receivedViaIntake: true, submissionCreated: false, intakeId: fallbackResult0.intakeId, submissionId: null, submission: null, recoveryCode, zapierSent: false, zapierError: null };
+      return {
+        ok: true, accepted: true, receivedViaIntake: true,
+        submissionCreated: false, intakeId: fallbackValidFail.intakeId,
+        submissionId: null, submission: null, recoveryCode,
+        zapierSent: false, zapierError: null,
+      };
     }
 
     throw new SubmitFlowError({
-      userMessage: `We saved your progress, but the submission could not be validated. Please try again. Recovery code: ${recoveryCode}`,
+      userMessage: `We saved your progress, but submission could not be confirmed. Recovery code: ${recoveryCode}`,
       recoveryCode,
       failureKind: "validation",
       stage: "payload_validation_failed",
-      serializedError: serializeExpressError(new Error(payloadValidation.errors.join("; "))),
+      serializedError: serializeExpressError({ message: payloadValidation.errors.join("; ") }),
     });
   }
 
-  // Step 6: Map final FormSubmission record
-  const formSubmissionRecord = mapExpressPayloadToFormSubmissionRecord(finalPayload);
+  // Step 7: Map final FormSubmission record
+  const formSubmissionRecord = mapExpressPayloadToFormSubmissionRecord(transformedPayload);
 
-  // Step 7: Prepare submit context and diagnostics
+  // Step 8: Prepare submit context and diagnostics
   const submitContext = {
     businessName,
     business_name: businessName,
@@ -569,16 +590,20 @@ export async function submitExpressQuestionnaire(args) {
     businessNamePresent: !!businessName,
     domainPresent: !!domain,
     draftIdPresent: false,
-    payloadFeatureSummary: buildExpressPayloadFeatureSummary(finalPayload),
+    payloadFeatureSummary: buildExpressPayloadFeatureSummary(transformedPayload),
     validation_summary: validationSummary,
-    payloadRepair,
     timestamp,
     submitAttemptId: submitAttemptId || "",
+    payloadRepair: {
+      repaired: payloadRepairResult.repaired,
+      changedPaths: payloadRepairResult.changedPaths,
+      warnings: payloadRepairResult.warnings,
+    },
   };
 
   // Step 8: Submit through resilient fallback-aware flow
   const submitResult = await createExpressFormSubmissionWithFallback({
-    payload: finalPayload,
+    payload: transformedPayload,
     formSubmissionRecord,
     responseSnapshot,
     rawResponses: responseSnapshot,
