@@ -883,7 +883,11 @@ export default function Questionnaire() {
         onFinalSubmitSuccess: (successResult) => {
           hasFinalSubmittedRef.current = true;
           if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-          
+
+          // Clear recovery card on success
+          setLastSubmitContext(null);
+          setIsRetryingSubmit(false);
+
           setSubmittedData({ 
             businessName, 
             domain, 
