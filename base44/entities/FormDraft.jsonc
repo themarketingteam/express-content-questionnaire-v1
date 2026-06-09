@@ -100,6 +100,38 @@
     "final_submission_id": {
       "type": "string",
       "description": "Linked final FormSubmission ID"
+    },
+    "ai_repair_status": {
+      "type": "string",
+      "description": "Status of the latest AI repair attempt. Values: not_started, diagnosed, repaired, applied, failed."
+    },
+    "ai_repair_attempt_count": {
+      "type": "number",
+      "default": 0
+    },
+    "last_ai_repair_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ai_repair_error_json": {
+      "type": "string",
+      "description": "JSON string containing the last AI repair error."
+    },
+    "ai_repair_report_json": {
+      "type": "string",
+      "description": "JSON string containing AI repair diagnostics and changed paths."
+    },
+    "ai_repaired_payload_json": {
+      "type": "string",
+      "description": "JSON string containing the repaired Express payload."
+    },
+    "ai_repair_applied": {
+      "type": "boolean",
+      "default": false
+    },
+    "ai_repair_source": {
+      "type": "string",
+      "description": "How the repair was performed: deterministic, ai, deterministic_plus_ai, or manual."
     }
   },
   "rls": {
