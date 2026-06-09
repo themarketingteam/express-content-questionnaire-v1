@@ -4,20 +4,20 @@ import { useAuth } from "@/lib/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Copy, AlertTriangle, CheckCircle2 } from "lucide-react";
+import {
+  ChevronDown, ChevronUp, Copy, AlertTriangle, CheckCircle2,
+  Loader2, RefreshCw, Wrench, Stethoscope, RotateCcw,
+} from "lucide-react";
 import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
+import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeRecovery";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
@@ -31,10 +31,7 @@ function canParseJson(value) {
 
 function formatDate(value) {
   if (!value) return "—";
-  try {
-    const d = new Date(value);
-    return isNaN(d.getTime()) ? "—" : d.toLocaleString();
-  } catch { return "—"; }
+  try { const d = new Date(value); return isNaN(d.getTime()) ? "—" : d.toLocaleString(); } catch { return "—"; }
 }
 
 const STATUS_BADGE = {
@@ -44,103 +41,184 @@ const STATUS_BADGE = {
   submitted: "bg-green-50 text-green-700 border-green-300",
 };
 
+const AI_REPAIR_STATUS_STYLE = {
+  diagnosed: "bg-blue-50 text-blue-700 border-blue-200",
+  repaired: "bg-violet-50 text-violet-700 border-violet-200",
+  applied: "bg-green-50 text-green-700 border-green-200",
+  failed: "bg-red-50 text-red-700 border-red-200",
+  needs_manual_review: "bg-amber-50 text-amber-700 border-amber-200",
+};
+
 function StatusBadge({ status }) {
   const cls = STATUS_BADGE[status] || "bg-slate-100 text-slate-600 border-slate-300";
-  return (
-    <Badge variant="outline" className={`text-xs font-medium border ${cls}`}>
-      {status || "unknown"}
-    </Badge>
-  );
+  return <Badge variant="outline" className={`text-xs font-medium border ${cls}`}>{status || "unknown"}</Badge>;
 }
-
-// ─── Detail Cell ─────────────────────────────────────────────────────────────
 
 function Detail({ label, value, mono = false }) {
   return (
     <div>
       <p className="text-slate-400 font-medium uppercase tracking-wide text-[10px]">{label}</p>
-      <p className={`text-slate-700 truncate mt-0.5 ${mono ? "font-mono" : ""}`}>
-        {value || "—"}
-      </p>
+      <p className={`text-slate-700 truncate mt-0.5 ${mono ? "font-mono text-xs" : "text-xs"}`}>{value || "—"}</p>
     </div>
   );
 }
 
-// ─── Draft Row ────────────────────────────────────────────────────────────────
+// ─── DraftAiRepairSection ─────────────────────────────────────────────────────
 
-function DraftRow({ draft, isDuplicate }) {
+function DraftAiRepairSection({ draft }) {
+  const [open, setOpen] = useState(false);
+  const report = safeJsonParse(draft.ai_repair_report_json, null);
+  const repairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
+
+  if (!draft.ai_repair_status) return null;
+
+  return (
+    <div className="border border-violet-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-violet-50 hover:bg-violet-100 transition-colors text-xs font-semibold text-violet-800"
+      >
+        <span className="flex items-center gap-2">
+          <Wrench className="w-3.5 h-3.5" />
+          AI Repair
+          {draft.ai_repair_status && (
+            <Badge variant="outline" className={`text-[10px] border ${AI_REPAIR_STATUS_STYLE[draft.ai_repair_status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
+              {draft.ai_repair_status.replace(/_/g, " ")}
+            </Badge>
+          )}
+          {draft.ai_repair_attempt_count > 0 && (
+            <span className="text-violet-500 font-normal">({draft.ai_repair_attempt_count} attempt{draft.ai_repair_attempt_count !== 1 ? "s" : ""})</span>
+          )}
+        </span>
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+
+      {open && (
+        <div className="p-3 bg-white border-t border-violet-100 space-y-3 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div><span className="text-slate-500">Source:</span> <span className="font-medium">{draft.ai_repair_source || "—"}</span></div>
+            <div><span className="text-slate-500">Last Repair:</span> <span className="font-medium">{formatDate(draft.last_ai_repair_at)}</span></div>
+            <div><span className="text-slate-500">Applied:</span> <span className={draft.ai_repair_applied ? "text-green-700 font-medium" : "font-medium"}>{draft.ai_repair_applied ? "Yes" : "No"}</span></div>
+          </div>
+
+          {report?.summary && <div className="bg-slate-50 rounded p-2 text-slate-700">{report.summary}</div>}
+
+          {report?.changedPaths?.length > 0 && (
+            <div>
+              <p className="font-semibold text-slate-600 mb-1">Changed Paths ({report.changedPaths.length})</p>
+              <div className="space-y-1">
+                {report.changedPaths.map((cp, i) => (
+                  <div key={i} className="bg-slate-50 rounded px-2 py-1 flex items-start gap-2">
+                    <span className="font-mono text-violet-700 shrink-0">{cp.path}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-600">{cp.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {report?.warnings?.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+              <p className="font-semibold text-amber-700">Warnings</p>
+              {report.warnings.map((w, i) => <p key={i} className="text-amber-600">⚠ {w}</p>)}
+            </div>
+          )}
+
+          {report?.manualReviewReasons?.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded p-2 space-y-1">
+              <p className="font-semibold text-red-700">Manual Review Required</p>
+              {report.manualReviewReasons.map((r, i) => <p key={i} className="text-red-600">• {r}</p>)}
+            </div>
+          )}
+
+          {draft.ai_repair_error_json && (
+            <div className="bg-red-50 border border-red-200 rounded p-2">
+              <p className="font-semibold text-red-700 mb-1">AI Repair Error</p>
+              <p className="text-red-600 font-mono">{(() => { const e = safeJsonParse(draft.ai_repair_error_json); return e?.message || draft.ai_repair_error_json; })()}</p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            {repairedPayload && (
+              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                onClick={() => { navigator.clipboard.writeText(JSON.stringify(repairedPayload, null, 2)); toast.success("AI repaired payload copied"); }}>
+                <Copy className="w-3 h-3" /> Copy AI Repaired Payload
+              </Button>
+            )}
+            {report && (
+              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                onClick={() => { navigator.clipboard.writeText(JSON.stringify(report, null, 2)); toast.success("AI repair report copied"); }}>
+                <Copy className="w-3 h-3" /> Copy AI Report
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DraftRow ─────────────────────────────────────────────────────────────────
+
+function DraftRow({ draft, isDuplicate, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
 
-  const responsesParseOk = canParseJson(draft.responses_json);
-  const mappedParseOk = canParseJson(draft.mapped_payload_json);
-
+  const metadata = safeJsonParse(draft.metadata_json, {});
   const responses = safeJsonParse(draft.responses_json, {});
   const validationStatus = safeJsonParse(draft.validation_status_json, {});
-  const metadata = safeJsonParse(draft.metadata_json, {});
   const userdata = safeJsonParse(draft.userdata_json, {});
   const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
-
+  const responsesParseOk = canParseJson(draft.responses_json);
+  const mappedParseOk = canParseJson(draft.mapped_payload_json);
   const hasResponses = Object.keys(responses).length > 0;
   const hasMapped = mappedPayload !== null && Object.keys(mappedPayload).length > 0;
   const hasValidation = Object.keys(validationStatus).length > 0;
 
-  const handleCopyJson = () => {
-    navigator.clipboard.writeText(JSON.stringify(responses, null, 2));
-    toast.success("Responses JSON copied.");
+  const handleAction = async (actionKey, fn) => {
+    setActionLoading(actionKey);
+    try { await fn(); }
+    finally { setActionLoading(null); await onRefresh?.(); }
   };
 
-  const handleCopyBundle = () => {
-    const bundle = {
-      session_id: draft.session_id,
-      submit_attempt_id: metadata?.submit_attempt_id || "",
-      business_name: draft.business_name,
-      domain: draft.domain,
-      status: draft.status,
-      last_saved_at: draft.last_saved_at,
-      submitted_at: draft.submitted_at,
-      final_submission_id: draft.final_submission_id,
-      metadata,
-      userdata,
-      mapped_payload: mappedPayload,
-      responses,
-      validation_status: validationStatus,
-      // Include Zapier delivery status if present in mapped payload
-      zapier_delivery_status: mappedPayload?.zapier_delivery_status,
-      zapier_sent: mappedPayload?.zapier_sent,
-      zapier_error: mappedPayload?.zapier_error_json,
-    };
-    navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-    toast.success("Recovery bundle with validation status copied.");
-  };
+  const handleRetry = () => handleAction("retry", async () => {
+    const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
+      questionnaireSessionId: draft.session_id,
+      forceRetry: false,
+    });
+    const data = res?.data || res;
+    if (data?.success) toast.success(data.alreadySubmitted ? "Already linked to submission" : "Retry completed");
+    else toast.error(data?.error?.message || "Retry failed");
+  });
 
-  const handleCopySubmitIntake = () => {
-    const base = mappedPayload?.metadata && mappedPayload?.userdata
-      ? { metadata: { ...mappedPayload.metadata }, userdata: { ...mappedPayload.userdata } }
-      : { metadata: { ...metadata }, userdata: { ...userdata } };
-    
-    // Normalize the payload
-    const result = normalizeExpressSubmitIntakePayload(base);
-    
-    if (!result.ok) {
-      toast.error("Could not prepare a valid submit-intake payload from this draft.");
-      return;
+  const handleAiAction = (mode) => handleAction(mode, async () => {
+    const res = await base44.functions.invoke("repairExpressQuestionnaireIntakeSubmission", {
+      draftId: draft.id,
+      questionnaireSessionId: draft.session_id,
+      mode,
+    });
+    const data = res?.data || res;
+    if (data?.ok) {
+      const labels = { diagnose_only: "Diagnosis complete", repair_only: "Repair complete", repair_and_retry: "Repair + retry complete" };
+      const detail = data.createdSubmissionId ? ` — Submission: ${data.createdSubmissionId}` : "";
+      toast.success((labels[mode] || "Done") + detail);
+    } else {
+      toast.error(data?.error || "AI action failed");
     }
-    
-    navigator.clipboard.writeText(JSON.stringify(result.payload, null, 2));
-    toast.success("Submit-intake payload copied.");
-  };
+  });
+
+  const isLoading = !!actionLoading;
 
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
       <button
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpanded(v => !v)}
         className="w-full text-left px-4 py-3 bg-white hover:bg-slate-50 transition-colors flex items-start gap-3"
       >
         <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-1">
           <div>
-            <p className="text-sm font-semibold text-slate-800 truncate">
-              {draft.business_name || "Unnamed business"}
-            </p>
+            <p className="text-sm font-semibold text-slate-800 truncate">{draft.business_name || "Unnamed business"}</p>
             <p className="text-xs text-slate-500 truncate">{draft.domain || "—"}</p>
           </div>
           <div>
@@ -151,15 +229,18 @@ function DraftRow({ draft, isDuplicate }) {
             <StatusBadge status={draft.status} />
             {isDuplicate && (
               <Badge variant="outline" className="text-xs border-orange-300 bg-orange-50 text-orange-700 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Duplicate session
+                <AlertTriangle className="w-3 h-3" /> Duplicate
+              </Badge>
+            )}
+            {draft.ai_repair_status && (
+              <Badge variant="outline" className={`text-[10px] border ${AI_REPAIR_STATUS_STYLE[draft.ai_repair_status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                AI: {draft.ai_repair_status.replace(/_/g, " ")}
               </Badge>
             )}
           </div>
           <div className="text-right">
             <p className="text-xs text-slate-500">{formatDate(draft.last_saved_at || draft.created_date)}</p>
-            {draft.last_changed_question_id && (
-              <p className="text-xs text-slate-400">Last Q: {draft.last_changed_question_id}</p>
-            )}
+            {draft.last_changed_question_id && <p className="text-xs text-slate-400">Last Q: {draft.last_changed_question_id}</p>}
           </div>
         </div>
         <div className="shrink-0 ml-2 mt-0.5 text-slate-400">
@@ -169,138 +250,114 @@ function DraftRow({ draft, isDuplicate }) {
 
       {expanded && (
         <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
+          {/* Detail fields */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             <Detail label="User name" value={draft.user_name} />
             <Detail label="User ID" value={draft.user_id} mono />
-            <Detail label="Submit attempt ID" value={metadata?.submit_attempt_id || "—"} mono />
+            <Detail label="Submit attempt ID" value={metadata?.submit_attempt_id} mono />
             <Detail label="Submit attempted" value={formatDate(draft.submit_attempted_at)} />
             <Detail label="Submitted at" value={formatDate(draft.submitted_at)} />
             <Detail label="Final submission ID" value={draft.final_submission_id} mono />
             <Detail label="Current question" value={draft.current_question_id} />
             <Detail label="Last changed at" value={formatDate(draft.last_changed_at)} />
             <Detail label="Last saved at" value={formatDate(draft.last_saved_at)} />
-            {mappedPayload && (
-              <>
-                <Detail label="Zapier status" value={mappedPayload.zapier_delivery_status} />
-                <Detail label="Zapier sent" value={mappedPayload.zapier_sent ? "Yes" : "No"} />
-              </>
-            )}
+            {mappedPayload && <>
+              <Detail label="Zapier status" value={mappedPayload.zapier_delivery_status} />
+              <Detail label="Zapier sent" value={mappedPayload.zapier_sent ? "Yes" : "No"} />
+            </>}
           </div>
 
-          <div className="flex flex-wrap gap-4 text-xs text-slate-600 bg-white border border-slate-200 rounded px-3 py-2">
-            <span>
-              <span className="font-medium text-slate-500">Mapped Payload:</span>{" "}
-              <span className={hasMapped ? "text-green-700" : "text-slate-400"}>{hasMapped ? "Yes" : "No"}</span>
-            </span>
-            <span>
-              <span className="font-medium text-slate-500">Responses:</span>{" "}
-              <span className={hasResponses ? "text-green-700" : "text-slate-400"}>{hasResponses ? "Yes" : "No"}</span>
-            </span>
-            <span>
-              <span className="font-medium text-slate-500">Validation Status:</span>{" "}
-              <span className={hasValidation ? "text-green-700" : "text-slate-400"}>{hasValidation ? "Yes" : "No"}</span>
-            </span>
-            {hasValidation && (
-              <span className="text-xs text-slate-500">
-                ({Object.keys(validationStatus).length} fields validated)
-              </span>
-            )}
+          {/* Data flags */}
+          <div className="flex flex-wrap gap-4 text-xs bg-white border border-slate-200 rounded px-3 py-2">
+            <span><span className="text-slate-500 font-medium">Mapped Payload:</span> <span className={hasMapped ? "text-green-700" : "text-slate-400"}>{hasMapped ? "Yes" : "No"}</span></span>
+            <span><span className="text-slate-500 font-medium">Responses:</span> <span className={hasResponses ? "text-green-700" : "text-slate-400"}>{hasResponses ? "Yes" : "No"}</span></span>
+            <span><span className="text-slate-500 font-medium">Validation:</span> <span className={hasValidation ? "text-green-700" : "text-slate-400"}>{hasValidation ? `Yes (${Object.keys(validationStatus).length})` : "No"}</span></span>
           </div>
 
-          {draft.responses_json && !responsesParseOk && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Responses JSON could not be parsed.
-            </p>
-          )}
-          {draft.mapped_payload_json && !mappedParseOk && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Mapped payload JSON could not be parsed.
-            </p>
-          )}
-          {draft.save_error && (
-            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-              <span className="font-semibold">Save error:</span> {draft.save_error}
-            </div>
-          )}
-          {draft.submit_error && (
-            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-              <span className="font-semibold">Submit error:</span>{" "}
-              {typeof draft.submit_error === "string" ? draft.submit_error : JSON.stringify(draft.submit_error)}
-            </div>
-          )}
+          {/* Warnings */}
+          {draft.responses_json && !responsesParseOk && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Responses JSON could not be parsed.</p>}
+          {draft.mapped_payload_json && !mappedParseOk && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Mapped payload JSON could not be parsed.</p>}
+          {draft.save_error && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"><span className="font-semibold">Save error:</span> {draft.save_error}</div>}
+          {draft.submit_error && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"><span className="font-semibold">Submit error:</span> {typeof draft.submit_error === "string" ? draft.submit_error : JSON.stringify(draft.submit_error)}</div>}
           {draft.status === "submitted" && draft.final_submission_id && (
             <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-              <span>Submission Accepted: Yes (ID: {draft.final_submission_id})</span>
+              Submission Accepted (ID: {draft.final_submission_id})
             </div>
           )}
-          {draft.status === "submit_failed" && draft.submit_error && (() => {
-            const err = safeJsonParse(draft.submit_error);
-            if (err?.intakeId) {
-              return (
-                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>Received via Durable Intake: Yes (ID: {err.intakeId})</span>
-                </div>
-              );
-            }
-            return null;
-          })()}
 
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={handleCopyJson} className="text-xs gap-1.5">
-              <Copy className="w-3.5 h-3.5" /> Copy JSON
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleCopyBundle} className="text-xs gap-1.5">
-              <Copy className="w-3.5 h-3.5" /> Copy Recovery Bundle
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleCopySubmitIntake} className="text-xs gap-1.5">
-              <Copy className="w-3.5 h-3.5" /> Copy Submit-Intake Payload
-            </Button>
+          {/* AI Repair Section */}
+          <DraftAiRepairSection draft={draft} />
+
+          {/* ── Action buttons ── */}
+          <div className="space-y-2">
+            {/* Retry + AI actions */}
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                disabled={isLoading}
+                onClick={handleRetry}>
+                {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Retry Submission
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
+                disabled={isLoading}
+                onClick={() => handleAiAction("diagnose_only")}>
+                {actionLoading === "diagnose_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
+                AI Diagnose
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50"
+                disabled={isLoading}
+                onClick={() => handleAiAction("repair_only")}>
+                {actionLoading === "repair_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
+                AI Repair Only
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-green-200 text-green-700 hover:bg-green-50"
+                disabled={isLoading}
+                title="For draft rows: prefer intake retry for safest recovery. This uses the draft payload directly."
+                onClick={() => { if (window.confirm("AI Repair + Retry from draft will attempt to create a FormSubmission from the repaired draft payload. For safer recovery, use intake retry from the Submission Intake Recovery section. Continue?")) handleAiAction("repair_and_retry"); }}>
+                {actionLoading === "repair_and_retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                AI Repair + Retry
+              </Button>
+            </div>
+
+            {/* Copy buttons */}
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                onClick={() => { navigator.clipboard.writeText(JSON.stringify(responses, null, 2)); toast.success("Responses JSON copied"); }}>
+                <Copy className="w-3 h-3" /> Copy JSON
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                onClick={() => {
+                  const bundle = { session_id: draft.session_id, submit_attempt_id: metadata?.submit_attempt_id || "", business_name: draft.business_name, domain: draft.domain, status: draft.status, last_saved_at: draft.last_saved_at, submitted_at: draft.submitted_at, final_submission_id: draft.final_submission_id, metadata, userdata, mapped_payload: mappedPayload, responses, validation_status: validationStatus };
+                  navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+                  toast.success("Recovery bundle copied");
+                }}>
+                <Copy className="w-3 h-3" /> Copy Recovery Bundle
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                onClick={() => {
+                  const base = mappedPayload?.metadata && mappedPayload?.userdata ? { metadata: { ...mappedPayload.metadata }, userdata: { ...mappedPayload.userdata } } : { metadata: { ...metadata }, userdata: { ...userdata } };
+                  const result = normalizeExpressSubmitIntakePayload(base);
+                  result.ok ? (navigator.clipboard.writeText(JSON.stringify(result.payload, null, 2)), toast.success("Submit-intake payload copied")) : toast.error("Could not prepare a valid submit-intake payload.");
+                }}>
+                <Copy className="w-3 h-3" /> Copy Submit-Intake Payload
+              </Button>
+              {draft.mapped_payload_json && (
+                <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                  onClick={() => { navigator.clipboard.writeText(draft.mapped_payload_json); toast.success("Mapped payload copied"); }}>
+                  <Copy className="w-3 h-3" /> Copy Mapped Payload
+                </Button>
+              )}
+            </div>
           </div>
 
+          {/* Parsed responses preview */}
           {hasResponses && (
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1">Parsed Responses</p>
               <pre className="bg-white border border-slate-200 rounded p-3 text-xs font-mono overflow-auto max-h-64 text-slate-700 whitespace-pre-wrap">
                 {JSON.stringify(responses, null, 2)}
               </pre>
-            </div>
-          )}
-
-          {hasValidation && (
-            <div>
-              <p className="text-xs font-semibold text-slate-600 mb-1">Validation Status Details</p>
-              <div className="bg-white border border-slate-200 rounded p-3 text-xs space-y-2">
-                {Object.entries(validationStatus).map(([fieldName, status]) => (
-                  <div key={fieldName} className="border-b border-slate-100 pb-2 last:border-b-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-slate-700">{fieldName}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                        status.status === 'complete' ? 'bg-green-100 text-green-700' :
-                        status.status === 'needs_work' ? 'bg-amber-100 text-amber-700' :
-                        status.status === 'incomplete' ? 'bg-red-100 text-red-700' :
-                        status.status === 'dirty' ? 'bg-slate-100 text-slate-700' :
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        {status.status}
-                      </span>
-                    </div>
-                    {status.answerHash && (
-                      <p className="text-slate-500 font-mono text-xs">Hash: {status.answerHash}</p>
-                    )}
-                    {status.validatedAt && (
-                      <p className="text-slate-500 text-xs">Validated: {formatDate(status.validatedAt)}</p>
-                    )}
-                    {status.source && (
-                      <p className="text-slate-500 text-xs">Source: {status.source}</p>
-                    )}
-                    {status.message && (
-                      <p className="text-slate-600 mt-1">{status.message}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
             </div>
           )}
         </div>
@@ -327,100 +384,96 @@ export default function FormDraftRecovery() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  useEffect(() => {
+  const loadDrafts = async () => {
     setLoading(true);
-    base44.entities.FormDraft.list()
-      .then((data) => {
-        const sorted = [...(data || [])].sort((a, b) => {
-          const ta = new Date(a.last_saved_at || a.created_date || 0).getTime();
-          const tb = new Date(b.last_saved_at || b.created_date || 0).getTime();
-          return tb - ta;
-        });
-        setDrafts(sorted);
-      })
-      .catch((err) => setLoadError(err?.message || "Failed to load drafts."))
-      .finally(() => setLoading(false));
-  }, []);
+    try {
+      const data = await base44.entities.FormDraft.list();
+      const sorted = [...(data || [])].sort((a, b) => {
+        const ta = new Date(a.last_saved_at || a.created_date || 0).getTime();
+        const tb = new Date(b.last_saved_at || b.created_date || 0).getTime();
+        return tb - ta;
+      });
+      setDrafts(sorted);
+    } catch (err) {
+      setLoadError(err?.message || "Failed to load drafts.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadDrafts(); }, []);
 
   const duplicateSessionIds = useMemo(() => {
     const counts = {};
-    drafts.forEach((d) => {
-      if (d.session_id) counts[d.session_id] = (counts[d.session_id] || 0) + 1;
-    });
-    return new Set(Object.keys(counts).filter((k) => counts[k] > 1));
+    drafts.forEach(d => { if (d.session_id) counts[d.session_id] = (counts[d.session_id] || 0) + 1; });
+    return new Set(Object.keys(counts).filter(k => counts[k] > 1));
   }, [drafts]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return drafts.filter((d) => {
+    return drafts.filter(d => {
       const matchStatus = statusFilter === "all" || d.status === statusFilter;
-      const matchSearch =
-        !q ||
-        (d.business_name || "").toLowerCase().includes(q) ||
-        (d.domain || "").toLowerCase().includes(q) ||
-        (d.user_email || "").toLowerCase().includes(q) ||
-        (d.session_id || "").toLowerCase().includes(q);
+      const matchSearch = !q || (d.business_name || "").toLowerCase().includes(q) || (d.domain || "").toLowerCase().includes(q) || (d.user_email || "").toLowerCase().includes(q) || (d.session_id || "").toLowerCase().includes(q);
       return matchStatus && matchSearch;
     });
   }, [drafts, search, statusFilter]);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
-          Express Form Draft Recovery
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Review recent Express questionnaire drafts and copy recovery data for support.
-        </p>
-        {user?.email && (
-          <p className="text-xs text-slate-400 mt-1">Signed in as {user.email}</p>
+    <div className="max-w-6xl mx-auto px-6 py-10 space-y-12">
+      {/* ── Draft Recovery ── */}
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
+            Express Form Draft Recovery
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">Review Express questionnaire drafts and initiate AI-assisted or manual recovery.</p>
+          {user?.email && <p className="text-xs text-slate-400 mt-1">Signed in as {user.email}</p>}
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <Input placeholder="Search by business, domain, email, or session id…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1" />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {loadError && (
+          <Card className="border-red-200 bg-red-50 mb-6">
+            <CardContent className="pt-4 text-sm text-red-700">{loadError}</CardContent>
+          </Card>
+        )}
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-slate-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading drafts…</div>
+        ) : filtered.length === 0 ? (
+          <p className="text-slate-500 text-sm">No matching drafts found.</p>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(draft => (
+              <DraftRow key={draft.id} draft={draft} isDuplicate={duplicateSessionIds.has(draft.session_id)} onRefresh={loadDrafts} />
+            ))}
+          </div>
         )}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <Input
-          placeholder="Search by business, domain, email, or session id…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="flex-1"
-        />
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="All Statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* ── Submission Intake Recovery ── */}
+      <div>
+        <div className="mb-4">
+          <h2 className="text-xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
+            Submission Intake Recovery
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            View and manage Express questionnaire submission intakes. Retry, AI-diagnose, and repair failed submissions.
+          </p>
+        </div>
+        <QuestionnaireIntakeRecovery />
       </div>
 
-      {loadError && (
-        <Card className="border-red-200 bg-red-50 mb-6">
-          <CardContent className="pt-4 text-sm text-red-700">{loadError}</CardContent>
-        </Card>
-      )}
-
-      {loading ? (
-        <p className="text-slate-500 text-sm">Loading drafts…</p>
-      ) : filtered.length === 0 ? (
-        <p className="text-slate-500 text-sm">No matching drafts found.</p>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((draft) => (
-            <DraftRow
-              key={draft.id}
-              draft={draft}
-              isDuplicate={duplicateSessionIds.has(draft.session_id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Local Browser Recovery Backups Panel */}
-      <div className="mt-8">
+      {/* ── Local Browser Recovery Backups ── */}
+      <div>
         <LocalRecoveryBackupsPanel />
       </div>
     </div>

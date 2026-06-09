@@ -46,6 +46,7 @@ import { Toaster, toast } from "sonner";
 import { useExpressAnswerHistory } from "@/lib/hooks/useExpressAnswerHistory";
 import { parseAnswerHistory } from "@/lib/expressAnswerHistory";
 import RecoverLastAnswerNotice from "@/components/questionnaire/RecoverLastAnswerNotice";
+import SubmitRecoveryCard from "@/components/questionnaire/SubmitRecoveryCard";
 import { HELPER_COPY } from "@/lib/questionnaireHelperCopy";
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
@@ -106,6 +107,10 @@ export default function Questionnaire() {
   const [submitAttemptedWithIncomplete, setSubmitAttemptedWithIncomplete] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
+
+  // Last-failed submit context — drives the recovery card
+  const [lastSubmitContext, setLastSubmitContext] = useState(null);
+  const [isRetryingSubmit, setIsRetryingSubmit] = useState(false);
 
   // Answer history — recovery layer only (not submitted)
   const answerHistory = useExpressAnswerHistory();
@@ -903,6 +908,19 @@ export default function Questionnaire() {
         onFinalSubmitFailure: (failureResult) => {
           setSubmitError(failureResult.error);
           setRecoveryCode(failureResult.recoveryCode || questionnaireSessionId);
+
+          // Build recovery card context — answers remain untouched
+          setLastSubmitContext({
+            businessName,
+            businessDomain: domain,
+            sessionId: questionnaireSessionId,
+            lastSubmitAttemptId: activeSubmitAttemptIdRef.current || "",
+            failedAt: new Date().toISOString(),
+            recoveryCode: failureResult.recoveryCode || questionnaireSessionId,
+            errorMessage: failureResult.safeMessage || "Submission could not be confirmed. Your answers are saved.",
+            intakeId: failureResult.intakeId || null,
+            intakeCaptured: failureResult.intakeCaptured || false,
+          });
           
           // Read latest local backup for recovery bundle
           const latestBackup = readLatestLocalFailedSubmissionBackup(questionnaireSessionId);

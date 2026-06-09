@@ -92,14 +92,18 @@ export async function updateZapierDeliveryStatusSafe(args) {
 
 // Custom error class for submit flow failures
 export class SubmitFlowError extends Error {
-  constructor({ userMessage, recoveryCode, failureKind, stage, serializedError }) {
+  constructor({ userMessage, recoveryCode, failureKind, stage, serializedError, intakeId, sessionId, submitAttemptId, safeMessage }) {
     super(userMessage);
     this.name = "SubmitFlowError";
     this.userMessage = userMessage;
+    this.safeMessage = safeMessage || userMessage;
     this.recoveryCode = recoveryCode;
     this.failureKind = failureKind;
     this.stage = stage;
     this.serializedError = serializedError;
+    this.intakeId = intakeId || null;
+    this.sessionId = sessionId || null;
+    this.submitAttemptId = submitAttemptId || null;
   }
 }
 
@@ -415,10 +419,13 @@ export async function submitExpressQuestionnaire(args) {
     // Fallback failed - throw SubmitFlowError
     throw new SubmitFlowError({
       userMessage: `We saved your progress, but final submission could not complete. Please try again and share this recovery code with support if needed: ${recoveryCode}`,
+      safeMessage: "Submission could not be completed due to a payload error. Your answers are saved.",
       recoveryCode,
       failureKind: fallbackResult.failureKind || "transform",
       stage: "payload_transform_failed",
       serializedError,
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
     });
   }
 
@@ -536,10 +543,13 @@ export async function submitExpressQuestionnaire(args) {
 
     throw new SubmitFlowError({
       userMessage: `We saved your progress, but submission could not be confirmed. Recovery code: ${recoveryCode}`,
+      safeMessage: "Submission could not be confirmed due to a validation issue. Your answers are saved.",
       recoveryCode,
       failureKind: "validation",
       stage: "payload_validation_failed",
       serializedError: serializeExpressError({ message: payloadValidation.errors.join("; ") }),
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
     });
   }
 
@@ -803,21 +813,30 @@ export async function submitExpressQuestionnaire(args) {
     },
   });
 
-  // Call failure callback
+  // Call failure callback with structured data
   if (onFinalSubmitFailure) {
     onFinalSubmitFailure({
       error: submitResult.error,
       recoveryCode,
       failureKind: submitResult.failureKind,
+      intakeId: submitResult.intakeId || null,
+      intakeCaptured: submitResult.receivedViaIntake || false,
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
+      safeMessage: "We could not confirm your submission. Your answers are still saved in this browser.",
     });
   }
 
   // Throw SubmitFlowError
   throw new SubmitFlowError({
     userMessage: `We could not confirm your submission was received. Please copy the recovery details and try again. Recovery code: ${recoveryCode}`,
+    safeMessage: "We could not confirm your submission. Your answers are still saved in this browser.",
     recoveryCode,
     failureKind: submitResult.failureKind || "unknown",
     stage: "submit_failed",
     serializedError,
+    intakeId: submitResult.intakeId || null,
+    sessionId: questionnaireSessionId,
+    submitAttemptId,
   });
 }
