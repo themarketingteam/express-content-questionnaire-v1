@@ -43,14 +43,8 @@ import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidato
 import DestructiveActionConfirmModal from "@/components/questionnaire/DestructiveActionConfirmModal";
 import { Save, Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import {
-  isMeaningfulAnswer,
-  updateLastNonEmptyAnswers,
-  getRecoverableAnswer,
-  serializeAnswerHistory,
-  parseAnswerHistory,
-  compactFieldHistory,
-} from "@/lib/expressAnswerHistory";
+import { useExpressAnswerHistory } from "@/lib/hooks/useExpressAnswerHistory";
+import { parseAnswerHistory } from "@/lib/expressAnswerHistory";
 import RecoverLastAnswerNotice from "@/components/questionnaire/RecoverLastAnswerNotice";
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
@@ -258,10 +252,7 @@ export default function Questionnaire() {
   const [isClearingAll, setIsClearingAll] = useState(false);
 
   // Answer history — recovery layer only (not submitted)
-  const [lastNonEmptyAnswers, setLastNonEmptyAnswers] = useState({});
-  const [fieldHistory, setFieldHistory] = useState({});
-  // Fields whose recover notice has been dismissed this session
-  const [dismissedRecoveryFields, setDismissedRecoveryFields] = useState({});
+  const answerHistory = useExpressAnswerHistory();
 
   // Text validation hook - must be declared before use
   const textValidation = useExpressTextValidation();
@@ -422,8 +413,8 @@ export default function Questionnaire() {
           submitError: "",
           finalSubmissionId: "",
           submitAttemptId: "",
-          lastNonEmptyAnswers: historySnapshot || lastNonEmptyAnswers,
-          fieldHistory,
+          lastNonEmptyAnswers: historySnapshot || answerHistory.lastNonEmptyAnswers,
+          fieldHistory: answerHistory.fieldHistory,
           lastLocalPersistedAt: new Date().toISOString(),
         });
       } catch (err) {
@@ -702,8 +693,13 @@ export default function Questionnaire() {
     const { id: qId, type: qType } = getQuestionMetaForField(field);
     setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
     setFormData(prev => {
+      const previousValue = prev[field];
       const next = { ...prev, [field]: value };
-      queueDraftSave(questionId, next);
+      const nextHistory = answerHistory.recordFieldChange(field, previousValue, value, {
+        source: qType === "geographic" ? "selection" : "typing",
+        questionId,
+      });
+      queueDraftSave(questionId, next, nextHistory);
       return next;
     });
     const eventType = qType === "textarea" || qType === "text" ? "text_changed"
@@ -752,11 +748,15 @@ export default function Questionnaire() {
         if (totalSelections >= limit) return prev;
         next = { ...prev, [field]: [...current, value] };
       }
-      queueDraftSave(questionId, next);
+      const nextHistory = answerHistory.recordFieldChange(field, current, next[field], {
+        source: "selection",
+        questionId,
+      });
+      queueDraftSave(questionId, next, nextHistory);
       queueDraftEvent({ eventType: "selection_changed", questionId: qId, questionType: qType, value: next[field] });
       return next;
     });
-  }, [queueDraftSave, questionnaireSessionId]);
+  }, [queueDraftSave, questionnaireSessionId, answerHistory]);
 
   const handleQuestionClick = (questionNum) => {
     let isOpening;

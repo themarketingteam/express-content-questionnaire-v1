@@ -1,7 +1,52 @@
 import { getInitialExpressFormData } from "@/lib/expressQuestionnairePayload";
+import { safeLocalStorageGet, safeLocalStorageSet, safeJsonParse, safeNowIso } from "@/lib/browserSafety";
 
 export const EXPRESS_PERSISTED_STATE_VERSION = 2;
 export const EXPRESS_COOKIE_KEY = "msp_questionnaire_data_v2";
+
+// v3 localStorage keys
+export const EXPRESS_LS_KEY_GLOBAL = "msp_questionnaire_data_v3";
+export const getExpressLsKeySession = (sessionId) => `msp_questionnaire_data_v3_session_${sessionId}`;
+
+/**
+ * Save state to localStorage (v3). Uses both a global key and a per-session key.
+ */
+export function saveStateToLocalStorage(state, sessionId) {
+  const serialized = serializePersistedState(state);
+  safeLocalStorageSet(EXPRESS_LS_KEY_GLOBAL, serialized);
+  if (sessionId) {
+    safeLocalStorageSet(getExpressLsKeySession(sessionId), serialized);
+  }
+}
+
+/**
+ * Load the newest valid v3 state from localStorage.
+ * Falls back to null if nothing valid found.
+ * Returns { state, source } where source is 'localStorage_session', 'localStorage_global', or null.
+ */
+export function loadStateFromLocalStorage(sessionId) {
+  // Try per-session key first
+  if (sessionId) {
+    const raw = safeLocalStorageGet(getExpressLsKeySession(sessionId));
+    if (raw) {
+      const parsed = safeJsonParse(raw);
+      if (parsed && parsed.version && parsed.formData) {
+        return { state: parsed, source: 'localStorage_session' };
+      }
+    }
+  }
+
+  // Try global key
+  const rawGlobal = safeLocalStorageGet(EXPRESS_LS_KEY_GLOBAL);
+  if (rawGlobal) {
+    const parsed = safeJsonParse(rawGlobal);
+    if (parsed && parsed.version && parsed.formData) {
+      return { state: parsed, source: 'localStorage_global' };
+    }
+  }
+
+  return { state: null, source: null };
+}
 
 /**
  * Get default expanded questions state
