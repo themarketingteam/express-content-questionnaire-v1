@@ -114,7 +114,49 @@ export default function AdminSubmitIntake() {
         setPayload(repairedPayload);
         setRawJson(JSON.stringify(repairedPayload, null, 2));
 
-        toast.success("Submission saved" + (id ? ` (id: ${id})` : ""));
+        toast.success("Submission saved" + (id ? ` (id: ${id})` : "") + " — sending to Zapier…");
+
+        // Send to Zapier via the backend function
+        try {
+          const zapierPayload = { metadata: repairedPayload.metadata, userdata: repairedPayload.userdata };
+          const zapRes = await base44.functions.invoke("sendExpressToZapier", zapierPayload);
+          const zapData = zapRes?.data || zapRes;
+
+          if (zapData?.success) {
+            // Update FormSubmission zapier fields
+            if (id) {
+              await base44.entities.FormSubmission.update(id, {
+                zapier_sent: true,
+                zapier_delivery_status: "sent",
+                zapier_sent_at: new Date().toISOString(),
+                zapier_attempt_count: 1,
+              });
+            }
+            toast.success("Sent to Zapier successfully.");
+          } else {
+            const zapErrMsg = zapData?.error || "Zapier delivery failed";
+            if (id) {
+              await base44.entities.FormSubmission.update(id, {
+                zapier_sent: false,
+                zapier_delivery_status: "failed",
+                zapier_error_json: JSON.stringify({ message: zapErrMsg }),
+                zapier_attempt_count: 1,
+              });
+            }
+            toast.warning(`Submission saved but Zapier delivery failed: ${zapErrMsg}`);
+          }
+        } catch (zapErr) {
+          const zapErrMsg = zapErr?.message || "Unknown Zapier error";
+          if (id) {
+            await base44.entities.FormSubmission.update(id, {
+              zapier_sent: false,
+              zapier_delivery_status: "failed",
+              zapier_error_json: JSON.stringify({ message: zapErrMsg }),
+              zapier_attempt_count: 1,
+            });
+          }
+          toast.warning(`Submission saved but Zapier delivery failed: ${zapErrMsg}`);
+        }
       } catch (createErr) {
         const message = createErr?.message || createErr?.toString() || "Unknown error";
         setSaveError(`Submission failed: ${message}`);
@@ -136,7 +178,7 @@ export default function AdminSubmitIntake() {
           Paste or edit an Express questionnaire payload, validate it, and save it to FormSubmission.
         </p>
         <p className="text-xs text-slate-400 mt-1">
-          This page saves a FormSubmission manually. Zapier resend is handled separately from database save status.
+          Saves a FormSubmission to the database and delivers it to Zapier via the sendExpressToZapier function.
         </p>
         <p className="text-xs text-slate-400 mt-1">
           Signed in as <span className="font-medium">{user?.email}</span>
