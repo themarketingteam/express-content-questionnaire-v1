@@ -190,7 +190,7 @@ function RawDraftDataSection({ draft }) {
           )}
           {mappedPayload && (
             <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">mapped_payload_json (stored at submit time)</p>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">mapped_payload_json (updated on every auto-save)</p>
               <pre className="bg-slate-50 border border-slate-200 rounded p-2 text-xs font-mono overflow-auto max-h-48 text-slate-700 whitespace-pre-wrap">
                 {JSON.stringify(mappedPayload, null, 2)}
               </pre>
@@ -473,6 +473,7 @@ export default function FormDraftRecovery() {
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 
   const loadDrafts = async () => {
     setLoading(true);
@@ -484,6 +485,7 @@ export default function FormDraftRecovery() {
         return tb - ta;
       });
       setDrafts(sorted);
+      setLastRefreshedAt(new Date());
     } catch (err) {
       setLoadError(err?.message || "Failed to load drafts.");
     } finally {
@@ -491,7 +493,12 @@ export default function FormDraftRecovery() {
     }
   };
 
-  useEffect(() => { loadDrafts(); }, []);
+  // Load on mount and auto-refresh every 15 seconds so live answer changes are visible
+  useEffect(() => {
+    loadDrafts();
+    const interval = setInterval(loadDrafts, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   const duplicateSessionIds = useMemo(() => {
     const counts = {};
@@ -528,7 +535,16 @@ export default function FormDraftRecovery() {
               {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" onClick={loadDrafts} disabled={loading} className="gap-1.5 shrink-0">
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh
+          </Button>
         </div>
+        {lastRefreshedAt && (
+          <p className="text-xs text-slate-400 mb-4">
+            Auto-refreshes every 15s — last updated {lastRefreshedAt.toLocaleTimeString()}
+          </p>
+        )}
 
         {loadError && (
           <Card className="border-red-200 bg-red-50 mb-6">
