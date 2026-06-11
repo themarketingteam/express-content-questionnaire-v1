@@ -275,7 +275,7 @@ Deno.serve(async (req) => {
           : 'form_submission_create_failed';
 
       const intakeData = buildIntakePayload({
-        status: 'received_intake',
+        status: 'auto_repair_pending',
         intakeReason,
         businessName,
         businessDomain,
@@ -382,9 +382,9 @@ Deno.serve(async (req) => {
       }, { headers: corsHeaders });
     }
 
-    // FormSubmission create failed → intake only (still a success from user perspective)
+    // FormSubmission create failed → intake only, mark for auto repair in 10 minutes
     const intakeData = buildIntakePayload({
-      status: 'received_intake',
+      status: 'auto_repair_pending',
       intakeReason: 'form_submission_create_failed',
       businessName, businessDomain, userEmail, userId, submitAttemptId,
       primaryError,

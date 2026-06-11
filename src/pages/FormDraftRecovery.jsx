@@ -40,6 +40,8 @@ const STATUS_BADGE = {
   submit_attempted: "bg-yellow-50 text-yellow-800 border-yellow-300",
   submit_failed: "bg-red-50 text-red-700 border-red-300",
   submitted: "bg-green-50 text-green-700 border-green-300",
+  auto_repair_pending: "bg-blue-50 text-blue-700 border-blue-300",
+  auto_repair_failed: "bg-red-100 text-red-800 border-red-400",
 };
 
 const AI_REPAIR_STATUS_STYLE = {
@@ -464,6 +466,8 @@ const STATUS_OPTIONS = [
   { value: "submit_attempted", label: "Submit Attempted" },
   { value: "submit_failed", label: "Submit Failed" },
   { value: "submitted", label: "Submitted" },
+  { value: "auto_repair_pending", label: "Auto Repair Pending" },
+  { value: "auto_repair_failed", label: "Failed to Auto Resend" },
 ];
 
 export default function FormDraftRecovery() {

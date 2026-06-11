@@ -766,11 +766,16 @@ export async function submitExpressQuestionnaire(args) {
     });
   }
 
-  // Save draft status: submit_failed
+  // Check if data was safely captured via intake despite the submission failure
+  const intakeCaptured = submitResult.receivedViaIntake || !!submitResult.intakeId;
+
+  // Save draft status — use auto_repair_pending if data was captured, otherwise submit_failed
+  const draftFailStatus = intakeCaptured ? "auto_repair_pending" : "submit_failed";
+
   await safeDraftSave({
     saveDraftNow,
     draftData: {
-      status: "submit_failed",
+      status: draftFailStatus,
       submitError: safeJsonStringify(serializedError || {}),
       responsesSnapshot: responseSnapshot,
       validationStatusSnapshot: validationStatus || {},
@@ -787,7 +792,7 @@ export async function submitExpressQuestionnaire(args) {
     validationStatus,
     touchedQuestions,
     expandedQuestions,
-    stage: "submit_failed",
+    stage: draftFailStatus,
   });
 
   // Write local failed submission backup
@@ -807,20 +812,51 @@ export async function submitExpressQuestionnaire(args) {
       questionnaireSessionId,
       businessNamePresent: !!businessName,
       domainPresent: !!domain,
-      stage: "submit_failed",
+      stage: draftFailStatus,
       failureKind: submitResult.failureKind || "unknown",
+      intakeCaptured,
       timestamp: failureTimestamp,
     },
   });
 
-  // Call failure callback with structured data
+  // If intake captured the data: redirect user to thank-you (silent recovery), queue auto repair
+  if (intakeCaptured) {
+    if (onFinalSubmitSuccess) {
+      onFinalSubmitSuccess({
+        ok: true,
+        accepted: true,
+        receivedViaIntake: true,
+        submissionCreated: false,
+        intakeId: submitResult.intakeId || null,
+        submissionId: null,
+        submission: null,
+        recoveryCode,
+        zapierSent: false,
+        zapierError: null,
+      });
+    }
+    return {
+      ok: true,
+      accepted: true,
+      receivedViaIntake: true,
+      submissionCreated: false,
+      intakeId: submitResult.intakeId || null,
+      submissionId: null,
+      submission: null,
+      recoveryCode,
+      zapierSent: false,
+      zapierError: null,
+    };
+  }
+
+  // No intake capture — surface error to user normally
   if (onFinalSubmitFailure) {
     onFinalSubmitFailure({
       error: submitResult.error,
       recoveryCode,
       failureKind: submitResult.failureKind,
       intakeId: submitResult.intakeId || null,
-      intakeCaptured: submitResult.receivedViaIntake || false,
+      intakeCaptured: false,
       sessionId: questionnaireSessionId,
       submitAttemptId,
       safeMessage: "We could not confirm your submission. Your answers are still saved in this browser.",

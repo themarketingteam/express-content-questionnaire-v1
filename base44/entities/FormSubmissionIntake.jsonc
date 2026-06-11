@@ -34,6 +34,7 @@
       "enum": [
         "submitted",
         "received_intake",
+        "auto_repair_pending",
         "retry_pending",
         "retry_success",
         "retry_failed",
