@@ -465,31 +465,58 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 /**
- * Returns true if the draft has at least one meaningful answer filled in.
- * A "pristine" draft is one where the user opened the page but typed/selected nothing.
+ * Fields that are auto-filled/pre-generated and do NOT count as user input.
+ * A draft containing only these values is considered "empty".
+ */
+const AUTO_FILLED_RESPONSE_FIELDS = new Set([
+  "clientSize",        // "1-50 employees" default
+  "geographicAreaMeta", // { source: "google" } default
+]);
+
+const AUTO_FILLED_PAYLOAD_FIELDS = new Set([
+  "submission_datetime",
+  "questionnaire_session_id",
+  "geographic_area_meta",
+  "client_size",
+]);
+
+/**
+ * Returns true if the draft has at least one meaningful user-entered answer.
+ * Auto-filled fields (submission_datetime, questionnaire_session_id,
+ * geographic_area_meta stub, client_size default) are excluded from this check.
  */
 function hasMeaningfulAnswers(draft) {
-  // If the draft was actually submitted or has a linked submission, always show it
-  if (draft.status === "submitted" || draft.status === "submit_attempted" ||
-      draft.status === "submit_failed" || draft.status === "auto_repair_pending" ||
-      draft.status === "auto_repair_failed" || draft.final_submission_id) {
+  // Always show submitted or non-draft statuses
+  if (
+    draft.status === "submitted" || draft.status === "submit_attempted" ||
+    draft.status === "submit_failed" || draft.status === "auto_repair_pending" ||
+    draft.status === "auto_repair_failed" || draft.final_submission_id
+  ) {
     return true;
   }
 
-  // Check touched_questions_json — if any question was touched it has content
+  // Check touched_questions_json — only questions beyond the default numeric range (Q9)
+  // Q9 (clientSize) is auto-filled, so we ignore it when checking touched questions
   try {
     const touched = JSON.parse(draft.touched_questions_json || "{}");
-    if (touched && Object.keys(touched).length > 0) return true;
+    const meaningfulTouched = Object.keys(touched).filter(qId => qId !== "9");
+    if (meaningfulTouched.length > 0) return true;
   } catch { /* ignore */ }
 
-  // Check responses_json for any non-empty values
+  // Check responses_json, skipping auto-filled fields
   try {
     const responses = JSON.parse(draft.responses_json || "{}");
-    if (!responses) return false;
-    for (const val of Object.values(responses)) {
-      if (Array.isArray(val) && val.length > 0) return true;
-      if (typeof val === "string" && val.trim().length > 0) return true;
-      if (val && typeof val === "object" && !Array.isArray(val) && Object.keys(val).length > 0) return true;
+    if (responses && typeof responses === "object") {
+      for (const [key, val] of Object.entries(responses)) {
+        if (AUTO_FILLED_RESPONSE_FIELDS.has(key)) continue;
+        if (Array.isArray(val) && val.length > 0) return true;
+        if (typeof val === "string" && val.trim().length > 0) return true;
+        // geographicAreaMeta with only { source: "google" } is auto-filled — skip
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const keys = Object.keys(val).filter(k => k !== "source");
+          if (keys.length > 0) return true;
+        }
+      }
     }
   } catch { /* ignore */ }
 
