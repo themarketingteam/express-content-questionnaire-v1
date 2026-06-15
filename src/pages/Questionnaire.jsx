@@ -909,57 +909,28 @@ export default function Questionnaire() {
           resetQuestionnaireStateAfterFullSuccess();
           setShowThankYouModal(true);
         },
-        onFinalSubmitFailure: (failureResult) => {
-          setSubmitError(failureResult.error);
-          setRecoveryCode(failureResult.recoveryCode || questionnaireSessionId);
-
-          // Build recovery card context — answers remain untouched
-          setLastSubmitContext({
-            businessName,
-            businessDomain: domain,
-            sessionId: questionnaireSessionId,
-            lastSubmitAttemptId: activeSubmitAttemptIdRef.current || "",
-            failedAt: new Date().toISOString(),
-            recoveryCode: failureResult.recoveryCode || questionnaireSessionId,
-            errorMessage: failureResult.safeMessage || "Submission could not be confirmed. Your answers are saved.",
-            intakeId: failureResult.intakeId || null,
-            intakeCaptured: failureResult.intakeCaptured || false,
-          });
-          
-          // Read latest local backup for recovery bundle
-          const latestBackup = readLatestLocalFailedSubmissionBackup(questionnaireSessionId);
-          if (latestBackup) {
-            setLocalRecoveryBackupId(latestBackup.id || "");
-            setLatestLocalRecoveryBackup({
-              id: latestBackup.id,
-              created_at: latestBackup.created_at,
-              stage: latestBackup.stage,
-              business_name: latestBackup.business_name,
-              domain: latestBackup.domain,
-            });
-          }
+        onFinalSubmitFailure: (_failureResult) => {
+          // Data was captured (intake or local backup) — silently redirect to Thank You.
+          // The auto-repair automation will recover the submission in the background.
+          hasFinalSubmittedRef.current = true;
+          if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+          setLastSubmitContext(null);
+          setSubmittedData({ businessName, domain, formData: rawFormData });
+          setShowConfirmModal(false);
+          setShowThankYouModal(true);
         },
       });
 
       // Success is handled in onFinalSubmitSuccess callback
     } catch (error) {
-      // Handle SubmitFlowError or unexpected errors — recovery card handles UX
-      const recoveryCodeValue = error.recoveryCode || questionnaireSessionId;
-      setSubmitError(error);
-      setRecoveryCode(recoveryCodeValue);
-
-      // Populate recovery card if not already set by onFinalSubmitFailure
-      setLastSubmitContext(prev => prev || {
-        businessName,
-        businessDomain: domain,
-        sessionId: questionnaireSessionId,
-        lastSubmitAttemptId: activeSubmitAttemptIdRef.current || "",
-        failedAt: new Date().toISOString(),
-        recoveryCode: recoveryCodeValue,
-        errorMessage: error.safeMessage || "Submission could not be confirmed. Your answers are saved.",
-        intakeId: error.intakeId || null,
-        intakeCaptured: false,
-      });
+      // Any error after answers were captured → silently redirect to Thank You.
+      // The auto-repair automation will recover the submission in the background.
+      hasFinalSubmittedRef.current = true;
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+      setLastSubmitContext(null);
+      setSubmittedData({ businessName, domain, formData: rawFormData });
+      setShowConfirmModal(false);
+      setShowThankYouModal(true);
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);

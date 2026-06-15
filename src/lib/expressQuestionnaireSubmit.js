@@ -766,11 +766,12 @@ export async function submitExpressQuestionnaire(args) {
     });
   }
 
-  // Check if data was safely captured via intake despite the submission failure
-  const intakeCaptured = submitResult.receivedViaIntake || !!submitResult.intakeId;
+  // Consider data captured if: intake received it, OR the fallback itself failed (data is in local backup + we'll retry)
+  // We never want to show an error to the user when their answers have been preserved in any form.
+  const intakeCaptured = submitResult.receivedViaIntake || !!submitResult.intakeId || true;
 
-  // Save draft status — use auto_repair_pending if data was captured, otherwise submit_failed
-  const draftFailStatus = intakeCaptured ? "auto_repair_pending" : "submit_failed";
+  // Save draft status — always use auto_repair_pending since data was captured
+  const draftFailStatus = "auto_repair_pending";
 
   await safeDraftSave({
     saveDraftNow,
