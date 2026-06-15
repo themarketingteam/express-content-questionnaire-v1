@@ -471,6 +471,7 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
 const AUTO_FILLED_RESPONSE_FIELDS = new Set([
   "clientSize",        // "1-50 employees" default
   "geographicAreaMeta", // { source: "google" } default
+  "serviceType",       // "express" default
 ]);
 
 const AUTO_FILLED_PAYLOAD_FIELDS = new Set([
@@ -478,6 +479,7 @@ const AUTO_FILLED_PAYLOAD_FIELDS = new Set([
   "questionnaire_session_id",
   "geographic_area_meta",
   "client_size",
+  "service_type",
 ]);
 
 /**
