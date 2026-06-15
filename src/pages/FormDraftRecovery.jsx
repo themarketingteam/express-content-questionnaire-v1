@@ -483,8 +483,8 @@ export default function FormDraftRecovery() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 
-  const loadDrafts = async () => {
-    setLoading(true);
+  const loadDrafts = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const data = await base44.entities.FormDraft.list();
       const sorted = [...(data || [])].sort((a, b) => {
@@ -492,19 +492,30 @@ export default function FormDraftRecovery() {
         const tb = new Date(b.last_saved_at || b.created_date || 0).getTime();
         return tb - ta;
       });
-      setDrafts(sorted);
+      // Merge updates: preserve existing array identity for unchanged records
+      // so expanded rows are not collapsed and scroll position is not lost.
+      setDrafts(prev => {
+        const prevMap = new Map(prev.map(d => [d.id, d]));
+        const merged = sorted.map(d => {
+          const existing = prevMap.get(d.id);
+          if (!existing) return d;
+          // Only swap in the new object if something actually changed
+          return existing.updated_date === d.updated_date ? existing : d;
+        });
+        return merged;
+      });
       setLastRefreshedAt(new Date());
     } catch (err) {
-      setLoadError(err?.message || "Failed to load drafts.");
+      if (!silent) setLoadError(err?.message || "Failed to load drafts.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  // Load on mount and auto-refresh every 15 seconds so live answer changes are visible
+  // Load on mount; auto-refresh silently every 30 seconds (no state thrash, no scroll jump)
   useEffect(() => {
     loadDrafts();
-    const interval = setInterval(loadDrafts, 15000);
+    const interval = setInterval(() => loadDrafts({ silent: true }), 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -543,8 +554,8 @@ export default function FormDraftRecovery() {
               {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={loadDrafts} disabled={loading} className="gap-1.5 shrink-0">
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          <Button variant="outline" size="sm" onClick={() => loadDrafts({ silent: true })} disabled={loading} className="gap-1.5 shrink-0">
+            <RefreshCw className="w-3.5 h-3.5" />
             Refresh
           </Button>
         </div>
