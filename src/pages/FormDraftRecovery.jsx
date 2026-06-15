@@ -464,6 +464,38 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Returns true if the draft has at least one meaningful answer filled in.
+ * A "pristine" draft is one where the user opened the page but typed/selected nothing.
+ */
+function hasMeaningfulAnswers(draft) {
+  // If the draft was actually submitted or has a linked submission, always show it
+  if (draft.status === "submitted" || draft.status === "submit_attempted" ||
+      draft.status === "submit_failed" || draft.status === "auto_repair_pending" ||
+      draft.status === "auto_repair_failed" || draft.final_submission_id) {
+    return true;
+  }
+
+  // Check touched_questions_json — if any question was touched it has content
+  try {
+    const touched = JSON.parse(draft.touched_questions_json || "{}");
+    if (touched && Object.keys(touched).length > 0) return true;
+  } catch { /* ignore */ }
+
+  // Check responses_json for any non-empty values
+  try {
+    const responses = JSON.parse(draft.responses_json || "{}");
+    if (!responses) return false;
+    for (const val of Object.values(responses)) {
+      if (Array.isArray(val) && val.length > 0) return true;
+      if (typeof val === "string" && val.trim().length > 0) return true;
+      if (val && typeof val === "object" && !Array.isArray(val) && Object.keys(val).length > 0) return true;
+    }
+  } catch { /* ignore */ }
+
+  return false;
+}
+
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
   { value: "draft", label: "Draft" },
@@ -481,6 +513,7 @@ export default function FormDraftRecovery() {
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [hideEmpty, setHideEmpty] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 
   const loadDrafts = async ({ silent = false } = {}) => {
@@ -530,9 +563,12 @@ export default function FormDraftRecovery() {
     return drafts.filter(d => {
       const matchStatus = statusFilter === "all" || d.status === statusFilter;
       const matchSearch = !q || (d.business_name || "").toLowerCase().includes(q) || (d.domain || "").toLowerCase().includes(q) || (d.user_email || "").toLowerCase().includes(q) || (d.session_id || "").toLowerCase().includes(q);
-      return matchStatus && matchSearch;
+      const matchEmpty = !hideEmpty || hasMeaningfulAnswers(d);
+      return matchStatus && matchSearch && matchEmpty;
     });
-  }, [drafts, search, statusFilter]);
+  }, [drafts, search, statusFilter, hideEmpty]);
+
+  const emptyDraftCount = useMemo(() => drafts.filter(d => !hasMeaningfulAnswers(d)).length, [drafts]);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-10 space-y-12">
@@ -554,6 +590,16 @@ export default function FormDraftRecovery() {
               {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Button
+            variant={hideEmpty ? "default" : "outline"}
+            size="sm"
+            onClick={() => setHideEmpty(v => !v)}
+            className="gap-1.5 shrink-0 text-xs"
+            title={hideEmpty ? "Click to show drafts with no answers" : "Click to hide drafts with no answers"}
+          >
+            {hideEmpty ? "Hiding Empty" : "Showing Empty"}
+            {emptyDraftCount > 0 && <span className="ml-1 bg-white/20 text-current rounded px-1">{emptyDraftCount}</span>}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => loadDrafts({ silent: true })} disabled={loading} className="gap-1.5 shrink-0">
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
