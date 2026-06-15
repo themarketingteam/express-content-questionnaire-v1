@@ -17,6 +17,7 @@ import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPa
 import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeRecovery";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
+import PayloadEditor from "@/components/admin/PayloadEditor";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -449,6 +450,9 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
               )}
             </div>
           </div>
+
+          {/* Manual Payload Editor */}
+          <PayloadEditor draft={draft} initialPayload={preview.payload} onRefresh={onRefresh} />
 
           {/* Raw Draft Data (collapsed) */}
           <RawDraftDataSection draft={draft} />
