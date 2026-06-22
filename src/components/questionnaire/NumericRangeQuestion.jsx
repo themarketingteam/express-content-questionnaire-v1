@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Info, ChevronDown } from "lucide-react";
+import { parseClientSizeValue } from "@/lib/clientSizeParser";
 
 export default function NumericRangeQuestion({
   questionNumber,
   title,
   hint,
+  value = "",
   minValue = 1,
   maxValue = 50,
   onChange,
@@ -12,49 +14,79 @@ export default function NumericRangeQuestion({
   isOpen = true,
   onClick
 }) {
-  const [smallest, setSmallest] = useState(minValue);
-  const [largest, setLargest] = useState(maxValue);
-  const [largestInput, setLargestInput] = useState(maxValue.toString());
-  const emptyTimerRef = React.useRef(null);
+  const initial = parseClientSizeValue(value, { minValue, maxValue });
+  const [smallest, setSmallest] = useState(initial.smallest);
+  const [largest, setLargest] = useState(initial.largest);
+  const [largestInput, setLargestInput] = useState(
+    initial.largest > 1000 ? "" : String(initial.largest)
+  );
+  const emptyTimerRef = useRef(null);
+  const hasMountedRef = useRef(false);
 
+  const buildValueString = (small, large) => {
+    const largestDisplay = large > 1000 ? "1000+" : large;
+    return `${small}-${largestDisplay} employees`;
+  };
+
+  // On first mount: only emit a default if the parent value is genuinely empty.
+  // If a saved value exists (even unparseable), do NOT overwrite it.
   useEffect(() => {
-    const largestDisplay = largest > 1000 ? "1000+" : largest;
-    const value = `${smallest}-${largestDisplay} employees`;
-    onChange(value);
+    hasMountedRef.current = true;
+    if (!value || !value.trim()) {
+      onChange(buildValueString(smallest, largest));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [smallest, largest]);
+  }, []);
+
+  // Sync internal state when the parent value changes externally
+  // (e.g., restored from draft, or cleared). Only runs after initial mount.
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
+    if (!value || !value.trim()) return;
+
+    const currentDisplay = buildValueString(smallest, largest);
+    if (value !== currentDisplay) {
+      const parsed = parseClientSizeValue(value, { minValue, maxValue });
+      setSmallest(parsed.smallest);
+      setLargest(parsed.largest);
+      setLargestInput(parsed.largest > 1000 ? "" : String(parsed.largest));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
 
   const handleSmallestChange = (e) => {
-    const value = parseInt(e.target.value) || 1;
-    setSmallest(Math.max(1, value));
+    const val = parseInt(e.target.value) || 1;
+    const newSmallest = Math.max(1, val);
+    setSmallest(newSmallest);
+    onChange(buildValueString(newSmallest, largest));
   };
 
   const handleLargestChange = (e) => {
     const inputValue = e.target.value;
     setLargestInput(inputValue);
 
-    // Clear any existing timer
     if (emptyTimerRef.current) {
       clearTimeout(emptyTimerRef.current);
       emptyTimerRef.current = null;
     }
 
     if (inputValue === "" || inputValue === null) {
-      // Start 5-second timer to restore default
       emptyTimerRef.current = setTimeout(() => {
         setLargestInput(maxValue.toString());
         setLargest(maxValue);
+        onChange(buildValueString(smallest, maxValue));
       }, 5000);
     } else {
       const parsedValue = parseInt(inputValue);
       if (!isNaN(parsedValue)) {
         const clampedValue = Math.max(1, parsedValue);
-        setLargest(clampedValue > 1000 ? 1001 : clampedValue);
+        const newLargest = clampedValue > 1000 ? 1001 : clampedValue;
+        setLargest(newLargest);
+        onChange(buildValueString(smallest, newLargest));
       }
     }
   };
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (emptyTimerRef.current) {
@@ -66,7 +98,7 @@ export default function NumericRangeQuestion({
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
-        <div 
+        <div
           className="block flex-1 cursor-pointer"
           onClick={() => {
             if (onClick) {

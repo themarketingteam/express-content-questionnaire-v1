@@ -1610,6 +1610,7 @@ export default function Questionnaire() {
                   questionNumber={9}
                   title="What is the typical size of your client companies?"
                   hint="Enter the range of employee count"
+                  value={formData.clientSize}
                   minValue={1}
                   maxValue={50}
                   onChange={(value) => updateField("clientSize", value)}

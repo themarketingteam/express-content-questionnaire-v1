@@ -4,14 +4,7 @@ import {
   normalizeTouchedQuestions,
   normalizeExpandedQuestions,
 } from "@/lib/expressPersistedState";
-
-// Allowed client size values from Express questionnaire
-const ALLOWED_CLIENT_SIZE_VALUES = [
-  "1-50 employees",
-  "51-200 employees",
-  "201-500 employees",
-  "500+ employees",
-];
+import { isValidClientSizeValue } from "@/lib/clientSizeParser";
 
 // Known response fields (from expressQuestionnairePayload.js)
 const KNOWN_RESPONSE_FIELDS = [
@@ -111,8 +104,9 @@ export function validateAndRepairQuestionnaireState({
   
   normalizedFormData = cleanedFormData;
 
-  // Step 3: Repair clientSize if missing or invalid
-  if (!normalizedFormData.clientSize || !ALLOWED_CLIENT_SIZE_VALUES.includes(normalizedFormData.clientSize)) {
+  // Step 3: Repair clientSize only if missing, non-string, or empty.
+  // Flexible: any non-empty string is accepted (e.g. "10-75 employees", "500+ employees").
+  if (!isValidClientSizeValue(normalizedFormData.clientSize)) {
     const oldValue = normalizedFormData.clientSize;
     normalizedFormData.clientSize = "1-50 employees";
     repairs.push(`Repaired invalid clientSize "${oldValue || "missing"}" to default "1-50 employees"`);
