@@ -199,36 +199,41 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { intakeId, questionnaireSessionId, forceRetry = false } = body;
+    const { intakeId, questionnaireSessionId, forceRetry = false, payload: providedPayload } = body;
 
-    if (!intakeId && !questionnaireSessionId) {
+    // If a payload is provided directly (e.g. from a FormDraft), use it as the source of truth.
+    // Otherwise, resolve the intake record and use its transformed_payload_json.
+    const hasProvidedPayload = providedPayload !== undefined && providedPayload !== null;
+
+    if (!intakeId && !questionnaireSessionId && !hasProvidedPayload) {
       return Response.json(
-        { success: false, error: { message: 'intakeId or questionnaireSessionId is required' } },
+        { success: false, error: { message: 'intakeId, questionnaireSessionId, or payload is required' } },
         { status: 400, headers: corsHeaders }
       );
     }
 
-    let intakeRecord;
+    let intakeRecord = null;
     if (intakeId) {
       const records = await base44.asServiceRole.entities.FormSubmissionIntake.filter({ id: intakeId });
       intakeRecord = records && records.length > 0 ? records[0] : null;
-    } else {
+    } else if (questionnaireSessionId) {
       const records = await base44.asServiceRole.entities.FormSubmissionIntake.filter({
         questionnaire_session_id: questionnaireSessionId,
       });
       intakeRecord = getNewestRecord(records);
     }
 
-    if (!intakeRecord) {
+    // If no payload provided, we MUST have an intake record to get the payload from
+    if (!hasProvidedPayload && !intakeRecord) {
       return Response.json(
         { success: false, error: { message: 'Intake record not found' } },
         { status: 404, headers: corsHeaders }
       );
     }
 
-    const intakeIdActual = intakeRecord.id;
+    const intakeIdActual = intakeRecord ? intakeRecord.id : null;
 
-    if (intakeRecord.linked_submission_id && !forceRetry) {
+    if (intakeRecord && intakeRecord.linked_submission_id && !forceRetry) {
       return Response.json({
         success: true, alreadySubmitted: true,
         linkedSubmissionId: intakeRecord.linked_submission_id,
@@ -236,15 +241,20 @@ Deno.serve(async (req) => {
       }, { headers: corsHeaders });
     }
 
-    const transformed = parsePayload(intakeRecord.transformed_payload_json);
+    // Use provided payload if available; otherwise fall back to intake record's payload
+    const transformed = hasProvidedPayload
+      ? parsePayload(providedPayload)
+      : parsePayload(intakeRecord.transformed_payload_json);
     if (!transformed) {
       const errorPayload = { message: 'Malformed transformed payload JSON' };
-      await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
-        status: 'retry_failed',
-        retry_error_json: JSON.stringify(errorPayload),
-        last_retry_at: new Date().toISOString(),
-        retry_count: incrementRetryCount(intakeRecord.retry_count),
-      });
+      if (intakeIdActual) {
+        await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+          status: 'retry_failed',
+          retry_error_json: JSON.stringify(errorPayload),
+          last_retry_at: new Date().toISOString(),
+          retry_count: incrementRetryCount(intakeRecord.retry_count),
+        });
+      }
       return Response.json(
         { success: false, error: errorPayload, intakeId: intakeIdActual },
         { status: 400, headers: corsHeaders }
@@ -260,12 +270,14 @@ Deno.serve(async (req) => {
           hasBusinessName: !!transformed.metadata?.business_name,
         },
       };
-      await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
-        status: 'retry_failed',
-        retry_error_json: JSON.stringify(errorPayload),
-        last_retry_at: new Date().toISOString(),
-        retry_count: incrementRetryCount(intakeRecord.retry_count),
-      });
+      if (intakeIdActual) {
+        await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+          status: 'retry_failed',
+          retry_error_json: JSON.stringify(errorPayload),
+          last_retry_at: new Date().toISOString(),
+          retry_count: incrementRetryCount(intakeRecord.retry_count),
+        });
+      }
       return Response.json(
         { success: false, error: errorPayload, intakeId: intakeIdActual },
         { status: 400, headers: corsHeaders }
@@ -273,13 +285,23 @@ Deno.serve(async (req) => {
     }
 
     // Resolve session id from intake or payload
-    const sessionId = intakeRecord.questionnaire_session_id || transformed.metadata?.questionnaire_session_id || null;
+    const sessionId = intakeRecord?.questionnaire_session_id || transformed.metadata?.questionnaire_session_id || questionnaireSessionId || null;
 
     // Resolve submit_attempt_id
     const submitAttemptId =
-      intakeRecord.submit_attempt_id ||
+      intakeRecord?.submit_attempt_id ||
       transformed.metadata?.submit_attempt_id ||
       null;
+
+    // Helper: safely update the intake record if it exists
+    const updateIntake = async (data) => {
+      if (!intakeIdActual) return;
+      try {
+        await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, data);
+      } catch { /* best effort */ }
+    };
+    const retryCount = () => incrementRetryCount(intakeRecord?.retry_count);
+    const nowIso = () => new Date().toISOString();
 
     // Dedupe by session id
     if (sessionId && !forceRetry) {
@@ -290,12 +312,12 @@ Deno.serve(async (req) => {
         );
         if (existingSubmissions && existingSubmissions.length > 0) {
           const existingId = existingSubmissions[0].id;
-          await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+          await updateIntake({
             status: 'retry_success',
             linked_submission_id: existingId,
             retry_error_json: '',
-            last_retry_at: new Date().toISOString(),
-            retry_count: incrementRetryCount(intakeRecord.retry_count),
+            last_retry_at: nowIso(),
+            retry_count: retryCount(),
           });
           return Response.json({
             success: true, alreadySubmitted: true,
@@ -316,12 +338,12 @@ Deno.serve(async (req) => {
         );
         if (existingByAttempt && existingByAttempt.length > 0) {
           const existingId = existingByAttempt[0].id;
-          await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+          await updateIntake({
             status: 'retry_success',
             linked_submission_id: existingId,
             retry_error_json: '',
-            last_retry_at: new Date().toISOString(),
-            retry_count: incrementRetryCount(intakeRecord.retry_count),
+            last_retry_at: nowIso(),
+            retry_count: retryCount(),
           });
           return Response.json({
             success: true, alreadySubmitted: true,
@@ -342,12 +364,12 @@ Deno.serve(async (req) => {
         );
         if (existingSubmissions && existingSubmissions.length > 0) {
           const existingId = existingSubmissions[0].id;
-          await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+          await updateIntake({
             status: 'retry_success',
             linked_submission_id: existingId,
             retry_error_json: '',
-            last_retry_at: new Date().toISOString(),
-            retry_count: incrementRetryCount(intakeRecord.retry_count),
+            last_retry_at: nowIso(),
+            retry_count: retryCount(),
           });
           return Response.json({
             success: true, alreadySubmitted: true,
@@ -372,11 +394,11 @@ Deno.serve(async (req) => {
       createdSubmission = await base44.asServiceRole.entities.FormSubmission.create(submissionRecord);
     } catch (createError) {
       const errorPayload = safeError(createError);
-      await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+      await updateIntake({
         status: 'retry_failed',
         retry_error_json: JSON.stringify(errorPayload),
-        last_retry_at: new Date().toISOString(),
-        retry_count: incrementRetryCount(intakeRecord.retry_count),
+        last_retry_at: nowIso(),
+        retry_count: retryCount(),
       });
       return Response.json(
         { success: false, error: errorPayload, intakeId: intakeIdActual },
@@ -384,29 +406,27 @@ Deno.serve(async (req) => {
       );
     }
 
-    await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+    await updateIntake({
       status: 'retry_success',
       linked_submission_id: createdSubmission.id,
       retry_error_json: '',
-      last_retry_at: new Date().toISOString(),
-      retry_count: incrementRetryCount(intakeRecord.retry_count),
+      last_retry_at: nowIso(),
+      retry_count: retryCount(),
     });
 
     // ── Deliver to Zapier ──
     const zapierResult = await deliverToZapier(transformed);
-    const now = new Date().toISOString();
+    const now = nowIso();
     try {
       await base44.asServiceRole.entities.FormSubmission.update(createdSubmission.id, zapierResult.ok
         ? { zapier_delivery_status: 'sent', zapier_sent: true, zapier_sent_at: now, zapier_error_json: '', zapier_attempt_count: 1 }
         : { zapier_delivery_status: 'failed', zapier_sent: false, zapier_error_json: JSON.stringify({ message: zapierResult.error }), zapier_attempt_count: 1 }
       );
     } catch { /* best effort */ }
-    try {
-      await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
-        zapier_sent: zapierResult.ok,
-        zapier_error_json: zapierResult.ok ? '' : JSON.stringify({ message: zapierResult.error }),
-      });
-    } catch { /* best effort */ }
+    await updateIntake({
+      zapier_sent: zapierResult.ok,
+      zapier_error_json: zapierResult.ok ? '' : JSON.stringify({ message: zapierResult.error }),
+    });
 
     return Response.json({
       success: true,

@@ -259,6 +259,7 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
       const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
         questionnaireSessionId: draft.session_id,
         forceRetry: false,
+        payload: preview?.payload || mappedPayload || null,
       });
       const data = res?.data || res;
       if (data?.success) {
