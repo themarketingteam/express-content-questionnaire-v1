@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
+import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -197,6 +198,25 @@ function IntakeRecordRow({ record, onRefresh }) {
         toast.success(`${labels[mode] || mode} completed`);
         if (mode === "repair_and_retry" && data.createdSubmissionId) {
           toast.success(`Submission created: ${data.createdSubmissionId}`);
+        }
+        if (mode === "repair_and_retry" && data.repairedPayload) {
+          try {
+            writeLocalFailedSubmissionBackup({
+              sessionId: record.questionnaire_session_id || "",
+              submitAttemptId: record.submit_attempt_id || "",
+              businessName: record.business_name || "",
+              domain: record.business_domain || "",
+              responses: parseJson(record.raw_responses_json) || {},
+              transformedPayload: data.repairedPayload,
+              validationStatus: {},
+              touchedQuestions: {},
+              expandedQuestions: {},
+              stage: "ai_repair_retry_success",
+              diagnostics: { source: "QuestionnaireIntakeRecovery", submissionId: data.createdSubmissionId || null, timestamp: new Date().toISOString() },
+            });
+          } catch { /* ignore */ }
+          if (data.zapierSent) toast.success("Payload sent to Zapier");
+          else toast.error(`Zapier delivery failed: ${data.zapierError || "unknown"}`);
         }
       } else {
         toast.error(data?.error || `${mode} failed`);

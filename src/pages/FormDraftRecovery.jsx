@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
+import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
 import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeRecovery";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
@@ -274,6 +275,25 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
       const labels = { diagnose_only: "Diagnosis complete", repair_only: "Repair complete", repair_and_retry: "Repair + retry complete" };
       const detail = data.createdSubmissionId ? ` — Submission: ${data.createdSubmissionId}` : "";
       toast.success((labels[mode] || "Done") + detail);
+      if (mode === "repair_and_retry" && data.repairedPayload) {
+        try {
+          writeLocalFailedSubmissionBackup({
+            sessionId: draft.session_id,
+            submitAttemptId: metadata?.submit_attempt_id || "",
+            businessName: draft.business_name || "",
+            domain: draft.domain || "",
+            responses: responses || {},
+            transformedPayload: data.repairedPayload,
+            validationStatus: validationStatus || {},
+            touchedQuestions: safeJsonParse(draft.touched_questions_json, {}) || {},
+            expandedQuestions: safeJsonParse(draft.expanded_questions_json, {}) || {},
+            stage: "ai_repair_retry_success",
+            diagnostics: { source: "FormDraftRecovery", submissionId: data.createdSubmissionId || null, timestamp: new Date().toISOString() },
+          });
+        } catch { /* ignore */ }
+        if (data.zapierSent) toast.success("Payload sent to Zapier");
+        else toast.error(`Zapier delivery failed: ${data.zapierError || "unknown"}`);
+      }
     } else {
       toast.error(data?.error || "AI action failed");
     }

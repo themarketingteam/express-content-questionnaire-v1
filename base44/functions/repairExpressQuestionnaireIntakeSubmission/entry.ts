@@ -227,6 +227,27 @@ function mapToFormSubmissionRecord(payload) {
   return record;
 }
 
+// ─── Zapier payload builder ───────────────────────────────────────────────────
+
+function buildZapierPayload(payload) {
+  const meta = payload?.metadata || {};
+  const ud = payload?.userdata || {};
+  const cleanDomain = (domain) => {
+    if (!domain) return "";
+    return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
+  };
+  return {
+    metadata: {
+      business_name: meta.business_name || "",
+      businessDomain: cleanDomain(meta.businessDomain || meta.business_domain || ""),
+      submission_datetime: meta.submission_datetime || nowIso(),
+      service_type: "express",
+      questionnaire_session_id: meta.questionnaire_session_id || "",
+    },
+    userdata: { ...ud },
+  };
+}
+
 // ─── Source resolution ────────────────────────────────────────────────────────
 
 async function resolveSource(base44, { draftId, intakeId, questionnaireSessionId }) {
@@ -670,6 +691,45 @@ Deno.serve(async (req) => {
       } catch { /* best effort */ }
     }
 
+    // ── Send repaired payload to Zapier ──
+    let zapierOk = false;
+    let zapierError = null;
+    const zapierWebhookUrl = Deno.env.get('EXPRESS_ZAPIER_WEBHOOK_URL')?.trim();
+    if (zapierWebhookUrl) {
+      try {
+        const zapierPayload = buildZapierPayload(finalPayload);
+        const zapierController = new AbortController();
+        const zapierTimeout = setTimeout(() => zapierController.abort(), 8000);
+        const zapierRes = await fetch(zapierWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(zapierPayload),
+          signal: zapierController.signal,
+        });
+        clearTimeout(zapierTimeout);
+        if (zapierRes.ok) {
+          zapierOk = true;
+        } else {
+          const zapierText = await zapierRes.text().catch(() => '');
+          zapierError = `Zapier returned ${zapierRes.status}: ${zapierText}`;
+        }
+      } catch (zapierErr) {
+        zapierError = zapierErr?.name === 'AbortError'
+          ? 'Zapier delivery timed out'
+          : (zapierErr?.message || 'Zapier delivery failed');
+      }
+    } else {
+      zapierError = 'EXPRESS_ZAPIER_WEBHOOK_URL not configured';
+    }
+
+    // Update FormSubmission with Zapier delivery status
+    try {
+      await base44.asServiceRole.entities.FormSubmission.update(createdId, zapierOk
+        ? { zapier_delivery_status: 'sent', zapier_sent: true, zapier_sent_at: now, zapier_error_json: '', zapier_attempt_count: 1 }
+        : { zapier_delivery_status: 'failed', zapier_sent: false, zapier_error_json: JSON.stringify({ message: zapierError }), zapier_attempt_count: 1 }
+      );
+    } catch { /* best effort */ }
+
     return Response.json({
       ok: true,
       mode: 'repair_and_retry',
@@ -677,6 +737,8 @@ Deno.serve(async (req) => {
       sourceId,
       status: 'retried',
       createdSubmissionId: createdId,
+      zapierSent: zapierOk,
+      zapierError: zapierOk ? null : zapierError,
       repairReport: report,
       repairedPayload: finalPayload,
     }, { headers: corsHeaders });
