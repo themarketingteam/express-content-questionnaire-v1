@@ -5,7 +5,7 @@
  * Used by error boundary and recovery flows.
  */
 
-import { EXPRESS_COOKIE_KEY } from './expressPersistedState';
+import { EXPRESS_COOKIE_KEY, EXPRESS_LS_KEY_GLOBAL, clearStateFromLocalStorage } from './expressPersistedState';
 import { clearQuestionnaireSessionId } from './sessionId';
 import { ACTIVE_SUBMIT_ATTEMPT_KEY } from './submitAttempt';
 import { clearLocalFailedSubmissionBackup } from './localRecoveryBackup';
@@ -64,6 +64,23 @@ export const clearExpressQuestionnaireLocalState = (options = {}) => {
     }
   } catch (err) {
     errors.push(`Failed to clear questionnaire cookie: ${err.message}`);
+  }
+
+  // Clear localStorage persisted-state keys (primary persistence layer)
+  try {
+    // Clear global key directly
+    localStorage.removeItem(EXPRESS_LS_KEY_GLOBAL);
+    cleared.push(`${EXPRESS_LS_KEY_GLOBAL} (localStorage)`);
+    // Clear per-session keys if we can derive them
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('msp_questionnaire_data_v3_session_')) {
+        localStorage.removeItem(key);
+        cleared.push(`${key} (localStorage)`);
+      }
+    }
+  } catch (err) {
+    errors.push(`Failed to clear localStorage state: ${err.message}`);
   }
 
   // Clear legacy cookie keys if they exist

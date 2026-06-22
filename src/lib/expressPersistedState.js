@@ -21,31 +21,70 @@ export function saveStateToLocalStorage(state, sessionId) {
 
 /**
  * Load the newest valid v3 state from localStorage.
+ * Compares per-session and global keys by savedAt timestamp, choosing the newest.
  * Falls back to null if nothing valid found.
  * Returns { state, source } where source is 'localStorage_session', 'localStorage_global', or null.
  */
 export function loadStateFromLocalStorage(sessionId) {
-  // Try per-session key first
+  let sessionState = null;
+  let globalState = null;
+
   if (sessionId) {
     const raw = safeLocalStorageGet(getExpressLsKeySession(sessionId));
     if (raw) {
       const parsed = safeJsonParse(raw);
       if (parsed && parsed.version && parsed.formData) {
-        return { state: parsed, source: 'localStorage_session' };
+        sessionState = parsed;
       }
     }
   }
 
-  // Try global key
   const rawGlobal = safeLocalStorageGet(EXPRESS_LS_KEY_GLOBAL);
   if (rawGlobal) {
     const parsed = safeJsonParse(rawGlobal);
     if (parsed && parsed.version && parsed.formData) {
-      return { state: parsed, source: 'localStorage_global' };
+      globalState = parsed;
     }
   }
 
+  if (sessionState && globalState) {
+    const sessionTime = new Date(sessionState.savedAt || 0).getTime() || 0;
+    const globalTime = new Date(globalState.savedAt || 0).getTime() || 0;
+    return sessionTime >= globalTime
+      ? { state: sessionState, source: 'localStorage_session' }
+      : { state: globalState, source: 'localStorage_global' };
+  }
+
+  if (sessionState) return { state: sessionState, source: 'localStorage_session' };
+  if (globalState) return { state: globalState, source: 'localStorage_global' };
+
   return { state: null, source: null };
+}
+
+/**
+ * Clear all localStorage persisted-state keys (session + global).
+ */
+export function clearStateFromLocalStorage(sessionId) {
+  try { localStorage.removeItem(EXPRESS_LS_KEY_GLOBAL); } catch { /* ignore */ }
+  if (sessionId) {
+    try { localStorage.removeItem(getExpressLsKeySession(sessionId)); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Write a small marker cookie for legacy compatibility.
+ * Only stores session id, savedAt, and version — no form data.
+ */
+export function writeStateMarkerCookie(sessionId, savedAt) {
+  try {
+    const marker = JSON.stringify({
+      version: EXPRESS_PERSISTED_STATE_VERSION,
+      savedAt: savedAt || new Date().toISOString(),
+      questionnaireSessionId: sessionId || "",
+      storage: "localStorage",
+    });
+    document.cookie = `${EXPRESS_COOKIE_KEY}=${encodeURIComponent(marker)}; expires=${new Date(Date.now() + 365 * 864e5).toUTCString()}; path=/; SameSite=Lax`;
+  } catch { /* ignore */ }
 }
 
 /**

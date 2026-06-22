@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { base44 } from "@/api/base44Client";
 import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
-import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions } from "@/lib/expressPersistedState";
+import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions, saveStateToLocalStorage, loadStateFromLocalStorage, writeStateMarkerCookie, clearStateFromLocalStorage } from "@/lib/expressPersistedState";
 import { clearExpressQuestionnaireLocalState, createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
 import {
@@ -378,10 +378,40 @@ export default function Questionnaire() {
 
   // Load saved data and validation status
   useEffect(() => {
-    const saved = getCookie(STORAGE_KEY);
-    const result = parsePersistedStateCookie(saved);
-    
-    if (result.ok) {
+    // Primary: load from localStorage
+    let result = null;
+    let source = null;
+
+    const lsResult = loadStateFromLocalStorage(questionnaireSessionId);
+    if (lsResult.state) {
+      result = { ok: true, state: lsResult.state, migrated: false, repaired: false, discarded: false, error: null, diagnostics: { detectedFormat: "localStorage", source: lsResult.source } };
+      source = lsResult.source;
+    }
+
+    // Fallback: try cookie if localStorage had nothing
+    if (!result) {
+      const saved = getCookie(STORAGE_KEY);
+      const cookieResult = parsePersistedStateCookie(saved);
+      if (cookieResult.ok && cookieResult.state && cookieResult.state.formData) {
+        result = cookieResult;
+        source = "cookie_fallback";
+
+        // Migrate cookie state into localStorage immediately
+        try {
+          saveStateToLocalStorage(cookieResult.state, questionnaireSessionId);
+          writeStateMarkerCookie(questionnaireSessionId, cookieResult.state.savedAt);
+          if (import.meta.env.DEV) {
+            console.log("[persisted-state] Migrated cookie state into localStorage");
+          }
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.warn("[persisted-state] Failed to migrate cookie state to localStorage:", err?.message);
+          }
+        }
+      }
+    }
+
+    if (result && result.ok) {
       // Restore form data
       setFormData(prev => ({ ...prev, ...result.state.formData }));
       
@@ -419,15 +449,18 @@ export default function Questionnaire() {
         if (result.discarded) {
           console.warn("[persisted-state] Discarded corrupted state:", result.diagnostics);
         }
+        if (source) {
+          console.log(`[persisted-state] Loaded from ${source}`);
+        }
       }
-    } else if (result.error) {
+    } else if (result && result.error) {
       if (import.meta.env.DEV) {
-        console.warn("[persisted-state] Failed to parse cookie, using defaults:", result.error.message);
+        console.warn("[persisted-state] Failed to parse saved state, using defaults:", result.error.message);
       }
     }
     
     // Create draft event for migration/repair/discard if session exists
-    if (questionnaireSessionId && (result.migrated || result.repaired || result.discarded)) {
+    if (questionnaireSessionId && result && (result.migrated || result.repaired || result.discarded)) {
       const eventType = result.migrated ? "persisted_state_migrated"
         : result.repaired ? "persisted_state_repaired"
         : result.discarded ? "persisted_state_discarded"
@@ -453,7 +486,7 @@ export default function Questionnaire() {
     }
     
     // If state was discarded and local backup utility exists, write diagnostic
-    if (result.discarded && questionnaireSessionId) {
+    if (result && result.discarded && questionnaireSessionId) {
       try {
         localStorage.setItem(
           `express_questionnaire_recovery_${questionnaireSessionId}`,
@@ -508,8 +541,10 @@ export default function Questionnaire() {
         questionnaireSessionId,
       });
       
-      // Save serialized versioned state
-      setCookie(STORAGE_KEY, serializePersistedState(persistedState));
+      // Save full state to localStorage (primary persistence layer)
+      saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      // Write a small marker cookie for legacy compatibility (no form data)
+      writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
       setShowSaveIndicator(true);
       setTimeout(() => setShowSaveIndicator(false), 3000);
     }, 300);
@@ -523,7 +558,7 @@ export default function Questionnaire() {
       // Skip autosave after final submission
       if (hasFinalSubmittedRef.current) return;
       
-      // Save versioned persisted state
+      // Save versioned persisted state to localStorage (primary)
       const validationStatus = textValidation.getAllFieldStatuses();
       const expandedQuestions = Object.fromEntries(
         Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
@@ -535,7 +570,8 @@ export default function Questionnaire() {
         expandedQuestions,
         questionnaireSessionId,
       });
-      setCookie(STORAGE_KEY, serializePersistedState(persistedState));
+      saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
       
       // Local draft backup on unload
       try {
@@ -990,7 +1026,7 @@ export default function Questionnaire() {
         });
       }
       
-      // Update cookie with cleared versioned state
+      // Save cleared state to localStorage and write marker cookie
       const persistedState = buildPersistedState({
         formData: clearedFormData,
         validationStatus: clearedValidationStatus,
@@ -998,7 +1034,8 @@ export default function Questionnaire() {
         expandedQuestions: clearedExpandedQuestions,
         questionnaireSessionId,
       });
-      setCookie(STORAGE_KEY, serializePersistedState(persistedState));
+      saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
       
       toast.success("All answers cleared");
     } catch (err) {
