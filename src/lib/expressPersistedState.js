@@ -100,11 +100,22 @@ export function isPlainObject(value) {
  * @param {string} fallback
  * @returns {string}
  */
-export function normalizeString(value, fallback = "") {
+export function normalizeLiveString(value, fallback = "") {
+  if (typeof value === "string") {
+    return value;
+  }
+  return fallback;
+}
+
+export function normalizeStoredString(value, fallback = "") {
   if (typeof value === "string") {
     return value.trim();
   }
   return fallback;
+}
+
+export function normalizeString(value, fallback = "") {
+  return normalizeStoredString(value, fallback);
 }
 
 /**
@@ -142,7 +153,7 @@ export function normalizeGeographicAreaMeta(value, fallbackLabel = "") {
   }
 
   return {
-    label: normalizeString(value.label, fallbackLabel),
+    label: normalizeLiveString(value.label, fallbackLabel),
     lat: typeof value.lat === "number" ? value.lat : null,
     lon: typeof value.lon === "number" ? value.lon : null,
     place_id: normalizeString(value.place_id, ""),
@@ -164,29 +175,29 @@ export function normalizeExpressFormData(value) {
 
   return {
     itCompanyType: normalizeStringArray(value.itCompanyType),
-    itCompanyTypeOther: normalizeString(value.itCompanyTypeOther, ""),
+    itCompanyTypeOther: normalizeLiveString(value.itCompanyTypeOther, ""),
     serviceOfferings: normalizeStringArray(value.serviceOfferings),
-    serviceOfferingsOther: normalizeString(value.serviceOfferingsOther, ""),
-    differentiation: normalizeString(value.differentiation, ""),
-    geographicAreas: normalizeString(value.geographicAreas, ""),
+    serviceOfferingsOther: normalizeLiveString(value.serviceOfferingsOther, ""),
+    differentiation: normalizeLiveString(value.differentiation, ""),
+    geographicAreas: normalizeLiveString(value.geographicAreas, ""),
     geographicAreaMeta: normalizeGeographicAreaMeta(
       value.geographicAreaMeta,
-      normalizeString(value.geographicAreas, "")
+      normalizeLiveString(value.geographicAreas, "")
     ),
-    pricingPackaging: normalizeString(value.pricingPackaging, ""),
-    pricingPackagingOther: normalizeString(value.pricingPackagingOther, ""),
-    companyGoals: normalizeString(value.companyGoals, ""),
-    companyGoalsOther: normalizeString(value.companyGoalsOther, ""),
-    brandTone: normalizeString(value.brandTone, ""),
-    brandToneOther: normalizeString(value.brandToneOther, ""),
+    pricingPackaging: normalizeLiveString(value.pricingPackaging, ""),
+    pricingPackagingOther: normalizeLiveString(value.pricingPackagingOther, ""),
+    companyGoals: normalizeLiveString(value.companyGoals, ""),
+    companyGoalsOther: normalizeLiveString(value.companyGoalsOther, ""),
+    brandTone: normalizeLiveString(value.brandTone, ""),
+    brandToneOther: normalizeLiveString(value.brandToneOther, ""),
     targetIndustries: normalizeStringArray(value.targetIndustries),
-    targetIndustriesOther: normalizeString(value.targetIndustriesOther, ""),
-    clientSize: normalizeString(value.clientSize, "1-50 employees") || "1-50 employees",
+    targetIndustriesOther: normalizeLiveString(value.targetIndustriesOther, ""),
+    clientSize: normalizeLiveString(value.clientSize, "1-50 employees") || "1-50 employees",
     clientChallenges: normalizeStringArray(value.clientChallenges),
-    clientChallengesOther: normalizeString(value.clientChallengesOther, ""),
+    clientChallengesOther: normalizeLiveString(value.clientChallengesOther, ""),
     clientOutcomes: normalizeStringArray(value.clientOutcomes),
-    clientOutcomesOther: normalizeString(value.clientOutcomesOther, ""),
-    idealClient: normalizeString(value.idealClient, "")
+    clientOutcomesOther: normalizeLiveString(value.clientOutcomesOther, ""),
+    idealClient: normalizeLiveString(value.idealClient, "")
   };
 }
 

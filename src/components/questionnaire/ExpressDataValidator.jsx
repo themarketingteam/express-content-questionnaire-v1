@@ -72,6 +72,34 @@ export default function ExpressDataValidator({
       return;
     }
 
+    // Guard: skip repairs that only differ by whitespace in string fields
+    // (prevents the validator from eating spaces while the user is typing)
+    const hasStructuralDifference = (() => {
+      const origFd = formData || {};
+      const normFd = result.formData || {};
+      const allKeys = new Set([...Object.keys(origFd), ...Object.keys(normFd)]);
+      for (const key of allKeys) {
+        const orig = origFd[key];
+        const norm = normFd[key];
+        if (orig === norm) continue;
+        if (typeof orig === "string" && typeof norm === "string" && orig.trim() === norm.trim()) {
+          continue;
+        }
+        return true;
+      }
+      return false;
+    })();
+
+    if (!hasStructuralDifference) {
+      lastRepairedSignatureRef.current = computeSignature(
+        result.formData,
+        result.validationStatus,
+        result.touchedQuestions,
+        result.expandedQuestions
+      );
+      return;
+    }
+
     // Prevent infinite loops: check if we already repaired this exact state
     const newSignature = computeSignature(
       result.formData,

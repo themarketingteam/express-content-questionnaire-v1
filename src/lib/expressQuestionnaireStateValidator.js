@@ -216,6 +216,24 @@ export function validateAndRepairQuestionnaireState({
     }
   }
 
+  // Guard: preserve exact whitespace in string fields during live typing.
+  // If the only difference between original and normalized is whitespace,
+  // restore the original value to prevent the validator from eating spaces.
+  const LIVE_STRING_FIELDS = [
+    "itCompanyTypeOther", "serviceOfferingsOther", "differentiation",
+    "geographicAreas", "pricingPackaging", "pricingPackagingOther",
+    "companyGoals", "companyGoalsOther", "brandTone", "brandToneOther",
+    "targetIndustriesOther", "clientSize", "clientChallengesOther",
+    "clientOutcomesOther", "idealClient"
+  ];
+  for (const field of LIVE_STRING_FIELDS) {
+    const orig = formData[field];
+    const norm = normalizedFormData[field];
+    if (typeof orig === "string" && typeof norm === "string" && orig !== norm && orig.trim() === norm.trim()) {
+      normalizedFormData[field] = orig;
+    }
+  }
+
   // Step 7: Normalize validation status
   let normalizedValidationStatus = normalizeValidationStatus(validationStatus);
   if (JSON.stringify(normalizedValidationStatus) !== originalValidationStatus) {
