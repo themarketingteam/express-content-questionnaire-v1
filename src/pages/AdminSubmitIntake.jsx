@@ -19,6 +19,29 @@ function autoFixJson(raw) {
   s = s.replace(/\/\*[\s\S]*?\*\//g, "");
   s = s.replace(/\/\/[^\n]*/g, "");
   s = s.replace(/,(\s*[}\]])/g, "$1");
+  // Escape raw control characters inside string literals (tabs, newlines, etc.)
+  let out = "";
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const code = c.charCodeAt(0);
+    if (inStr) {
+      if (esc) { out += c; esc = false; }
+      else if (c === "\\") { out += c; esc = true; }
+      else if (c === '"') { out += c; inStr = false; }
+      else if (code < 0x20) {
+        if (c === "\n") out += "\\n";
+        else if (c === "\r") out += "\\r";
+        else if (c === "\t") out += "\\t";
+        else out += "\\u" + code.toString(16).padStart(4, "0");
+      } else out += c;
+    } else {
+      if (c === '"') inStr = true;
+      out += c;
+    }
+  }
+  s = out;
   const opens = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
   const openBrackets = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
   if (opens > 0) s += "}".repeat(opens);
