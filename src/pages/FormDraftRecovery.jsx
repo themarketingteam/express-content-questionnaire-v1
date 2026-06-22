@@ -261,8 +261,30 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
         forceRetry: false,
       });
       const data = res?.data || res;
-      if (data?.success) toast.success(data.alreadySubmitted ? "Already linked to submission" : "Retry completed");
-      else toast.error(data?.error?.message || "Retry failed");
+      if (data?.success) {
+        toast.success(data.alreadySubmitted ? "Already linked to submission" : "Retry completed");
+        // Save local backup of the submission payload
+        try {
+          writeLocalFailedSubmissionBackup({
+            sessionId: draft.session_id,
+            submitAttemptId: metadata?.submit_attempt_id || "",
+            businessName: draft.business_name || "",
+            domain: draft.domain || "",
+            responses: responses || {},
+            transformedPayload: mappedPayload || preview?.payload || null,
+            validationStatus: validationStatus || {},
+            touchedQuestions: safeJsonParse(draft.touched_questions_json, {}) || {},
+            expandedQuestions: safeJsonParse(draft.expanded_questions_json, {}) || {},
+            stage: "admin_retry_success",
+            diagnostics: { source: "FormDraftRecovery", linkedSubmissionId: data.linkedSubmissionId || null, timestamp: new Date().toISOString() },
+          });
+        } catch { /* ignore local backup errors */ }
+        // Surface Zapier delivery result
+        if (data.zapierSent) toast.success("Payload sent to Zapier");
+        else if (data.zapierError) toast.error(`Zapier delivery failed: ${data.zapierError}`);
+      } else {
+        toast.error(data?.error?.message || "Retry failed");
+      }
     } catch (err) {
       const msg = err?.response?.data?.error?.message || err?.message || "Retry failed";
       toast.error(msg);

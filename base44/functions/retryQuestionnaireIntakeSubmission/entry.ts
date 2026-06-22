@@ -111,6 +111,52 @@ const hasRequiredExpressPayloadFields = (payload) => {
   return true;
 };
 
+// ─── Zapier delivery ──────────────────────────────────────────────────────────
+
+function buildZapierPayload(payload) {
+  const { metadata = {}, userdata = {} } = payload || {};
+  const cleanDomain = (domain) => {
+    if (!domain) return "";
+    return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
+  };
+  return {
+    metadata: {
+      business_name: metadata.business_name || "",
+      businessDomain: cleanDomain(metadata.businessDomain || metadata.business_domain || ""),
+      submission_datetime: metadata.submission_datetime || new Date().toISOString(),
+      service_type: 'express',
+      questionnaire_session_id: metadata.questionnaire_session_id || "",
+    },
+    userdata: { ...userdata },
+  };
+}
+
+async function deliverToZapier(payload) {
+  const webhookUrl = Deno.env.get('EXPRESS_ZAPIER_WEBHOOK_URL')?.trim();
+  if (!webhookUrl) {
+    return { ok: false, error: 'EXPRESS_ZAPIER_WEBHOOK_URL not configured' };
+  }
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const zapierRes = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildZapierPayload(payload)),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (zapierRes.ok) return { ok: true };
+    const text = await zapierRes.text().catch(() => '');
+    return { ok: false, error: `Zapier returned ${zapierRes.status}: ${text}` };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.name === 'AbortError' ? 'Zapier delivery timed out' : (err?.message || 'Zapier delivery failed'),
+    };
+  }
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -346,10 +392,28 @@ Deno.serve(async (req) => {
       retry_count: incrementRetryCount(intakeRecord.retry_count),
     });
 
+    // ── Deliver to Zapier ──
+    const zapierResult = await deliverToZapier(transformed);
+    const now = new Date().toISOString();
+    try {
+      await base44.asServiceRole.entities.FormSubmission.update(createdSubmission.id, zapierResult.ok
+        ? { zapier_delivery_status: 'sent', zapier_sent: true, zapier_sent_at: now, zapier_error_json: '', zapier_attempt_count: 1 }
+        : { zapier_delivery_status: 'failed', zapier_sent: false, zapier_error_json: JSON.stringify({ message: zapierResult.error }), zapier_attempt_count: 1 }
+      );
+    } catch { /* best effort */ }
+    try {
+      await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
+        zapier_sent: zapierResult.ok,
+        zapier_error_json: zapierResult.ok ? '' : JSON.stringify({ message: zapierResult.error }),
+      });
+    } catch { /* best effort */ }
+
     return Response.json({
       success: true,
       linkedSubmissionId: createdSubmission.id,
       intakeId: intakeIdActual,
+      zapierSent: zapierResult.ok,
+      zapierError: zapierResult.ok ? null : zapierResult.error,
     }, { headers: corsHeaders });
 
   } catch (error) {
