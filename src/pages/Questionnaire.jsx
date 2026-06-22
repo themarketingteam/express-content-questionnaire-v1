@@ -1476,6 +1476,9 @@ export default function Questionnaire() {
                     updateField("geographicAreas", "");
                     updateField("geographicAreaMeta", { label: "", lat: null, lon: null, place_id: null, source: "google" });
                   }}
+                  onClearMetaOnly={() => {
+                    updateField("geographicAreaMeta", { label: "", lat: null, lon: null, place_id: null, source: "manual" });
+                  }}
                   onInfoClick={() => setInfoModalData(HELPER_COPY.q4)}
                   isOpen={openQuestions.includes(4)}
                   onClick={() => handleQuestionClick(4)}

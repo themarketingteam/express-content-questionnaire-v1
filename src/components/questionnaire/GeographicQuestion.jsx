@@ -19,6 +19,7 @@ export default function GeographicQuestion({
   onChange,
   onSelect,
   onClear,
+  onClearMetaOnly,
   onInfoClick,
   isOpen = true,
   onClick
@@ -119,14 +120,17 @@ export default function GeographicQuestion({
     }
   }, [isScriptLoaded, onSelect, loadError]);
 
-  const hasSelection = selectedMeta && selectedMeta.label;
+  const hasGoogleSelection =
+    selectedMeta?.source === "google" &&
+    !!selectedMeta?.place_id &&
+    !!selectedMeta?.label;
 
   const handleInputChange = (e) => {
     const newValue = e.target.value;
     onChange(newValue);
-    
-    if (hasSelection && newValue !== selectedMeta.label) {
-      onClear();
+
+    if (hasGoogleSelection && newValue !== selectedMeta.label && onClearMetaOnly) {
+      onClearMetaOnly(newValue);
     }
   };
 
@@ -250,7 +254,7 @@ export default function GeographicQuestion({
               ref={inputRef}
               type="text"
               placeholder="e.g., Nashville, TN or Davidson County, TN"
-              value={hasSelection ? selectedMeta.label : value}
+              value={value || ""}
               onChange={handleInputChange}
               autoComplete="off"
               className="w-full p-4 pr-12 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -270,7 +274,7 @@ export default function GeographicQuestion({
             </div>
           )}
 
-          {hasSelection && (
+          {hasGoogleSelection && (
             <div className="space-y-3">
               <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">

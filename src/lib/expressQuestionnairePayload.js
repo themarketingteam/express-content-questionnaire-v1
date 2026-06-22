@@ -122,8 +122,10 @@ export function buildExpressSubmissionPayload({ formData, businessName, domain, 
       service_offerings: safeFormData.serviceOfferings,
       service_offerings_other: safeFormData.serviceOfferingsOther,
       differentiation: safeFormData.differentiation,
-      geographic_areas: safeFormData.geographicAreaMeta?.label || safeFormData.geographicAreas,
-      geographic_area_meta: safeFormData.geographicAreaMeta,
+      geographic_areas: (safeFormData.geographicAreaMeta?.source === "google" && safeFormData.geographicAreaMeta?.place_id)
+        ? (safeFormData.geographicAreaMeta?.label || safeFormData.geographicAreas)
+        : safeFormData.geographicAreas,
+      geographic_area_meta: safeFormData.geographicAreaMeta || {},
       pricing_packaging: safeFormData.pricingPackaging,
       pricing_packaging_other: safeFormData.pricingPackagingOther,
       company_goals: safeFormData.companyGoals,

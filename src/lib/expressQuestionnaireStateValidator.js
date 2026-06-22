@@ -131,17 +131,17 @@ export function validateAndRepairQuestionnaireState({
     changed = true;
   }
 
-  // If geographicAreas has value but meta label is empty, sync it
+  // If geographicAreas has value but meta label is empty, create minimal manual metadata
+  // (never fake Google metadata — only real Google selections get source: "google")
   if (geoArea && !metaLabel) {
     normalizedFormData.geographicAreaMeta = {
-      ...geoMeta,
       label: geoArea,
       lat: geoMeta?.lat || null,
       lon: geoMeta?.lon || null,
       place_id: geoMeta?.place_id || null,
-      source: geoMeta?.source || "google",
+      source: "manual",
     };
-    repairs.push("Synced geographicAreaMeta.label from geographicAreas");
+    repairs.push("Synced geographicAreaMeta from geographicAreas (manual)");
     changed = true;
   }
 
