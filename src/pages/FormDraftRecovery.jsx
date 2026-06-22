@@ -255,22 +255,28 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
   };
 
   const handleRetry = () => handleAction("retry", async () => {
-    const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
-      questionnaireSessionId: draft.session_id,
-      forceRetry: false,
-    });
-    const data = res?.data || res;
-    if (data?.success) toast.success(data.alreadySubmitted ? "Already linked to submission" : "Retry completed");
-    else toast.error(data?.error?.message || "Retry failed");
+    try {
+      const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
+        questionnaireSessionId: draft.session_id,
+        forceRetry: false,
+      });
+      const data = res?.data || res;
+      if (data?.success) toast.success(data.alreadySubmitted ? "Already linked to submission" : "Retry completed");
+      else toast.error(data?.error?.message || "Retry failed");
+    } catch (err) {
+      const msg = err?.response?.data?.error?.message || err?.message || "Retry failed";
+      toast.error(msg);
+    }
   });
 
   const handleAiAction = (mode) => handleAction(mode, async () => {
-    const res = await base44.functions.invoke("repairExpressQuestionnaireIntakeSubmission", {
-      draftId: draft.id,
-      questionnaireSessionId: draft.session_id,
-      mode,
-    });
-    const data = res?.data || res;
+    try {
+      const res = await base44.functions.invoke("repairExpressQuestionnaireIntakeSubmission", {
+        draftId: draft.id,
+        questionnaireSessionId: draft.session_id,
+        mode,
+      });
+      const data = res?.data || res;
     if (data?.ok) {
       const labels = { diagnose_only: "Diagnosis complete", repair_only: "Repair complete", repair_and_retry: "Repair + retry complete" };
       const detail = data.createdSubmissionId ? ` — Submission: ${data.createdSubmissionId}` : "";
@@ -296,6 +302,11 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
       }
     } else {
       toast.error(data?.error || "AI action failed");
+    }
+    } catch (err) {
+      const errData = err?.response?.data;
+      const msg = typeof errData?.error === 'string' ? errData.error : (errData?.error?.message || err?.message || "AI action failed");
+      toast.error(msg);
     }
   });
 
