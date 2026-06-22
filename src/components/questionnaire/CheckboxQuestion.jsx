@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Info, ChevronDown } from "lucide-react";
 import OtherField from "./OtherField";
 
@@ -19,17 +19,17 @@ export default function CheckboxQuestion({
   const hasOtherText = (otherValue || "").trim().length > 0;
   const totalSelections = selected.length + (hasOtherText ? 1 : 0);
   const isAtLimit = totalSelections >= limit;
+  const isOtherDisabled = isAtLimit && !hasOtherText;
+  const [otherFocused, setOtherFocused] = useState(false);
 
   const isCheckboxDisabled = (value) => {
     return isAtLimit && !selected.includes(value);
   };
 
-  const isOtherDisabled = isAtLimit && !hasOtherText;
-
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
-        <div 
+        <div
           className="block flex-1 cursor-pointer"
           onClick={() => {
             if (onClick) {
@@ -103,8 +103,14 @@ export default function CheckboxQuestion({
           <OtherField
             value={otherValue}
             onChange={onOtherChange}
+            onFocus={() => setOtherFocused(true)}
+            onBlur={() => setOtherFocused(false)}
             disabled={isOtherDisabled}
-            message={isOtherDisabled ? `You've reached the limit of ${limit} selections. Uncheck an option to use "Other".` : null}
+            message={
+              isOtherDisabled
+                ? `You've reached the limit of ${limit} selections. Uncheck one selected option to add a custom answer.`
+                : null
+            }
           />
         </>
       )}

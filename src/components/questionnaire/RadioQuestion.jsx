@@ -17,14 +17,7 @@ export default function RadioQuestion({
 }) {
   const hasOtherValue = (otherValue || "").trim().length > 0;
   const hasRadioSelection = selected && selected.trim().length > 0;
-
-  const isRadioDisabled = (option) => {
-    return hasOtherValue;
-  };
-
-  const isOtherDisabled = () => {
-    return hasRadioSelection;
-  };
+  const hasAnySelection = hasRadioSelection || hasOtherValue;
 
   const handleRadioSelect = (option) => {
     onSelect(option);
@@ -33,11 +26,14 @@ export default function RadioQuestion({
     }
   };
 
-  const handleOtherChange = (value) => {
-    onOtherChange(value);
-    if (value.trim().length > 0 && hasRadioSelection) {
+  const handleOtherFocus = () => {
+    if (hasRadioSelection) {
       onSelect("");
     }
+  };
+
+  const handleOtherChange = (value) => {
+    onOtherChange(value);
   };
 
   const handleClearSelection = (e) => {
@@ -48,12 +44,10 @@ export default function RadioQuestion({
     }
   };
 
-  const hasAnySelection = hasRadioSelection || hasOtherValue;
-
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <div 
+        <div
           className="flex-1 cursor-pointer"
           onClick={() => {
             if (onClick) {
@@ -100,15 +94,15 @@ export default function RadioQuestion({
       {isOpen && (
         <>
           {hasOtherValue && (
-            <div className="text-sm text-amber-600 font-medium bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Using custom "Other" option • Radio buttons disabled
+            <div className="text-sm text-blue-600 font-medium bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              Using custom "Other" answer
             </div>
           )}
 
           <div className="space-y-2.5">
             {options.map((option) => {
               const isSelected = selected === option;
-              const disabled = isRadioDisabled(option);
+              const dimmed = hasOtherValue;
 
               return (
                 <label
@@ -116,8 +110,8 @@ export default function RadioQuestion({
                   className={`flex items-center gap-3 p-4 border rounded-xl transition-all ${
                     isSelected
                       ? "border-blue-500 bg-blue-50"
-                      : disabled
-                      ? "border-slate-200 bg-slate-50 opacity-50 cursor-not-allowed"
+                      : dimmed
+                      ? "border-slate-200 bg-slate-50 opacity-60"
                       : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
                   }`}
                 >
@@ -125,8 +119,7 @@ export default function RadioQuestion({
                     type="radio"
                     checked={isSelected}
                     onChange={() => handleRadioSelect(option)}
-                    disabled={disabled}
-                    className="w-5 h-5 accent-blue-600 cursor-pointer disabled:cursor-not-allowed"
+                    className="w-5 h-5 accent-blue-600 cursor-pointer"
                   />
                   <span className="text-slate-700 select-none">{option}</span>
                 </label>
@@ -138,8 +131,9 @@ export default function RadioQuestion({
             <OtherField
               value={otherValue}
               onChange={handleOtherChange}
-              disabled={isOtherDisabled()}
-              message={isOtherDisabled() ? "A radio option is selected. Click 'Reset' above to use 'Other'." : null}
+              onFocus={handleOtherFocus}
+              disabled={false}
+              helperText="Typing a custom answer will replace the selected option."
             />
           )}
         </>
