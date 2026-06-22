@@ -16,8 +16,6 @@ import { mapExpressPayloadToFormSubmissionRecord, cleanExpressDomain } from "@/l
 function autoFixJson(raw) {
   let s = raw;
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-  s = s.replace(/\/\*[\s\S]*?\*\//g, "");
-  s = s.replace(/\/\/[^\n]*/g, "");
   s = s.replace(/,(\s*[}\]])/g, "$1");
   // Escape raw control characters inside string literals (tabs, newlines, etc.)
   let out = "";
