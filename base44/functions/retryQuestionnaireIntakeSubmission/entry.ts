@@ -128,13 +128,17 @@ function buildZapierPayload(payload) {
     if (!domain) return "";
     return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
+  const cleanedDomain = cleanDomain(metadata.businessDomain || metadata.business_domain || "");
+
   return {
     metadata: {
       business_name: metadata.business_name || "",
-      businessDomain: cleanDomain(metadata.businessDomain || metadata.business_domain || ""),
+      businessDomain: cleanedDomain,
+      business_domain: cleanedDomain,
       submission_datetime: metadata.submission_datetime || new Date().toISOString(),
       service_type: 'express',
       questionnaire_session_id: metadata.questionnaire_session_id || "",
+      submit_attempt_id: metadata.submit_attempt_id || "",
       resubmitted_at: nowIso(),
     },
     userdata: { ...userdata },

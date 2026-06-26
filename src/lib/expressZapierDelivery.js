@@ -46,13 +46,17 @@ export function buildExpressZapierPayload(transformedPayload) {
   };
 
   // Return only metadata and userdata - explicitly exclude _rawFormData
+  const cleanedDomain = cleanDomain(transformedPayload.metadata.businessDomain || transformedPayload.metadata.business_domain || "");
+
   return {
     metadata: {
       business_name: transformedPayload.metadata.business_name || "",
-      businessDomain: cleanDomain(transformedPayload.metadata.businessDomain || transformedPayload.metadata.business_domain || ""),
+      businessDomain: cleanedDomain,
+      business_domain: cleanedDomain,
       submission_datetime: transformedPayload.metadata.submission_datetime || new Date().toISOString(),
       service_type: "express", // Force service_type to express
       questionnaire_session_id: transformedPayload.metadata.questionnaire_session_id || "",
+      submit_attempt_id: transformedPayload.metadata.submit_attempt_id || "",
     },
     userdata: { ...transformedPayload.userdata },
   };
