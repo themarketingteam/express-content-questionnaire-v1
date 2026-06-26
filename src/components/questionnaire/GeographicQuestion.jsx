@@ -42,7 +42,7 @@ export default function GeographicQuestion({
       return;
     }
 
-    const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || window.ENV?.GOOGLE_PLACES_API_KEY;
+    const apiKey = "AIzaSyDyQuexeP2lIif4UEYVe845bIYrytVp6O0";
     
     if (!apiKey) {
       console.warn("Google Places API key not configured");
