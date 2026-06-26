@@ -163,6 +163,7 @@ export function mapExpressPayloadToFormSubmissionRecord(payload) {
 
   return {
     business_name: md.business_name || "",
+    business_domain: md.businessDomain || md.business_domain || "",
     submission_datetime: md.submission_datetime || new Date().toISOString(),
     service_type: md.service_type || "express",
     it_company_type: ensureArray(ud.it_company_type),

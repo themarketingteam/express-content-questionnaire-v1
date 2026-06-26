@@ -75,8 +75,25 @@ export default function ConfirmModal({
     return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
 
-  // Domain is optional — only business name is required
-  const isFormValid = businessName.trim().length > 0;
+  // Validate that the input looks like a domain (accepts example.com, www.example.com,
+  // https://example.com, sub.example.com, etc.)
+  const isValidDomain = (raw) => {
+    const cleaned = cleanDomain(raw);
+    if (!cleaned) return false;
+    if (!cleaned.includes('.')) return false;
+    if (/\s/.test(cleaned)) return false;
+    if (!/^[a-zA-Z0-9.-]+$/.test(cleaned)) return false;
+    const parts = cleaned.split('.');
+    if (parts.length < 2) return false;
+    const lastPart = parts[parts.length - 1];
+    if (!lastPart || lastPart.length < 2) return false;
+    return true;
+  };
+
+  const domainValid = isValidDomain(domain);
+
+  // Both business name and domain are required to submit
+  const isFormValid = businessName.trim().length > 0 && domainValid;
 
   const handleConfirm = () => {
     if (isFormValid) {
@@ -85,8 +102,8 @@ export default function ConfirmModal({
   };
 
   const handleDownloadPDF = async () => {
-    if (!businessName.trim()) {
-      toast.error("Please enter a business name before downloading.");
+    if (!businessName.trim() || !domainValid) {
+      toast.error("Please enter your business name and website domain before downloading.");
       return;
     }
     setIsGeneratingPDF(true);
@@ -271,23 +288,33 @@ export default function ConfirmModal({
 
               <div>
                 <label className="block text-sm font-semibold text-slate-900 mb-2">
-                  Website Domain <span className="font-normal text-slate-500">(optional)</span>
+                  Website Domain *
                 </label>
                 <input
                   type="text"
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
                   placeholder="example.com or https://www.example.com"
-                  className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className={`w-full p-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${
+                    domain.trim().length > 0 && !domainValid
+                      ? 'border-amber-400 focus:ring-amber-500'
+                      : 'border-slate-300 focus:ring-blue-500'
+                  }`}
+                  required
                 />
-                <p className="text-xs text-slate-500 mt-1">Optional — add it only if you know the correct website.</p>
+                <p className="text-xs text-slate-500 mt-1">Enter your primary website domain (e.g. example.com).</p>
+                {domain.trim().length > 0 && !domainValid && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    Please enter a valid domain (e.g. example.com, www.example.com, or https://example.com).
+                  </p>
+                )}
               </div>
             </div>
 
             {!isFormValid && (
               <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <AlertCircle className="w-4 h-4" />
-                <span>Business name is required to submit.</span>
+                <span>Business name and website domain are both required to submit.</span>
               </div>
             )}
           </div>

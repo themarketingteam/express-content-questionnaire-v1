@@ -88,6 +88,7 @@ function mapExpressPayloadToFormSubmissionRecord(payload, questionnaireSessionId
 
   const record = {
     business_name:            ud.business_name        ?? meta.business_name        ?? null,
+    business_domain:          ud.business_domain      ?? meta.businessDomain       ?? meta.business_domain ?? null,
     submission_datetime:      meta.submission_datetime                              ?? nowIso(),
     service_type:             'express',
     it_company_type:          ud.it_company_type       ?? meta.it_company_type      ?? [],

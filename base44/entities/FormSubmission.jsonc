@@ -6,6 +6,10 @@
       "type": "string",
       "description": "Name of the business submitting the form"
     },
+    "business_domain": {
+      "type": "string",
+      "description": "Business domain from the submission"
+    },
     "submission_datetime": {
       "type": "string",
       "description": "DateTime of submission in ET"
