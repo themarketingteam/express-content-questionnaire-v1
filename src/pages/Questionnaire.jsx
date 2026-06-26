@@ -221,6 +221,8 @@ export default function Questionnaire() {
     touchedQuestionsSnapshot,
     expandedQuestionsSnapshot: expandedSnapshotArg,
     submitAttemptId,
+    businessName: modalBusinessName,
+    domain: modalDomain,
   } = {}) => {
     if (!isHydratedRef.current && !responsesSnapshot) return; // Block pre-hydration saves unless caller passes an explicit snapshot
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
@@ -235,8 +237,8 @@ export default function Questionnaire() {
       touchedQuestions: touchedQuestionsSnapshot || touchedQuestions,
       expandedQuestions: expandedSnap,
       credentials: urlCredentials,
-      businessNameParam,
-      domainParam,
+      businessNameParam: modalBusinessName || businessNameParam,
+      domainParam: modalDomain || domainParam,
       currentQuestionId: lastChangedQuestionIdRef.current,
       lastChangedQuestionId: lastChangedQuestionIdRef.current,
       status: status || "draft",
@@ -835,7 +837,7 @@ export default function Questionnaire() {
       // Capture final validation status after submit-time validation
       const finalValidationStatus = textValidation.getAllFieldStatuses();
       
-      // Save updated validation status to draft
+      // Save updated validation status to draft — use modal inputs for business name/domain
       await saveDraftSnapshot({
         sessionId: questionnaireSessionId,
         responses: rawFormData,
@@ -845,8 +847,8 @@ export default function Questionnaire() {
           Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
         ),
         credentials: urlCredentials,
-        businessNameParam,
-        domainParam,
+        businessNameParam: businessName || businessNameParam,
+        domainParam: domain || domainParam,
         currentQuestionId: "",
         lastChangedQuestionId: "",
         status: "draft",

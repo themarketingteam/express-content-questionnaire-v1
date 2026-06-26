@@ -128,7 +128,7 @@ export async function safeDraftSave(args) {
   
   try {
     if (saveDraftNow) {
-      await saveDraftNow(draftData);
+      await saveDraftNow({ ...draftData, businessName, domain });
     }
     return true;
   } catch (saveErr) {
