@@ -144,15 +144,31 @@ export default function GeographicQuestion({
     return label;
   };
 
+  // Derive the base city name from any label form — "Nashville, TN, USA" or "Greater Nashville Area"
+  const getBaseCityName = (meta) => {
+    if (!meta) return "";
+    const label = meta.originalLabel || meta.label || "";
+    if (label.startsWith("Greater ") && label.endsWith(" Area")) {
+      return label.replace(/^Greater /, "").replace(/ Area$/, "");
+    }
+    return extractCityName(label);
+  };
+
+  // Detect greater-area state from flag OR label format (flag may be stripped by normalization)
+  const isGreaterArea =
+    selectedMeta?.isGreaterArea ||
+    (!!selectedMeta?.label &&
+      selectedMeta.label.startsWith("Greater ") &&
+      selectedMeta.label.endsWith(" Area"));
+
   const handleGreaterAreaToggle = () => {
     if (!selectedMeta || !selectedMeta.label) return;
-    
-    const cityName = extractCityName(selectedMeta.label);
-    const isAlreadyGreater = selectedMeta.label.startsWith("Greater ");
-    
-    if (isAlreadyGreater) {
-      // Remove "Greater ... Area" and restore original
-      const originalLabel = selectedMeta.originalLabel || selectedMeta.label.replace(/^Greater /, '').replace(/ Area$/, '');
+
+    const baseCityName = getBaseCityName(selectedMeta);
+
+    if (isGreaterArea) {
+      // Restore original label
+      const originalLabel = selectedMeta.originalLabel || baseCityName;
       onSelect({
         ...selectedMeta,
         label: originalLabel,
@@ -163,14 +179,12 @@ export default function GeographicQuestion({
       // Add "Greater ... Area"
       onSelect({
         ...selectedMeta,
-        label: `Greater ${cityName} Area`,
+        label: `Greater ${baseCityName} Area`,
         isGreaterArea: true,
         originalLabel: selectedMeta.label
       });
     }
   };
-
-  const isGreaterArea = selectedMeta?.isGreaterArea || false;
 
   return (
     <div className="space-y-4">
@@ -309,7 +323,7 @@ export default function GeographicQuestion({
                       className="w-5 h-5 accent-blue-600 cursor-pointer"
                     />
                     <div>
-                      <span className="text-slate-700 font-medium">Use "Greater {extractCityName(selectedMeta.originalLabel || selectedMeta.label)} Area"</span>
+                      <span className="text-slate-700 font-medium">Use "Greater {getBaseCityName(selectedMeta)} Area"</span>
                       <p className="text-sm text-slate-500 mt-0.5">Select this to include surrounding suburbs and nearby communities</p>
                     </div>
                   </label>
