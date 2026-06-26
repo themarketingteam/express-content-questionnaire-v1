@@ -36,6 +36,8 @@ const incrementRetryCount = (value) => {
   return 1;
 };
 
+const nowIso = () => new Date().toISOString();
+
 // Sanitize geographic_area_meta: remove null lat/lon/place_id
 function sanitizeGeoMeta(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -54,8 +56,14 @@ const mapExpressPayloadToFormSubmissionRecord = (payload) => {
 
   const geoMeta = sanitizeGeoMeta(userdata.geographic_area_meta);
 
+  const cleanDomain = (domain) => {
+    if (!domain) return '';
+    return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
+  };
+
   const record = {
     business_name: normalizedMetadata.business_name || '',
+    business_domain: cleanDomain(normalizedMetadata.businessDomain || normalizedMetadata.business_domain || userdata.business_domain || ''),
     submission_datetime: normalizedMetadata.submission_datetime || new Date().toISOString(),
     service_type: 'express',
     it_company_type: Array.isArray(userdata.it_company_type) ? userdata.it_company_type : [],
@@ -85,6 +93,7 @@ const mapExpressPayloadToFormSubmissionRecord = (payload) => {
     zapier_sent_at: '',
     zapier_error_json: '',
     zapier_attempt_count: 0,
+    resubmit_count: 0,
   };
 
   if (geoMeta) record.geographic_area_meta = geoMeta;
@@ -126,6 +135,7 @@ function buildZapierPayload(payload) {
       submission_datetime: metadata.submission_datetime || new Date().toISOString(),
       service_type: 'express',
       questionnaire_session_id: metadata.questionnaire_session_id || "",
+      resubmitted_at: nowIso(),
     },
     userdata: { ...userdata },
   };
@@ -233,11 +243,16 @@ Deno.serve(async (req) => {
 
     const intakeIdActual = intakeRecord ? intakeRecord.id : null;
 
-    if (intakeRecord && intakeRecord.linked_submission_id && !forceRetry) {
+    // ── Non-force retry: if intake already linked, return early (dedup) ──
+    // This path is for the "Retry Submission" button on intake recovery when
+    // the intake has NOT been linked yet. If already linked, admin should use
+    // "Force Retry" which always delivers to Zapier.
+    if (!forceRetry && intakeRecord && intakeRecord.linked_submission_id) {
       return Response.json({
         success: true, alreadySubmitted: true,
         linkedSubmissionId: intakeRecord.linked_submission_id,
         intakeId: intakeIdActual,
+        message: 'Already linked. Use Force Retry to re-send to Zapier.',
       }, { headers: corsHeaders });
     }
 
@@ -251,7 +266,7 @@ Deno.serve(async (req) => {
         await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
           status: 'retry_failed',
           retry_error_json: JSON.stringify(errorPayload),
-          last_retry_at: new Date().toISOString(),
+          last_retry_at: nowIso(),
           retry_count: incrementRetryCount(intakeRecord.retry_count),
         });
       }
@@ -274,7 +289,7 @@ Deno.serve(async (req) => {
         await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, {
           status: 'retry_failed',
           retry_error_json: JSON.stringify(errorPayload),
-          last_retry_at: new Date().toISOString(),
+          last_retry_at: nowIso(),
           retry_count: incrementRetryCount(intakeRecord.retry_count),
         });
       }
@@ -301,139 +316,162 @@ Deno.serve(async (req) => {
       } catch { /* best effort */ }
     };
     const retryCount = () => incrementRetryCount(intakeRecord?.retry_count);
-    const nowIso = () => new Date().toISOString();
 
-    // Dedupe by session id
-    if (sessionId && !forceRetry) {
-      try {
-        const existingSubmissions = await base44.asServiceRole.entities.FormSubmission.filter(
-          { questionnaire_session_id: sessionId },
-          '-created_date', 1
-        );
-        if (existingSubmissions && existingSubmissions.length > 0) {
-          const existingId = existingSubmissions[0].id;
-          await updateIntake({
-            status: 'retry_success',
-            linked_submission_id: existingId,
-            retry_error_json: '',
-            last_retry_at: nowIso(),
-            retry_count: retryCount(),
-          });
-          return Response.json({
-            success: true, alreadySubmitted: true,
-            linkedSubmissionId: existingId,
-            intakeId: intakeIdActual,
-          }, { headers: corsHeaders });
-        }
-      } catch {
-        // Filter may not be supported - skip safely
-      }
-    }
-
-    // Also dedupe by submit_attempt_id
-    if (submitAttemptId && !forceRetry) {
-      try {
-        const existingByAttempt = await base44.asServiceRole.entities.FormSubmission.filter(
-          { submit_attempt_id: submitAttemptId }, '-created_date', 1
-        );
-        if (existingByAttempt && existingByAttempt.length > 0) {
-          const existingId = existingByAttempt[0].id;
-          await updateIntake({
-            status: 'retry_success',
-            linked_submission_id: existingId,
-            retry_error_json: '',
-            last_retry_at: nowIso(),
-            retry_count: retryCount(),
-          });
-          return Response.json({
-            success: true, alreadySubmitted: true,
-            linkedSubmissionId: existingId,
-            intakeId: intakeIdActual,
-          }, { headers: corsHeaders });
-        }
-      } catch {
-        // Filter may not be supported - skip safely
-      }
-    }
-
-    // With forceRetry, prefer linking to existing submission if found
-    if (forceRetry && sessionId) {
-      try {
-        const existingSubmissions = await base44.asServiceRole.entities.FormSubmission.filter(
-          { questionnaire_session_id: sessionId }, '-created_date', 1
-        );
-        if (existingSubmissions && existingSubmissions.length > 0) {
-          const existingId = existingSubmissions[0].id;
-          await updateIntake({
-            status: 'retry_success',
-            linked_submission_id: existingId,
-            retry_error_json: '',
-            last_retry_at: nowIso(),
-            retry_count: retryCount(),
-          });
-          return Response.json({
-            success: true, alreadySubmitted: true,
-            linkedSubmissionId: existingId,
-            intakeId: intakeIdActual,
-          }, { headers: corsHeaders });
-        }
-      } catch {
-        // continue to create
-      }
-    }
-
-    // Normalize and create FormSubmission
+    // Normalize payload
     transformed.metadata.service_type = 'express';
     if (sessionId) transformed.metadata.questionnaire_session_id = sessionId;
     if (submitAttemptId) transformed.metadata.submit_attempt_id = submitAttemptId;
 
-    const submissionRecord = mapExpressPayloadToFormSubmissionRecord(transformed);
+    // ── Non-force retry: dedup by session_id or submit_attempt_id ──
+    // If a FormSubmission already exists, return alreadySubmitted WITHOUT
+    // delivering to Zapier (use Force Retry for that).
+    if (!forceRetry) {
+      if (sessionId) {
+        try {
+          const existingSubmissions = await base44.asServiceRole.entities.FormSubmission.filter(
+            { questionnaire_session_id: sessionId }, '-created_date', 1
+          );
+          if (existingSubmissions && existingSubmissions.length > 0) {
+            const existingId = existingSubmissions[0].id;
+            await updateIntake({
+              status: 'retry_success',
+              linked_submission_id: existingId,
+              retry_error_json: '',
+              last_retry_at: nowIso(),
+              retry_count: retryCount(),
+            });
+            return Response.json({
+              success: true, alreadySubmitted: true,
+              linkedSubmissionId: existingId,
+              intakeId: intakeIdActual,
+              message: 'Already linked. Use Force Retry to re-send to Zapier.',
+            }, { headers: corsHeaders });
+          }
+        } catch { /* skip */ }
+      }
 
-    let createdSubmission;
-    try {
-      createdSubmission = await base44.asServiceRole.entities.FormSubmission.create(submissionRecord);
-    } catch (createError) {
-      const errorPayload = safeError(createError);
-      await updateIntake({
-        status: 'retry_failed',
-        retry_error_json: JSON.stringify(errorPayload),
-        last_retry_at: nowIso(),
-        retry_count: retryCount(),
-      });
-      return Response.json(
-        { success: false, error: errorPayload, intakeId: intakeIdActual },
-        { status: 500, headers: corsHeaders }
-      );
+      if (submitAttemptId) {
+        try {
+          const existingByAttempt = await base44.asServiceRole.entities.FormSubmission.filter(
+            { submit_attempt_id: submitAttemptId }, '-created_date', 1
+          );
+          if (existingByAttempt && existingByAttempt.length > 0) {
+            const existingId = existingByAttempt[0].id;
+            await updateIntake({
+              status: 'retry_success',
+              linked_submission_id: existingId,
+              retry_error_json: '',
+              last_retry_at: nowIso(),
+              retry_count: retryCount(),
+            });
+            return Response.json({
+              success: true, alreadySubmitted: true,
+              linkedSubmissionId: existingId,
+              intakeId: intakeIdActual,
+              message: 'Already linked. Use Force Retry to re-send to Zapier.',
+            }, { headers: corsHeaders });
+          }
+        } catch { /* skip */ }
+      }
     }
 
-    await updateIntake({
-      status: 'retry_success',
-      linked_submission_id: createdSubmission.id,
-      retry_error_json: '',
-      last_retry_at: nowIso(),
-      retry_count: retryCount(),
-    });
+    // ═══════════════════════════════════════════════════════════════════════════
+    // At this point:
+    //   - forceRetry=true: ALWAYS proceed to create/update + Zapier delivery
+    //   - forceRetry=false: no existing submission found, so create one
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    // ── Deliver to Zapier ──
+    let submissionId = null;
+    let existingSubmission = null;
+    let isExistingSubmission = false;
+
+    // For forceRetry: check if a FormSubmission already exists for this session
+    if (forceRetry && sessionId) {
+      try {
+        const existing = await base44.asServiceRole.entities.FormSubmission.filter(
+          { questionnaire_session_id: sessionId }, '-created_date', 1
+        );
+        if (existing && existing.length > 0) {
+          existingSubmission = existing[0];
+          submissionId = existing[0].id;
+          isExistingSubmission = true;
+        }
+      } catch { /* continue to create */ }
+    }
+
+    if (isExistingSubmission) {
+      // ── Update existing FormSubmission: increment resubmit_count ──
+      const newResubmitCount = (existingSubmission.resubmit_count || 0) + 1;
+      try {
+        await base44.asServiceRole.entities.FormSubmission.update(submissionId, {
+          resubmit_count: newResubmitCount,
+        });
+      } catch { /* best effort */ }
+    } else {
+      // ── Create new FormSubmission ──
+      const submissionRecord = mapExpressPayloadToFormSubmissionRecord(transformed);
+      submissionRecord.resubmit_count = 1;
+
+      try {
+        const created = await base44.asServiceRole.entities.FormSubmission.create(submissionRecord);
+        submissionId = created.id;
+      } catch (createError) {
+        const errorPayload = safeError(createError);
+        await updateIntake({
+          status: 'retry_failed',
+          retry_error_json: JSON.stringify(errorPayload),
+          last_retry_at: nowIso(),
+          retry_count: retryCount(),
+        });
+        return Response.json(
+          { success: false, error: errorPayload, intakeId: intakeIdActual },
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    // ── ALWAYS deliver to Zapier (every retry sends the payload) ──
     const zapierResult = await deliverToZapier(transformed);
     const now = nowIso();
+    const currentZapierCount = (existingSubmission?.zapier_attempt_count || 0) + 1;
+    const currentResubmitCount = isExistingSubmission
+      ? (existingSubmission.resubmit_count || 0) + 1
+      : 1;
+
     try {
-      await base44.asServiceRole.entities.FormSubmission.update(createdSubmission.id, zapierResult.ok
-        ? { zapier_delivery_status: 'sent', zapier_sent: true, zapier_sent_at: now, zapier_error_json: '', zapier_attempt_count: 1 }
-        : { zapier_delivery_status: 'failed', zapier_sent: false, zapier_error_json: JSON.stringify({ message: zapierResult.error }), zapier_attempt_count: 1 }
+      await base44.asServiceRole.entities.FormSubmission.update(submissionId, zapierResult.ok
+        ? {
+            zapier_delivery_status: 'sent', zapier_sent: true, zapier_sent_at: now,
+            zapier_error_json: '', zapier_attempt_count: currentZapierCount,
+          }
+        : {
+            zapier_delivery_status: 'failed', zapier_sent: false,
+            zapier_error_json: JSON.stringify({ message: zapierResult.error }),
+            zapier_attempt_count: currentZapierCount,
+          }
       );
     } catch { /* best effort */ }
+
+    // Update intake record
     await updateIntake({
+      status: 'retry_success',
+      linked_submission_id: submissionId,
+      retry_error_json: '',
+      last_retry_at: now,
+      retry_count: retryCount(),
       zapier_sent: zapierResult.ok,
       zapier_error_json: zapierResult.ok ? '' : JSON.stringify({ message: zapierResult.error }),
     });
 
     return Response.json({
       success: true,
-      linkedSubmissionId: createdSubmission.id,
+      alreadySubmitted: isExistingSubmission,
+      linkedSubmissionId: submissionId,
       intakeId: intakeIdActual,
       zapierSent: zapierResult.ok,
       zapierError: zapierResult.ok ? null : zapierResult.error,
+      resubmitCount: currentResubmitCount,
+      zapierAttemptCount: currentZapierCount,
     }, { headers: corsHeaders });
 
   } catch (error) {

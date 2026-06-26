@@ -239,7 +239,17 @@ function IntakeRecordRow({ record, onRefresh }) {
       });
       const data = response?.data || response;
       if (data?.success) {
-        toast.success(data.alreadySubmitted ? "Already linked to a submission" : (forceRetry ? "Force retry completed" : "Retry completed"));
+        // Surface Zapier delivery result clearly
+        if (data.zapierSent) {
+          const countLabel = data.resubmitCount ? ` (resubmit #${data.resubmitCount})` : "";
+          toast.success(`Payload sent to Zapier${countLabel}`);
+        } else if (data.zapierError) {
+          toast.error(`Zapier delivery failed: ${data.zapierError}`);
+        } else if (data.alreadySubmitted) {
+          toast.success("Already linked to a submission. Use Force Retry to re-send to Zapier.");
+        } else {
+          toast.success(forceRetry ? "Force retry completed" : "Retry completed");
+        }
       } else {
         toast.error(data?.error?.message || "Retry failed");
       }

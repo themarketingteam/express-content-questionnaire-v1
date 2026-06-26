@@ -171,6 +171,11 @@
       "type": "number",
       "default": 0,
       "description": "Number of Zapier delivery attempts for this submission"
+    },
+    "resubmit_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of times this submission has been resubmitted to Zapier via admin retry"
     }
   },
   "required": [],

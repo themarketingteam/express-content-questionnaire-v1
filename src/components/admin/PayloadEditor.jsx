@@ -132,15 +132,23 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
         mapped_payload_json: JSON.stringify(payload),
       });
 
-      // 2. Trigger retry via retryQuestionnaireIntakeSubmission
+      // 2. Trigger retry via retryQuestionnaireIntakeSubmission with the edited payload
       const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
         questionnaireSessionId: draft.session_id,
         forceRetry: true,
+        payload,
       });
       const data = res?.data || res;
 
       if (data?.success) {
-        toast.success(data.alreadySubmitted ? "Already linked to a submission." : "Retry submission succeeded!");
+        if (data.zapierSent) {
+          const countLabel = data.resubmitCount ? ` (resubmit #${data.resubmitCount})` : "";
+          toast.success(`Payload sent to Zapier${countLabel}!`);
+        } else if (data.zapierError) {
+          toast.error(`Zapier delivery failed: ${data.zapierError}`);
+        } else {
+          toast.success("Retry submission succeeded!");
+        }
       } else {
         toast.error(data?.error?.message || "Retry failed — check intake recovery for details.");
       }

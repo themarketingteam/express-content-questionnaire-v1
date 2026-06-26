@@ -258,12 +258,11 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
     try {
       const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
         questionnaireSessionId: draft.session_id,
-        forceRetry: false,
+        forceRetry: true,
         payload: preview?.payload || mappedPayload || null,
       });
       const data = res?.data || res;
       if (data?.success) {
-        toast.success(data.alreadySubmitted ? "Already linked to submission" : "Retry completed");
         // Save local backup of the submission payload
         try {
           writeLocalFailedSubmissionBackup({
@@ -280,9 +279,15 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
             diagnostics: { source: "FormDraftRecovery", linkedSubmissionId: data.linkedSubmissionId || null, timestamp: new Date().toISOString() },
           });
         } catch { /* ignore local backup errors */ }
-        // Surface Zapier delivery result
-        if (data.zapierSent) toast.success("Payload sent to Zapier");
-        else if (data.zapierError) toast.error(`Zapier delivery failed: ${data.zapierError}`);
+        // Surface Zapier delivery result with clear feedback
+        if (data.zapierSent) {
+          const countLabel = data.resubmitCount ? ` (resubmit #${data.resubmitCount})` : "";
+          toast.success(`Payload sent to Zapier${countLabel}`);
+        } else if (data.zapierError) {
+          toast.error(`Zapier delivery failed: ${data.zapierError}`);
+        } else {
+          toast.success("Retry completed");
+        }
       } else {
         toast.error(data?.error?.message || "Retry failed");
       }
@@ -449,11 +454,12 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
           <div className="space-y-2">
             {/* Retry + AI actions */}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
                 disabled={isLoading}
-                onClick={handleRetry}>
+                onClick={handleRetry}
+                title="Re-sends the payload to Zapier every time. The webhook handles de-duplication.">
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                Retry Submission
+                Resubmit to Zapier
               </Button>
               <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
                 disabled={isLoading}
