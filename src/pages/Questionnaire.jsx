@@ -41,7 +41,7 @@ import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
 import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidator";
 import DestructiveActionConfirmModal from "@/components/questionnaire/DestructiveActionConfirmModal";
-import { Save, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { useExpressAnswerHistory } from "@/lib/hooks/useExpressAnswerHistory";
 import { parseAnswerHistory } from "@/lib/expressAnswerHistory";
@@ -88,7 +88,6 @@ const FIELD_TO_QUESTION = {
 export default function Questionnaire() {
   const [formData, setFormData] = useState(getInitialExpressFormData);
 
-  const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showThankYouModal, setShowThankYouModal] = useState(false);
   const [submittedData, setSubmittedData] = useState(null);
@@ -545,8 +544,6 @@ export default function Questionnaire() {
       saveStateToLocalStorage(persistedState, questionnaireSessionId);
       // Write a small marker cookie for legacy compatibility (no form data)
       writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
-      setShowSaveIndicator(true);
-      setTimeout(() => setShowSaveIndicator(false), 3000);
     }, 300);
 
     return () => clearTimeout(saveTimer);
@@ -1271,19 +1268,6 @@ export default function Questionnaire() {
             <h1 className="text-5xl font-bold text-white tracking-tight drop-shadow-lg" style={{ paddingTop: '75px', fontFamily: 'Raleway, sans-serif' }}>MSP Success - Express | Website Content Questionnaire</h1>
             <p className="text-white mt-1 drop-shadow-md text-lg" style={{ paddingBottom: '75px', fontFamily: 'Lato, sans-serif' }}>Help us get to know your business.</p>
           </div>
-          <AnimatePresence>
-            {showSaveIndicator && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex items-center gap-2 text-sm"
-              >
-                <Save className="w-4 h-4 text-green-600" />
-                <span className="text-slate-600">Auto-saved</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
       </header>
 
