@@ -5,6 +5,7 @@
 
 import {
   buildExpressSubmissionPayload,
+  getInitialExpressFormData,
   safeJsonStringify,
   serializeExpressError
 } from "@/lib/expressQuestionnairePayload";
@@ -70,7 +71,60 @@ export function createFindExistingDraftBySessionId({ draftRecordIdRef }) {
   };
 }
 
+const INITIAL_FORM_DATA = getInitialExpressFormData();
+
+function safeJsonParseLocal(value, fallback = {}) {
+  if (!value) return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
+/**
+ * Determine if a field value should be considered "empty" for merge purposes.
+ * Empty values do NOT overwrite existing recovery data.
+ */
+function isFieldValueEmpty(key, value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") {
+    if (value.trim() === "") return true;
+    // The default clientSize is auto-filled, not user-entered
+    if (key === "clientSize" && value === INITIAL_FORM_DATA.clientSize) return true;
+    return false;
+  }
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") {
+    // geographicAreaMeta with only { source: "google" } is a default stub
+    return !Object.entries(value).some(([k, v]) =>
+      k !== "source" && v !== null && v !== undefined && v !== ""
+    );
+  }
+  return false;
+}
+
+/**
+ * Per-field merge: new non-empty values override existing; empty values retain
+ * the last-known answer. This ensures recovery holds data even after the user
+ * clears the form locally or refreshes the page.
+ */
+function mergeFormResponses(existing, incoming) {
+  const merged = { ...existing };
+  for (const key of Object.keys(INITIAL_FORM_DATA)) {
+    const incomingValue = incoming[key];
+    if (!isFieldValueEmpty(key, incomingValue)) {
+      merged[key] = incomingValue;
+    } else if (merged[key] === undefined) {
+      merged[key] = incomingValue;
+    }
+  }
+  return merged;
+}
+
 export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExistingDraftBySessionId }) {
+  // Cache the last merged state so subsequent saves don't need a server round-trip.
+  // Reset to null on page load; populated after the first save.
+  const lastMergedResponsesRef = { current: null };
+  const lastMergedBusinessNameRef = { current: "" };
+  const lastMergedDomainRef = { current: "" };
+
   return async function saveDraftSnapshot({
     sessionId,
     responses,
@@ -113,10 +167,41 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       normalizedExpandedQuestions = normalizeExpandedQuestions({});
     }
 
+    // Find existing draft first — needed for per-field merge
+    const existing = await findExistingDraftBySessionId({ sessionId, entities });
+
+    // Retrieve last-known responses for merge (cache → server fallback)
+    let existingResponses = {};
+    let existingBusinessName = "";
+    let existingDomain = "";
+
+    if (lastMergedResponsesRef.current) {
+      existingResponses = lastMergedResponsesRef.current;
+      existingBusinessName = lastMergedBusinessNameRef.current;
+      existingDomain = lastMergedDomainRef.current;
+    } else if (existing && existing.responses_json) {
+      existingResponses = safeJsonParseLocal(existing.responses_json, {});
+      existingBusinessName = existing.business_name || "";
+      existingDomain = existing.domain || "";
+    }
+
+    // Per-field merge: new non-empty values override; empty values retain existing.
+    // This ensures recovery holds answers even after local clear/refresh.
+    const mergedResponses = mergeFormResponses(existingResponses, normalizedResponses);
+    const mergedBusinessName = businessName || existingBusinessName;
+    const mergedDomain = domain || existingDomain;
+
+    // Update cache for next save
+    lastMergedResponsesRef.current = mergedResponses;
+    lastMergedBusinessNameRef.current = mergedBusinessName;
+    lastMergedDomainRef.current = mergedDomain;
+
+    // Build payload from merged responses so the recovery JSON always reflects
+    // the full set of known answers, not just the current form state.
     const mappedPayload = buildExpressSubmissionPayload({
-      formData: normalizedResponses,
-      businessName,
-      domain,
+      formData: mergedResponses,
+      businessName: mergedBusinessName,
+      domain: mergedDomain,
       sessionId,
       submitAttemptId
     });
@@ -133,20 +218,21 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       schema_version: "2",
       normalized: true,
       normalization_source: "draft_save",
+      merge_applied: true,
       normalization_error: normalizationError || ""
     };
 
     const draftRecord = {
       session_id: sessionId,
-      business_name: businessName,
-      domain,
+      business_name: mergedBusinessName,
+      domain: mergedDomain,
       user_id: creds.userId,
       user_name: creds.userName,
       user_email: creds.userEmail,
       status,
       current_question_id: String(currentQuestionId || ""),
       last_changed_question_id: String(lastChangedQuestionId || ""),
-      responses_json: safeJsonStringify(normalizedResponses),
+      responses_json: safeJsonStringify(mergedResponses),
       validation_status_json: safeJsonStringify(normalizedValidationStatus),
       touched_questions_json: safeJsonStringify(normalizedTouchedQuestions),
       expanded_questions_json: safeJsonStringify(normalizedExpandedQuestions),
@@ -165,8 +251,6 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       ...(fieldHistory !== null ? { field_history_json: safeJsonStringify(fieldHistory) } : {}),
       ...(lastLocalPersistedAt ? { last_local_persisted_at: lastLocalPersistedAt } : {})
     };
-
-    const existing = await findExistingDraftBySessionId({ sessionId, entities });
 
     if (existing?.id) {
       await entities.FormDraft.update(existing.id, draftRecord);

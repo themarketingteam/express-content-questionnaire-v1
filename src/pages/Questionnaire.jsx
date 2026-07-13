@@ -1004,14 +1004,11 @@ export default function Questionnaire() {
       
       // Save cleared state to draft snapshot
       if (!hasFinalSubmittedRef.current) {
-        await saveDraftNow({
-          status: "draft",
-          responsesSnapshot: clearedFormData,
-          validationStatusSnapshot: clearedValidationStatus,
-          touchedQuestionsSnapshot: clearedTouchedQuestions,
-          expandedQuestionsSnapshot: clearedExpandedQuestions,
-        });
-        
+        // Intentionally do NOT save cleared data to the server.
+        // The recovery draft retains the last-known answers via per-field merge.
+        // Only local state (form, localStorage, cookie) is cleared below.
+        // When the user enters new answers, queueDraftSave merges them in.
+
         // Create draft event for destructive action
         createDraftEvent({
           eventType: "answers_cleared",
@@ -1044,7 +1041,7 @@ export default function Questionnaire() {
       setIsClearingAll(false);
       setShowClearAllConfirm(false);
     }
-  }, [questionnaireSessionId, textValidation, saveDraftNow, createDraftEvent]);
+  }, [questionnaireSessionId, textValidation, createDraftEvent]);
 
   // Silent reset after full successful submission (no confirmation modal)
   const resetQuestionnaireStateAfterFullSuccess = useCallback(() => {
