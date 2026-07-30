@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
-import { useAuth } from "@/lib/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,7 +18,6 @@ import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeR
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
 import PayloadEditor from "@/components/admin/PayloadEditor";
-import { useDraftRecoveryAccess } from "@/components/admin/DraftRecoveryAccessGate";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -230,7 +228,7 @@ const SOURCE_LABEL = {
   empty_schema: "empty schema — no data available",
 };
 
-function DraftRow({ draft, isDuplicate, onRefresh, accessToken }) {
+function DraftRow({ draft, isDuplicate, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
@@ -258,7 +256,6 @@ function DraftRow({ draft, isDuplicate, onRefresh, accessToken }) {
   const handleRetry = () => handleAction("retry", async () => {
     try {
       const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
-        accessToken,
         questionnaireSessionId: draft.session_id,
         forceRetry: true,
         payload: preview?.payload || mappedPayload || null,
@@ -302,7 +299,6 @@ function DraftRow({ draft, isDuplicate, onRefresh, accessToken }) {
   const handleAiAction = (mode) => handleAction(mode, async () => {
     try {
       const res = await base44.functions.invoke("repairExpressQuestionnaireIntakeSubmission", {
-        accessToken,
         draftId: draft.id,
         questionnaireSessionId: draft.session_id,
         mode,
@@ -599,8 +595,6 @@ const STATUS_OPTIONS = [
 ];
 
 export default function FormDraftRecovery() {
-  const { user } = useAuth();
-  const { accessToken, expiresAt, lock } = useDraftRecoveryAccess();
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -613,7 +607,6 @@ export default function FormDraftRecovery() {
     if (!silent) setLoading(true);
     try {
       const response = await base44.functions.invoke("draftRecoveryData", {
-        accessToken,
         action: "listDrafts",
       });
       const data = response?.data || response || {};
@@ -641,7 +634,16 @@ export default function FormDraftRecovery() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [accessToken]);
+  }, []);
+
+  // Remove the obsolete signed token left by the former password gate.
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem("express_draft_recovery_access_v1");
+    } catch {
+      // Storage may be unavailable in a privacy-restricted browser.
+    }
+  }, []);
 
   // Load on mount; auto-refresh silently every 30 seconds (no state thrash, no scroll jump)
   useEffect(() => {
@@ -672,16 +674,11 @@ export default function FormDraftRecovery() {
     <div className="max-w-6xl mx-auto px-6 py-10 space-y-12">
       {/* ── Draft Recovery ── */}
       <div>
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
-              Express Form Draft Recovery
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">Review Express questionnaire drafts and initiate AI-assisted or manual recovery.</p>
-            {user?.email && <p className="text-xs text-slate-400 mt-1">Signed in as {user.email}</p>}
-            {expiresAt && <p className="text-xs text-slate-400 mt-1">Browser access expires {formatDate(expiresAt)}</p>}
-          </div>
-          <Button variant="outline" size="sm" onClick={lock} className="shrink-0">Lock Access</Button>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
+            Express Form Draft Recovery
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">Review Express questionnaire drafts and initiate AI-assisted or manual recovery.</p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -726,7 +723,7 @@ export default function FormDraftRecovery() {
         ) : (
           <div className="space-y-2">
             {filtered.map(draft => (
-              <DraftRow key={draft.id} draft={draft} isDuplicate={duplicateSessionIds.has(draft.session_id)} onRefresh={loadDrafts} accessToken={accessToken} />
+              <DraftRow key={draft.id} draft={draft} isDuplicate={duplicateSessionIds.has(draft.session_id)} onRefresh={loadDrafts} />
             ))}
           </div>
         )}

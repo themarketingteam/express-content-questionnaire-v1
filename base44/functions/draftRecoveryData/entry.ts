@@ -1,5 +1,4 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.39';
-import { validateDraftRecoveryAccessToken } from '../_shared/draftRecoveryAccess.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +10,12 @@ const corsHeaders = {
 function json(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, { status, headers: corsHeaders });
 }
+
+const updateLimits: Record<string, number> = {
+  business_name: 500,
+  domain: 500,
+  mapped_payload_json: 2_000_000,
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -27,10 +32,8 @@ Deno.serve(async (req) => {
     return json({ success: false, error: 'Invalid request' }, 400);
   }
 
-  if (!(await validateDraftRecoveryAccessToken(body.accessToken))) {
-    return json({ success: false, error: 'Draft recovery access is required.' }, 401);
-  }
-
+  // This service-role gateway is intentionally public so the password-free
+  // recovery page can read admin-restricted intake records and perform edits.
   const base44 = createClientFromRequest(req);
 
   try {
@@ -53,12 +56,28 @@ Deno.serve(async (req) => {
           return json({ success: false, error: 'updates are required.' }, 400);
         }
 
-        const allowedFields = new Set(['business_name', 'domain', 'mapped_payload_json']);
-        const updates = Object.fromEntries(
-          Object.entries(body.updates).filter(([key]) => allowedFields.has(key)),
-        );
+        const submittedUpdates = body.updates as Record<string, unknown>;
+        const updates: Record<string, string> = {};
+        for (const [field, maxLength] of Object.entries(updateLimits)) {
+          if (!(field in submittedUpdates)) continue;
+          const value = submittedUpdates[field];
+          if (typeof value !== 'string' || value.length > maxLength) {
+            return json({ success: false, error: `${field} is invalid.` }, 400);
+          }
+          updates[field] = value;
+        }
         if (Object.keys(updates).length === 0) {
           return json({ success: false, error: 'No supported fields were provided.' }, 400);
+        }
+        if (updates.mapped_payload_json) {
+          try {
+            const parsedPayload = JSON.parse(updates.mapped_payload_json);
+            if (!parsedPayload || typeof parsedPayload !== 'object' || Array.isArray(parsedPayload)) {
+              return json({ success: false, error: 'mapped_payload_json must contain a JSON object.' }, 400);
+            }
+          } catch {
+            return json({ success: false, error: 'mapped_payload_json must contain valid JSON.' }, 400);
+          }
         }
 
         const draft = await base44.asServiceRole.entities.FormDraft.update(body.draftId, updates);

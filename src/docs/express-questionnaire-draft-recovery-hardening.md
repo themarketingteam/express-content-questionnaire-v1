@@ -28,8 +28,8 @@ The system uses multiple redundant layers to prevent data loss.
 
 - **Entity:** `FormDraft`
 - **Written:** debounced ~600 ms after every answer change via `saveDraftSnapshot`
-- **Read:** admin-only via `/admin/draft-recovery`
-- **Survives:** browser wipe, device change (requires re-authentication or sessionId match)
+- **Read:** via the intentionally public `/admin/draft-recovery` recovery page
+- **Survives:** browser wipe and device change
 - **Includes:** `responses_json`, `validation_status_json`, `touched_questions_json`, `expanded_questions_json`, `mapped_payload_json`, `last_non_empty_answers_json`, `field_history_json`, `last_local_persisted_at`
 
 ### Layer 4 — FormDraftEvent Audit Trail
@@ -37,7 +37,7 @@ The system uses multiple redundant layers to prevent data loss.
 - **Entity:** `FormDraftEvent`
 - **Written:** on every significant action: answer change, question open/close, submit attempts, validation events, recovery events
 - **Purpose:** forensic replay, support diagnostics
-- **Admin access:** via `/admin/draft-recovery` → expand draft row
+- **Recovery access:** via `/admin/draft-recovery` → expand draft row
 
 ### Layer 5 — FormSubmissionIntake Fallback
 
@@ -48,7 +48,7 @@ The system uses multiple redundant layers to prevent data loss.
 
 ### Layer 6 — Admin Retry / Resend
 
-- **Page:** `/admin/questionnaire-intake-recovery`
+- **Pages:** public `/admin/draft-recovery` (Submission Intake Recovery section) and authenticated `/admin/questionnaire-intake-recovery`
 - **Function:** `retryQuestionnaireIntakeSubmission`
 - **Purpose:** admin can retry creating `FormSubmission` from an intake record without user re-entering data
 
@@ -56,7 +56,7 @@ The system uses multiple redundant layers to prevent data loss.
 
 - **Function:** `repairExpressQuestionnaireIntakeSubmission`
 - **Agent:** `express_submission_repair_agent`
-- **Page:** `/admin/questionnaire-intake-recovery`
+- **Pages:** public `/admin/draft-recovery` (Submission Intake Recovery section) and authenticated `/admin/questionnaire-intake-recovery`
 - **Steps:** Diagnose → Repair Only → Repair + Retry
 - **Stores:** `ai_repair_report_json`, `ai_repaired_payload_json`, `ai_repair_status`, `ai_repair_source`
 - **Safety:** AI cannot invent answers; it only repairs structural/format issues
@@ -84,10 +84,10 @@ The system uses multiple redundant layers to prevent data loss.
 | 7 | Submit with valid complete data | `FormSubmission` created; ThankYou modal shown; cookie + session cleared |
 | 8 | Simulate submit failure (network off at submit) | Answers remain in form; recovery card shows sessionId / recovery code |
 | 9 | Retry submit from confirm modal recovery card | Submission retries without re-entering answers; uses same sessionId |
-| 10 | Admin opens `/admin/draft-recovery` | Draft shows AI repair fields, field history, last non-empty answers JSON |
+| 10 | Visitor opens `/admin/draft-recovery` | Page loads without a password or login and shows draft recovery data |
 | 11 | Admin opens `/admin/questionnaire-intake-recovery` | Intake records listed; AI Diagnose button available |
-| 12 | Admin clicks "AI Repair Only" | `ai_repaired_payload_json` and `ai_repair_report_json` saved; status = `repaired` |
-| 13 | Admin clicks "AI Repair + Retry" | Final `FormSubmission` created (or deduped if already exists); status = `retry_success` |
+| 12 | User clicks "AI Repair Only" | `ai_repaired_payload_json` and `ai_repair_report_json` saved; status = `repaired` |
+| 13 | User clicks "AI Repair + Retry" | Final `FormSubmission` created (or deduped if already exists); status = `retry_success` |
 | 14 | Submit without `businessDomain` | Form submits successfully; `business_domain` is empty string or null, not a blocker |
 | 15 | Rapid double-click submit | Second submit attempt blocked by `submitInFlightRef` and `hasActiveSubmitAttemptForSession` |
 | 16 | Zapier delivery | `sendExpressToZapier` called after `FormSubmission` creation; `zapier_sent` set to `true` |
@@ -99,7 +99,8 @@ The system uses multiple redundant layers to prevent data loss.
 - **Current `formData` is the only client-submitted source of truth.** The submission payload is built from `formData` at the moment of submit — not from draft snapshots.
 - **`last_non_empty_answers_json` is recovery-only.** It is never included in the submission payload unless the user explicitly clicks "Restore" in the UI.
 - **AI repair cannot invent answers.** The `repairExpressQuestionnaireIntakeSubmission` function is restricted to structural/format corrections (e.g., fixing array types, normalizing strings). It does not generate or modify answer content.
-- **AI repair requires admin action.** No repair is applied automatically. All AI repair steps are gated behind admin-only UI.
+- **AI repair requires a deliberate UI action.** No repair is applied automatically. The draft recovery route and its repair actions are intentionally public and password-free.
+- **Public recovery access is intentional.** Anyone with `/admin/draft-recovery` can view draft and intake data, edit supported draft fields, and initiate retry or AI-repair actions. The service-role gateway validates editable field types, sizes, and payload JSON, but it does not authenticate callers.
 - **`domain` is optional for Express.** The `businessDomain` field is not required for form submission or Zapier delivery. Missing domain does not block any submission path.
 - **Duplicate submit protection** is enforced at two levels: client-side (`submitInFlightRef` + `activeSubmitAttempt` localStorage) and server-side (deduplication by `questionnaire_session_id` + `submit_attempt_id`).
 
@@ -117,12 +118,13 @@ The system uses multiple redundant layers to prevent data loss.
   - `express_questionnaire_error_diagnostic_<sessionId>` — error boundary diagnostics
 
 ### Finding FormDraft Records
-- Admin page: `/admin/draft-recovery`
+- Public recovery page: `/admin/draft-recovery`
 - Filter by session ID, business name, or status
 - Expand a draft row to see: responses, validation status, AI repair fields, last non-empty answers, field history
 
 ### Finding FormSubmissionIntake Records
-- Admin page: `/admin/questionnaire-intake-recovery`
+- Public page: `/admin/draft-recovery` → Submission Intake Recovery
+- Authenticated admin page: `/admin/questionnaire-intake-recovery`
 - Filter by status (`received_intake`, `retry_pending`, `retry_success`, `retry_failed`, `abandoned`)
 - Expand a row to see: raw responses, transformed payload, diagnostics, AI repair history
 
@@ -132,7 +134,7 @@ The system uses multiple redundant layers to prevent data loss.
 - Use this when escalating to engineering
 
 ### Using AI Repair Safely
-1. Open `/admin/questionnaire-intake-recovery`
+1. Open `/admin/draft-recovery` and scroll to Submission Intake Recovery (or use the authenticated `/admin/questionnaire-intake-recovery` page)
 2. Find the failing intake record
 3. Click **AI Diagnose** — reads the issue without changing data
 4. Review the diagnosis in `ai_repair_report_json`

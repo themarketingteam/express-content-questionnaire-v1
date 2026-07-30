@@ -1,5 +1,4 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
-import { validateDraftRecoveryAccessToken } from '../_shared/draftRecoveryAccess.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -194,24 +193,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
 
-    let user;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      // Password-token access is also supported for the draft recovery route.
-    }
-
-    const isAdmin = user?.role === 'admin';
-    const isBenjamin = user?.email?.toLowerCase() === 'benjamin.hines8@gmail.com';
-
-    const hasDraftRecoveryAccess = await validateDraftRecoveryAccessToken(body.accessToken);
-
-    if (!isAdmin && !isBenjamin && !hasDraftRecoveryAccess) {
-      return Response.json(
-        { success: false, error: { message: 'Forbidden: Draft recovery access required' } },
-        { status: 403, headers: corsHeaders }
-      );
-    }
+    // Intentionally public: this action is part of the password-free recovery page.
 
     const { intakeId, questionnaireSessionId, forceRetry = false, payload: providedPayload } = body;
 

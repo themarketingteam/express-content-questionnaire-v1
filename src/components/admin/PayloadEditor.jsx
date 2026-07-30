@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Send, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
-import { useDraftRecoveryAccess } from "@/components/admin/DraftRecoveryAccessGate";
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
@@ -32,7 +31,6 @@ function patchPayload(payload, businessName, businessDomain) {
 }
 
 export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
-  const { accessToken } = useDraftRecoveryAccess();
   const [open, setOpen] = useState(false);
 
   // Editable fields
@@ -106,7 +104,6 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
     setIsSaving(true);
     try {
       const response = await base44.functions.invoke("draftRecoveryData", {
-        accessToken,
         action: "updateDraft",
         draftId: draft.id,
         updates: {
@@ -136,7 +133,6 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
     try {
       // 1. Persist edits to draft
       const updateResponse = await base44.functions.invoke("draftRecoveryData", {
-        accessToken,
         action: "updateDraft",
         draftId: draft.id,
         updates: {
@@ -150,7 +146,6 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
 
       // 2. Trigger retry via retryQuestionnaireIntakeSubmission with the edited payload
       const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
-        accessToken,
         questionnaireSessionId: draft.session_id,
         forceRetry: true,
         payload,

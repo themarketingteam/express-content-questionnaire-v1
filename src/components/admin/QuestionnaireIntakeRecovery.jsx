@@ -25,7 +25,6 @@ import {
 import { toast } from "sonner";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
-import { useDraftRecoveryAccess } from "@/components/admin/DraftRecoveryAccessGate";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -181,7 +180,7 @@ function AiRepairSummary({ record }) {
 
 // ─── Intake Record Row ────────────────────────────────────────────────────────
 
-function IntakeRecordRow({ record, onRefresh, accessToken }) {
+function IntakeRecordRow({ record, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null); // null | 'retry' | 'force_retry' | 'diagnose' | 'repair_only' | 'repair_and_retry'
 
@@ -189,7 +188,6 @@ function IntakeRecordRow({ record, onRefresh, accessToken }) {
     setActionLoading(mode);
     try {
       const response = await base44.functions.invoke("repairExpressQuestionnaireIntakeSubmission", {
-        accessToken,
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
         mode,
@@ -235,7 +233,6 @@ function IntakeRecordRow({ record, onRefresh, accessToken }) {
     setActionLoading(forceRetry ? "force_retry" : "retry");
     try {
       const response = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
-        accessToken,
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
         forceRetry,
@@ -471,7 +468,6 @@ function IntakeRecordRow({ record, onRefresh, accessToken }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function QuestionnaireIntakeRecovery() {
-  const { accessToken } = useDraftRecoveryAccess();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -483,7 +479,6 @@ export default function QuestionnaireIntakeRecovery() {
       setLoading(true);
       setLoadError("");
       const response = await base44.functions.invoke("draftRecoveryData", {
-        accessToken,
         action: "listIntakes",
       });
       const data = response?.data || response || {};
@@ -500,7 +495,7 @@ export default function QuestionnaireIntakeRecovery() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, []);
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
 
@@ -565,7 +560,7 @@ export default function QuestionnaireIntakeRecovery() {
           <Card><CardContent className="p-6 text-center text-slate-500 text-sm">No intake records found</CardContent></Card>
         ) : (
           filtered.map((record) => (
-            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} accessToken={accessToken} />
+            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} />
           ))
         )}
       </div>
