@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { validateDraftRecoveryAccessToken } from '../_shared/draftRecoveryAccess.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -197,18 +198,17 @@ Deno.serve(async (req) => {
     try {
       user = await base44.auth.me();
     } catch {
-      return Response.json(
-        { success: false, error: { message: 'Forbidden: Admin access required' } },
-        { status: 403, headers: corsHeaders }
-      );
+      // Password-token access is also supported for the draft recovery route.
     }
 
     const isAdmin = user?.role === 'admin';
     const isBenjamin = user?.email?.toLowerCase() === 'benjamin.hines8@gmail.com';
 
-    if (!isAdmin && !isBenjamin) {
+    const hasDraftRecoveryAccess = await validateDraftRecoveryAccessToken(body.accessToken);
+
+    if (!isAdmin && !isBenjamin && !hasDraftRecoveryAccess) {
       return Response.json(
-        { success: false, error: { message: 'Forbidden: Admin access required' } },
+        { success: false, error: { message: 'Forbidden: Draft recovery access required' } },
         { status: 403, headers: corsHeaders }
       );
     }

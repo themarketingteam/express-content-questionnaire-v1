@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
+import { useDraftRecoveryAccess } from "@/components/admin/DraftRecoveryAccessGate";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ function AiRepairSummary({ record }) {
 
 // ─── Intake Record Row ────────────────────────────────────────────────────────
 
-function IntakeRecordRow({ record, onRefresh }) {
+function IntakeRecordRow({ record, onRefresh, accessToken }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null); // null | 'retry' | 'force_retry' | 'diagnose' | 'repair_only' | 'repair_and_retry'
 
@@ -188,6 +189,7 @@ function IntakeRecordRow({ record, onRefresh }) {
     setActionLoading(mode);
     try {
       const response = await base44.functions.invoke("repairExpressQuestionnaireIntakeSubmission", {
+        accessToken,
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
         mode,
@@ -233,6 +235,7 @@ function IntakeRecordRow({ record, onRefresh }) {
     setActionLoading(forceRetry ? "force_retry" : "retry");
     try {
       const response = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
+        accessToken,
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
         forceRetry,
@@ -468,31 +471,38 @@ function IntakeRecordRow({ record, onRefresh }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function QuestionnaireIntakeRecovery() {
+  const { accessToken } = useDraftRecoveryAccess();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [statusFilter, setStatusFilter] = useState("received_intake");
   const [searchTerm, setSearchTerm] = useState("");
 
-  const loadRecords = async () => {
+  const loadRecords = useCallback(async () => {
     try {
       setLoading(true);
       setLoadError("");
-      const data = await base44.entities.FormSubmissionIntake.list();
-      data.sort((a, b) => {
+      const response = await base44.functions.invoke("draftRecoveryData", {
+        accessToken,
+        action: "listIntakes",
+      });
+      const data = response?.data || response || {};
+      if (!data.success) throw new Error(data.error || "Failed to load intake records.");
+      const records = [...(data.intakes || [])];
+      records.sort((a, b) => {
         const aDate = new Date(a.created_at_server || a.created_date || a.last_retry_at || 0).getTime();
         const bDate = new Date(b.created_at_server || b.created_date || b.last_retry_at || 0).getTime();
         return bDate - aDate;
       });
-      setRecords(data);
+      setRecords(records);
     } catch (err) {
       setLoadError("Failed to load intake records: " + (err?.message || "Unknown error"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [accessToken]);
 
-  useEffect(() => { loadRecords(); }, []);
+  useEffect(() => { loadRecords(); }, [loadRecords]);
 
   const filtered = useMemo(() => records.filter((record) => {
     if (statusFilter !== "all" && record.status !== statusFilter) return false;
@@ -555,7 +565,7 @@ export default function QuestionnaireIntakeRecovery() {
           <Card><CardContent className="p-6 text-center text-slate-500 text-sm">No intake records found</CardContent></Card>
         ) : (
           filtered.map((record) => (
-            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} />
+            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} accessToken={accessToken} />
           ))
         )}
       </div>

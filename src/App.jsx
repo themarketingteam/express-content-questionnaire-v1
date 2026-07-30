@@ -11,6 +11,7 @@ import AdminSubmitIntake from './pages/AdminSubmitIntake';
 import TestZapier from './pages/TestZapier';
 import FormDraftRecovery from './pages/FormDraftRecovery';
 import AdminOnly from '@/components/admin/AdminOnly';
+import DraftRecoveryAccessGate from '@/components/admin/DraftRecoveryAccessGate';
 import QuestionnaireIntakeRecoveryPage from './pages/QuestionnaireIntakeRecovery';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -83,11 +84,11 @@ const AuthenticatedApp = () => {
         />
       ))}
       <Route path="/admin/draft-recovery" element={
-        <AdminOnly>
+        <DraftRecoveryAccessGate>
           <LayoutWrapper currentPageName={"admin/draft-recovery"}>
             <FormDraftRecovery />
           </LayoutWrapper>
-        </AdminOnly>
+        </DraftRecoveryAccessGate>
       } />
       <Route path="/admin/submit-intake" element={
         <AdminOnly>

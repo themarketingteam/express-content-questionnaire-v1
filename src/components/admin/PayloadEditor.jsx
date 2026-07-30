@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Send, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
+import { useDraftRecoveryAccess } from "@/components/admin/DraftRecoveryAccessGate";
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
@@ -31,6 +32,7 @@ function patchPayload(payload, businessName, businessDomain) {
 }
 
 export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
+  const { accessToken } = useDraftRecoveryAccess();
   const [open, setOpen] = useState(false);
 
   // Editable fields
@@ -103,11 +105,18 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
 
     setIsSaving(true);
     try {
-      await base44.entities.FormDraft.update(draft.id, {
-        business_name: businessName,
-        domain: businessDomain,
-        mapped_payload_json: JSON.stringify(payload),
+      const response = await base44.functions.invoke("draftRecoveryData", {
+        accessToken,
+        action: "updateDraft",
+        draftId: draft.id,
+        updates: {
+          business_name: businessName,
+          domain: businessDomain,
+          mapped_payload_json: JSON.stringify(payload),
+        },
       });
+      const data = response?.data || response || {};
+      if (!data.success) throw new Error(data.error || "Failed to save draft.");
       toast.success("Draft updated — payload, business name, and domain saved.");
       onRefresh?.();
     } catch (err) {
@@ -126,14 +135,22 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
     setIsSubmitting(true);
     try {
       // 1. Persist edits to draft
-      await base44.entities.FormDraft.update(draft.id, {
-        business_name: businessName,
-        domain: businessDomain,
-        mapped_payload_json: JSON.stringify(payload),
+      const updateResponse = await base44.functions.invoke("draftRecoveryData", {
+        accessToken,
+        action: "updateDraft",
+        draftId: draft.id,
+        updates: {
+          business_name: businessName,
+          domain: businessDomain,
+          mapped_payload_json: JSON.stringify(payload),
+        },
       });
+      const updateData = updateResponse?.data || updateResponse || {};
+      if (!updateData.success) throw new Error(updateData.error || "Failed to save draft.");
 
       // 2. Trigger retry via retryQuestionnaireIntakeSubmission with the edited payload
       const res = await base44.functions.invoke("retryQuestionnaireIntakeSubmission", {
+        accessToken,
         questionnaireSessionId: draft.session_id,
         forceRetry: true,
         payload,
