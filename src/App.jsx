@@ -15,6 +15,7 @@ import QuestionnaireIntakeRecoveryPage from './pages/QuestionnaireIntakeRecovery
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import QuestionnaireRouteBoundary from '@/components/questionnaire/QuestionnaireRouteBoundary';
+import { isPublicDraftRecoveryPath } from '@/lib/publicRoutes';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -25,17 +26,7 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   : <>{children}</>;
 
 const AuthenticatedApp = () => {
-  const location = useLocation();
   const { isLoadingAuth, isLoadingPublicSettings, authError, isAuthenticated, navigateToLogin } = useAuth();
-
-  // Draft recovery is intentionally public and must not wait for or redirect through Base44 auth.
-  if (location.pathname.replace(/\/+$/, '') === '/admin/draft-recovery') {
-    return (
-      <LayoutWrapper currentPageName={"admin/draft-recovery"}>
-        <FormDraftRecovery />
-      </LayoutWrapper>
-    );
-  }
 
   // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {
@@ -118,6 +109,22 @@ const AuthenticatedApp = () => {
   );
 };
 
+const AppContent = () => {
+  const location = useLocation();
+
+  // Keep the recovery route completely outside Base44 auth enforcement. The
+  // suffix match also supports Base44 deployments mounted below a base path.
+  if (isPublicDraftRecoveryPath(location.pathname)) {
+    return (
+      <LayoutWrapper currentPageName={"admin/draft-recovery"}>
+        <FormDraftRecovery />
+      </LayoutWrapper>
+    );
+  }
+
+  return <AuthenticatedApp />;
+};
+
 
 function App() {
 
@@ -126,7 +133,7 @@ function App() {
       <QueryClientProvider client={queryClientInstance}>
         <Router>
           <NavigationTracker />
-          <AuthenticatedApp />
+          <AppContent />
         </Router>
         <Toaster />
         <VisualEditAgent />
