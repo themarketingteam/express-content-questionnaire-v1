@@ -120,6 +120,7 @@ export function buildExpressFallbackBody({
   rawResponses,
   responseSnapshot,
   questionnaireSessionId,
+  draftId,
   transformFailed,
   validationFailed,
   transformError,
@@ -133,6 +134,7 @@ export function buildExpressFallbackBody({
     rawResponses: rawResponses || null,
     responseSnapshot: responseSnapshot || null,
     questionnaireSessionId: questionnaireSessionId || "",
+    draftId: draftId || "",
     transformFailed: Boolean(transformFailed),
     validationFailed: Boolean(validationFailed),
     transformError: transformError ? serializeExpressError(transformError) : null,
@@ -180,10 +182,11 @@ export async function invokeExpressSubmissionFallback(body, options = {}) {
       }
 
       // Treat unexpected shape as failure
-      lastError = new Error("Fallback returned unexpected response");
-      lastError.failureKind = "unknown";
+      lastError = Object.assign(new Error("Fallback returned unexpected response"), {
+        failureKind: "unknown",
+      });
     } catch (err) {
-      lastError = err;
+      lastError = /** @type {Error & { failureKind?: string }} */ (err);
       lastError.failureKind = err?.failureKind || "unknown";
 
       // Retry only if retryable and attempts remain

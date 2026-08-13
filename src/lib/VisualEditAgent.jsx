@@ -130,7 +130,7 @@ export default function VisualEditAgent() {
 		}
 
 		// Find all elements with the same ID
-		const elements = findElementsById(selectorId, useSourceLocation);
+			const elements = findElementsById(selectorId);
 
 		// Clear previous hover overlays
 		clearHoverOverlays();
@@ -198,7 +198,7 @@ export default function VisualEditAgent() {
 		selectedOverlaysRef.current = [];
 
 		// Find all elements with the same ID
-		const elements = findElementsById(visualSelectorId, useSourceLocation);
+			const elements = findElementsById(visualSelectorId);
 
 		// Create selected overlays for all matching elements
 		elements.forEach(el => {
@@ -271,7 +271,10 @@ export default function VisualEditAgent() {
 				element.className = classes;
 			} else {
 				// For normal updates, merge with existing classes
-				const currentClasses = element.className?.baseVal || element.className || '';
+					const elementClassName = /** @type {any} */ (element.className);
+					const currentClasses = typeof elementClassName === 'string'
+						? elementClassName
+						: elementClassName?.baseVal || '';
 				element.className = twMerge(currentClasses, classes);
 			}
 		});
@@ -311,8 +314,8 @@ export default function VisualEditAgent() {
 		}
 
 		// Update content for all matching elements
-		elements.forEach((element) => {
-			element.innerText = content;
+			elements.forEach((element) => {
+				/** @type {HTMLElement} */ (element).innerText = content;
 		});
 
 		// Use a small delay to allow the browser to recalculate layout before repositioning
@@ -366,7 +369,8 @@ export default function VisualEditAgent() {
 	useEffect(() => {
 		// Add IDs to elements that don't have them but have linenumbers
 		const elementsWithLineNumber = document.querySelectorAll('[data-linenumber]:not([data-visual-selector-id])');
-		elementsWithLineNumber.forEach((el, index) => {
+			elementsWithLineNumber.forEach((element, index) => {
+				const el = /** @type {HTMLElement} */ (element);
 			const id = `visual-id-${el.dataset.filename}-${el.dataset.linenumber}-${index}`;
 			el.dataset.visualSelectorId = id;
 		});

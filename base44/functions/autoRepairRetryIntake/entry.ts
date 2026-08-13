@@ -10,7 +10,8 @@
  * for the same purpose.
  */
 
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.32';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
+import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -118,7 +119,7 @@ function validatePayload(payload) {
   return { ok: errors.length === 0, errors };
 }
 
-function mapToFormSubmissionRecord(payload) {
+function mapToFormSubmissionRecord(payload, rawResponses) {
   const meta = payload.metadata || {};
   const ud = payload.userdata || {};
   let companyGoals = ud.company_goals;
@@ -152,6 +153,10 @@ function mapToFormSubmissionRecord(payload) {
     ideal_client: ud.ideal_client || '',
     questionnaire_session_id: meta.questionnaire_session_id || '',
     submit_attempt_id: meta.submit_attempt_id || '',
+    raw_responses_json: typeof rawResponses === 'string'
+      ? rawResponses
+      : JSON.stringify(rawResponses || {}),
+    transformed_payload_json: JSON.stringify(payload || {}),
     zapier_delivery_status: 'not_attempted',
     zapier_sent: false,
     zapier_sent_at: '',
@@ -200,6 +205,11 @@ async function processIntake(base44, intake) {
     return { ok: false, reason: 'validation_failed', errors: validation.errors };
   }
 
+  return await withSubmissionSessionLease({
+    base44,
+    sessionId: sessionId || `repair-intake:${intake.id}`,
+    purpose: `submission-repair:${sessionId || intake.id}:${intake.submit_attempt_id || 'intake'}`,
+    operation: async () => {
   // Dedupe check
   if (sessionId) {
     try {
@@ -221,7 +231,7 @@ async function processIntake(base44, intake) {
   }
 
   // Create FormSubmission
-  const record = mapToFormSubmissionRecord(repairResult.payload);
+  const record = mapToFormSubmissionRecord(repairResult.payload, intake.raw_responses_json);
   let created;
   try {
     created = await base44.asServiceRole.entities.FormSubmission.create(record);
@@ -278,6 +288,8 @@ async function processIntake(base44, intake) {
   } catch { /* best effort */ }
 
   return { ok: true, submissionId: created.id };
+    },
+  });
 }
 
 async function markDraftAutoRepairFailed(base44, sessionId, reason) {

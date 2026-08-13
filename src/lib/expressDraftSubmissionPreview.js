@@ -8,8 +8,6 @@
 
 import {
   buildExpressSubmissionPayload,
-  normalizeExpressFormData,
-  cleanExpressDomain,
 } from "./expressQuestionnairePayload.js";
 
 function safeJsonParse(value, fallback = null) {
@@ -88,7 +86,7 @@ function normalizeCanonicalPayload(raw, overrides = {}) {
  * Returns:
  *   { ok, payload, source, warnings, validationErrors, missingRequiredFields }
  */
-export function buildExpressDraftSubmissionPreview(draft, options = {}) {
+export function buildExpressDraftSubmissionPreview(draft, _options = {}) {
   if (!draft) {
     return {
       ok: false,

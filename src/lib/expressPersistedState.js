@@ -1,5 +1,11 @@
 import { getInitialExpressFormData } from "@/lib/expressQuestionnairePayload";
-import { safeLocalStorageGet, safeLocalStorageSet, safeJsonParse, safeNowIso } from "@/lib/browserSafety";
+import { safeLocalStorageGet, safeLocalStorageSet, safeJsonParse } from "@/lib/browserSafety";
+
+/** @typedef {Record<string, *>} ExpressFormData */
+/** @typedef {{ label: string, lat: number | null, lon: number | null, place_id: string | null, source: string }} GeographicAreaMeta */
+/** @typedef {{ status?: string, message?: string, reason_codes?: string[], suggestions?: string[], answerHash?: string, validatedAt?: string }} ValidationStatus */
+/** @typedef {{ version: number, savedAt: string, formData: ExpressFormData, validationStatus: Record<string, ValidationStatus>, touchedQuestions: Record<string, boolean>, expandedQuestions: Record<string, boolean>, questionnaireSessionId: string }} PersistedState */
+/** @typedef {{ ok: boolean, state: PersistedState, migrated: boolean, repaired: boolean, discarded: boolean, error: Error | null, diagnostics: Record<string, *> }} ParseResult */
 
 export const EXPRESS_PERSISTED_STATE_VERSION = 2;
 export const EXPRESS_COOKIE_KEY = "msp_questionnaire_data_v2";
@@ -252,6 +258,7 @@ export function normalizeValidationStatus(value) {
     return {};
   }
 
+  /** @type {Record<string, ValidationStatus>} */
   const normalized = {};
   const validFields = [
     "differentiation",
@@ -304,6 +311,7 @@ export function normalizeTouchedQuestions(value) {
     return {};
   }
 
+  /** @type {Record<string, boolean>} */
   const normalized = {};
   for (let i = 1; i <= 12; i++) {
     const key = String(i);
@@ -324,6 +332,7 @@ export function normalizeExpandedQuestions(value) {
     return defaults;
   }
 
+  /** @type {Record<string, boolean>} */
   const normalized = {};
   for (let i = 1; i <= 12; i++) {
     const key = String(i);

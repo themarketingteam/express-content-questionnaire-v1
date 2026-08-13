@@ -1,6 +1,7 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
+import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ function sanitizeGeoMeta(raw) {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-const mapExpressPayloadToFormSubmissionRecord = (payload) => {
+const mapExpressPayloadToFormSubmissionRecord = (payload, rawResponses) => {
   const { metadata, userdata } = payload;
   const normalizedMetadata = { ...metadata, service_type: 'express' };
 
@@ -90,6 +91,10 @@ const mapExpressPayloadToFormSubmissionRecord = (payload) => {
     ideal_client: userdata.ideal_client || '',
     questionnaire_session_id: normalizedMetadata.questionnaire_session_id || '',
     submit_attempt_id: normalizedMetadata.submit_attempt_id || '',
+    raw_responses_json: typeof rawResponses === 'string'
+      ? rawResponses
+      : JSON.stringify(rawResponses || {}),
+    transformed_payload_json: JSON.stringify(payload || {}),
     zapier_delivery_status: 'not_attempted',
     zapier_sent: false,
     zapier_sent_at: '',
@@ -324,6 +329,12 @@ Deno.serve(async (req) => {
     if (sessionId) transformed.metadata.questionnaire_session_id = sessionId;
     if (submitAttemptId) transformed.metadata.submit_attempt_id = submitAttemptId;
 
+    return await withSubmissionSessionLease({
+      base44,
+      sessionId: sessionId || `retry:${submitAttemptId || intakeIdActual || 'manual'}`,
+      purpose: `submission-retry:${sessionId || submitAttemptId || intakeIdActual || 'manual'}`,
+      operation: async () => {
+
     // ── Non-force retry: dedup by session_id or submit_attempt_id ──
     // If a FormSubmission already exists, return alreadySubmitted WITHOUT
     // delivering to Zapier (use Force Retry for that).
@@ -411,7 +422,10 @@ Deno.serve(async (req) => {
       } catch { /* best effort */ }
     } else {
       // ── Create new FormSubmission ──
-      const submissionRecord = mapExpressPayloadToFormSubmissionRecord(transformed);
+      const submissionRecord = mapExpressPayloadToFormSubmissionRecord(
+        transformed,
+        intakeRecord?.raw_responses_json || providedPayload,
+      );
       submissionRecord.resubmit_count = 1;
 
       try {
@@ -475,6 +489,8 @@ Deno.serve(async (req) => {
       resubmitCount: currentResubmitCount,
       zapierAttemptCount: currentZapierCount,
     }, { headers: corsHeaders });
+      },
+    });
 
   } catch (error) {
     return Response.json(

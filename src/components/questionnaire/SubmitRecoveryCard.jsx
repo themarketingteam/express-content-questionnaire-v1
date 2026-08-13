@@ -158,7 +158,7 @@ export default function SubmitRecoveryCard({ context, isRetrying, onRetry, onDis
   );
 }
 
-function DetailRow({ label, value, mono }) {
+function DetailRow({ label, value, mono = false }) {
   return (
     <div className="flex items-start gap-2">
       <span className="font-semibold text-xs uppercase tracking-wide w-36 flex-shrink-0" style={{ color: "#8A6000" }}>

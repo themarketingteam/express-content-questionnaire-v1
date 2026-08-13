@@ -8,7 +8,6 @@ import {
 import {
   repairExpressSubmissionPayload,
   validateExpressSubmissionPayload,
-  safeStringifyForDiagnostics,
 } from "@/lib/expressPayloadRepair";
 import {
   createExpressFormSubmissionWithFallback,
@@ -181,7 +180,7 @@ export async function createDraftEventSafe(args) {
       await createDraftEvent(event);
     }
     return true;
-  } catch (eventErr) {
+  } catch {
     // Silently ignore event creation failures
     return false;
   }
@@ -197,7 +196,7 @@ export async function submitExpressQuestionnaire(args) {
     touchedQuestions,
     expandedQuestions,
     credentials,
-    domainParam,
+    domainParam: _domainParam,
     questionnaireSessionId,
     saveDraftNow,
     createDraftEvent,
@@ -649,8 +648,6 @@ export async function submitExpressQuestionnaire(args) {
 
   // Step 9: Handle successful result
   if (submitResult.ok) {
-    const successTimestamp = new Date().toISOString();
-
     // Zapier delivery: send after successful save/fallback
     let zapierSent = false;
     let zapierError = null;

@@ -35,7 +35,6 @@ export default function NumericRangeQuestion({
     if (!value || !value.trim()) {
       onChange(buildValueString(smallest, largest));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sync internal state when the parent value changes externally
@@ -51,7 +50,6 @@ export default function NumericRangeQuestion({
       setLargest(parsed.largest);
       setLargestInput(parsed.largest > 1000 ? "" : String(parsed.largest));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   const handleSmallestChange = (e) => {

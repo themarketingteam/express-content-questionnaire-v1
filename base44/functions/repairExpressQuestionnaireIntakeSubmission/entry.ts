@@ -1,6 +1,7 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
+import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -181,7 +182,7 @@ function validatePayload(payload) {
 
 // ─── FormSubmission mapper ────────────────────────────────────────────────────
 
-function mapToFormSubmissionRecord(payload) {
+function mapToFormSubmissionRecord(payload, rawResponses) {
   const meta = payload.metadata || {};
   const ud = payload.userdata || {};
 
@@ -218,6 +219,10 @@ function mapToFormSubmissionRecord(payload) {
     ideal_client: ud.ideal_client || '',
     questionnaire_session_id: meta.questionnaire_session_id || '',
     submit_attempt_id: meta.submit_attempt_id || '',
+    raw_responses_json: typeof rawResponses === 'string'
+      ? rawResponses
+      : JSON.stringify(rawResponses || {}),
+    transformed_payload_json: JSON.stringify(payload || {}),
     zapier_delivery_status: 'not_attempted',
     zapier_sent: false,
     zapier_sent_at: '',
@@ -582,7 +587,15 @@ Deno.serve(async (req) => {
     const sessionId = finalPayload.metadata?.questionnaire_session_id || repairContext.sessionId;
     const submitAttemptId = finalPayload.metadata?.submit_attempt_id || repairContext.submitAttemptId;
 
-    if (!forceRetry) {
+    return await withSubmissionSessionLease({
+      base44,
+      sessionId: sessionId || `repair:${submitAttemptId || sourceId}`,
+      purpose: `submission-repair:${sessionId || submitAttemptId || sourceId}`,
+      operation: async () => {
+
+    // A force retry may re-deliver an existing submission, but it must never
+    // create a second FormSubmission for the same session or submit attempt.
+    {
       if (sessionId) {
         try {
           const existing = await base44.asServiceRole.entities.FormSubmission.filter(
@@ -637,7 +650,10 @@ Deno.serve(async (req) => {
     }
 
     // Create FormSubmission
-    const submissionRecord = mapToFormSubmissionRecord(finalPayload);
+    const rawResponsesSnapshot = sourceType === 'intake'
+      ? source.record.raw_responses_json
+      : source.record.responses_json;
+    const submissionRecord = mapToFormSubmissionRecord(finalPayload, rawResponsesSnapshot);
     let createdSubmission;
 
     try {
@@ -751,6 +767,8 @@ Deno.serve(async (req) => {
       repairReport: report,
       repairedPayload: finalPayload,
     }, { headers: corsHeaders });
+      },
+    });
 
   } catch (error) {
     return Response.json(

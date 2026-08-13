@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { AlertCircle } from "lucide-react";
 
-export default function OtherField({ value, onChange, onFocus, disabled = false, message = null, helperText = null }) {
+export default function OtherField({ value, onChange, onFocus = null, onBlur = null, disabled = false, message = null, helperText = null }) {
   const [showLimitMessage, setShowLimitMessage] = useState(false);
 
   const handleFocus = () => {
@@ -38,7 +38,10 @@ export default function OtherField({ value, onChange, onFocus, disabled = false,
           value={value}
           onChange={handleChange}
           onFocus={handleFocus}
-          onBlur={() => setShowLimitMessage(false)}
+          onBlur={() => {
+            setShowLimitMessage(false);
+            if (onBlur) onBlur();
+          }}
           disabled={disabled}
           placeholder={disabled ? "Limit reached — uncheck an option to use Other" : "Enter one option only..."}
           className={`w-full mt-3 p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${

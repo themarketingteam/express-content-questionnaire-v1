@@ -1,5 +1,3 @@
-import { getExpressQuestionDisplayStatus, QUESTION_STATUS } from "@/lib/questionValidationStatus";
-
 /**
  * Check if a field is currently validating (supports both array and object shapes)
  */
@@ -52,8 +50,8 @@ export function getQuestionSummaryLabel(questionId) {
  * @returns {Object} Summary object with counts and categorized items
  */
 export function buildIncompleteQuestionSummary({
-  formData,
-  touchedQuestions,
+  formData: _formData,
+  touchedQuestions: _touchedQuestions,
   validationStatus,
   validatingFields = [],
   isQuestionComplete,

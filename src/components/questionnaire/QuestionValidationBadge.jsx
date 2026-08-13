@@ -61,10 +61,7 @@ const statusColorClasses = {
 /**
  * Compact validation status badge for question headers
  * 
- * @param {string} status - Status from QUESTION_STATUS
- * @param {string} label - Optional custom label (uses default if omitted)
- * @param {string} message - Optional message for title attribute or display
- * @param {boolean} compact - If true, shows icon only with tooltip
+ * @param {{ status?: string, label?: string, message?: string, compact?: boolean }} props
  */
 export default function QuestionValidationBadge({ 
   status = QUESTION_STATUS.not_started, 

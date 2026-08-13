@@ -226,11 +226,6 @@ export function selectReusablePdfVersion(versions, payloadHash) {
   return sortPdfVersions(versions).find((version) => (
     version.payload_hash === payloadHash
     && version.template_version === EXPRESS_PDF_TEMPLATE_VERSION
-    && typeof version.pdf_file_url === "string"
-    && version.pdf_file_url.length > 0
+    && version.storage_available === true
   )) || null;
-}
-
-export function parseStoredPayload(version) {
-  return safeJsonParse(version?.payload_json, null);
 }

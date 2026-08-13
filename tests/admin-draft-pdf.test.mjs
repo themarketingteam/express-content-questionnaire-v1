@@ -159,9 +159,9 @@ test("creates stable fingerprints and changes them when rendered values change",
 
 test("reuses the newest matching saved version and retains older versions", () => {
   const versions = [
-    { id: "v1", version_number: 1, payload_hash: "old", template_version: EXPRESS_PDF_TEMPLATE_VERSION, pdf_file_url: "https://files.example/v1.pdf" },
-    { id: "v3", version_number: 3, payload_hash: "current", template_version: EXPRESS_PDF_TEMPLATE_VERSION, pdf_file_url: "https://files.example/v3.pdf" },
-    { id: "v2", version_number: 2, payload_hash: "current", template_version: EXPRESS_PDF_TEMPLATE_VERSION, pdf_file_url: "https://files.example/v2.pdf" },
+    { id: "v1", version_number: 1, payload_hash: "old", template_version: EXPRESS_PDF_TEMPLATE_VERSION, storage_available: true },
+    { id: "v3", version_number: 3, payload_hash: "current", template_version: EXPRESS_PDF_TEMPLATE_VERSION, storage_available: true },
+    { id: "v2", version_number: 2, payload_hash: "current", template_version: EXPRESS_PDF_TEMPLATE_VERSION, storage_available: true },
   ];
 
   assert.deepEqual(sortPdfVersions(versions).map((version) => version.id), ["v3", "v2", "v1"]);

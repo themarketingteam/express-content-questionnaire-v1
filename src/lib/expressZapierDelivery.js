@@ -65,8 +65,7 @@ export function buildExpressZapierPayload(transformedPayload) {
 /**
  * Send Express payload to Zapier via server-side function
  * @param {Object} payload - Express payload (metadata + userdata)
- * @param {Object} options - Optional configuration
- * @param {number} options.timeoutMs - Custom timeout in milliseconds
+ * @param {{ timeoutMs?: number }} options - Optional configuration
  * @returns {Promise<Object>} - Result with ok, error, zapierStatus, zapierBody
  */
 export async function sendExpressZapierSafe(payload, options = {}) {

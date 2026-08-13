@@ -48,7 +48,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
       const patched = patchPayload(initialPayload, businessName, businessDomain);
       setJsonText(JSON.stringify(patched, null, 2));
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Keep JSON in sync when business name / domain change
   const handleBusinessNameChange = (val) => {

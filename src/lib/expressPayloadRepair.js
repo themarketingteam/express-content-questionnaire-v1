@@ -35,11 +35,6 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-function isSafeScalar(v) {
-  const t = typeof v;
-  return t === "string" || t === "number" || t === "boolean" || v === null;
-}
-
 function isUnsafeValue(v) {
   if (typeof v === "undefined") return true;
   if (typeof v === "symbol") return true;

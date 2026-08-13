@@ -59,7 +59,6 @@ export function getInitialExpressFormData() {
  */
 export function normalizeExpressFormData(formData) {
   const fd = formData || {};
-  const safe = getInitialExpressFormData();
   
   // Helper to ensure array type
   const ensureArray = (val) => {

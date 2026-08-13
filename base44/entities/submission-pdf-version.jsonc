@@ -4,7 +4,6 @@
   "required": [
     "draft_id",
     "payload_hash",
-    "pdf_file_url",
     "pdf_filename",
     "template_version",
     "version_number"
@@ -37,7 +36,7 @@
     },
     "payload_json": {
       "type": "string",
-      "description": "Canonical payload snapshot represented by this PDF"
+      "description": "Deprecated legacy payload snapshot; new versions store only payload_hash"
     },
     "source_updated_at": {
       "type": "string",
@@ -47,7 +46,23 @@
     "pdf_file_url": {
       "type": "string",
       "format": "uri",
-      "description": "Stored Base44 file URL for this PDF"
+      "description": "Deprecated legacy public URL; migrated versions use pdf_file_uri"
+    },
+    "pdf_file_uri": {
+      "type": "string",
+      "description": "Base44 private file URI; never sent directly to the browser"
+    },
+    "storage_visibility": {
+      "type": "string",
+      "enum": [
+        "private",
+        "legacy_public"
+      ],
+      "description": "Storage protection state for this PDF version"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Unique logical key composed from draft, payload hash, and template version"
     },
     "pdf_filename": {
       "type": "string",

@@ -6,6 +6,15 @@
 const MAX_ENTRIES_PER_FIELD = 5;
 
 /**
+ * @typedef {Object} HistoryEntry
+ * @property {*} value
+ * @property {string} savedAt
+ * @property {string} source
+ * @property {string} field
+ * @property {string} questionId
+ */
+
+/**
  * Returns true when a value is considered meaningful (non-empty).
  */
 export function isMeaningfulAnswer(value) {

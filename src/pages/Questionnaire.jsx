@@ -110,7 +110,7 @@ export default function Questionnaire() {
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [isDraftHydrating, setIsDraftHydrating] = useState(true);
-  const [draftSaveStatus, setDraftSaveStatus] = useState({ state: "initializing" });
+  const [draftSaveStatus, setDraftSaveStatus] = useState(/** @type {{ state: string, lastServerSavedAt?: string, lastLocalSavedAt?: string, pendingLocalChanges?: boolean, lastError?: string }} */ ({ state: "initializing" }));
 
   // Last-failed submit context — drives the recovery card
   const [lastSubmitContext, setLastSubmitContext] = useState(null);
@@ -285,18 +285,19 @@ export default function Questionnaire() {
     [findExistingDraftBySessionId, persistDraftRecord]
   );
 
-  const saveDraftNow = useCallback(async ({
-    status,
-    submitError,
-    finalSubmissionId,
-    responsesSnapshot,
-    validationStatusSnapshot,
-    touchedQuestionsSnapshot,
-    expandedQuestionsSnapshot: expandedSnapshotArg,
-    submitAttemptId,
-    businessName: modalBusinessName,
-    domain: modalDomain,
-  } = {}) => {
+  const saveDraftNow = useCallback(async (options = {}) => {
+    const {
+      status,
+      submitError,
+      finalSubmissionId,
+      responsesSnapshot,
+      validationStatusSnapshot,
+      touchedQuestionsSnapshot,
+      expandedQuestionsSnapshot: expandedSnapshotArg,
+      submitAttemptId,
+      businessName: modalBusinessName,
+      domain: modalDomain,
+    } = /** @type {any} */ (options);
     if (!isHydratedRef.current && !responsesSnapshot) return; // Block pre-hydration saves unless caller passes an explicit snapshot
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
@@ -429,6 +430,7 @@ export default function Questionnaire() {
         businessName: urlCredentials.businessName,
         domain: urlCredentials.domain,
         userId: urlCredentials.userId,
+        submitAttemptId: "",
       });
       await base44.entities.FormDraftEvent.create(record);
     } catch (err) {
@@ -455,7 +457,7 @@ export default function Questionnaire() {
   useEffect(() => {
     document.title = 'MSP Success - Express | Website Content Questionnaire';
     
-    const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
+    const link = /** @type {HTMLLinkElement} */ (document.querySelector("link[rel*='icon']") || document.createElement('link'));
     link.type = 'image/png';
     link.rel = 'icon';
     link.href = 'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/c380ae371_kaseya-logo.png';
@@ -1115,8 +1117,8 @@ export default function Questionnaire() {
     try {
       // Create cleared state values
       const clearedFormData = getInitialExpressFormData();
-      const clearedValidationStatus = {};
-      const clearedTouchedQuestions = {};
+      const clearedValidationStatus = /** @type {Record<string, import("@/lib/expressPersistedState").ValidationStatus>} */ ({});
+      const clearedTouchedQuestions = /** @type {Record<string, boolean>} */ ({});
       const clearedExpandedQuestions = getDefaultExpandedQuestions();
       
       // Set state using exact cleared values

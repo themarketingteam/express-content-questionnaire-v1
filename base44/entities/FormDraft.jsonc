@@ -155,6 +155,23 @@
     "ai_repair_source": {
       "type": "string",
       "description": "How the repair was performed: deterministic, ai, deterministic_plus_ai, or manual."
+    },
+    "submit_attempt_id": {
+      "type": "string",
+      "description": "Latest client submit attempt identifier persisted with this draft"
+    },
+    "idempotency_lock_token": {
+      "type": "string",
+      "description": "Short-lived compare-and-set lease token for serialized writes"
+    },
+    "idempotency_lock_key": {
+      "type": "string",
+      "description": "Operation currently holding the serialized-write lease"
+    },
+    "idempotency_lock_expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Expiry for the serialized-write lease"
     }
   },
   "rls": {

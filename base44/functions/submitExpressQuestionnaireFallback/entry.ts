@@ -1,4 +1,5 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
+import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -71,7 +72,12 @@ function normalizePayload(payload, questionnaireSessionId, primaryError) {
   return { metadata: meta, userdata };
 }
 
-function mapExpressPayloadToFormSubmissionRecord(payload, questionnaireSessionId, submitAttemptId) {
+function mapExpressPayloadToFormSubmissionRecord(
+  payload,
+  questionnaireSessionId,
+  submitAttemptId,
+  rawResponseSnapshot,
+) {
   const meta = payload?.metadata || {};
   const ud = payload?.userdata || {};
 
@@ -113,6 +119,8 @@ function mapExpressPayloadToFormSubmissionRecord(payload, questionnaireSessionId
     ideal_client:             ud.ideal_client          ?? meta.ideal_client         ?? null,
     questionnaire_session_id: questionnaireSessionId   ?? meta.questionnaire_session_id ?? '',
     submit_attempt_id:        submitAttemptId          ?? meta.submit_attempt_id    ?? '',
+    raw_responses_json:       safeJsonStringify(rawResponseSnapshot ?? {}),
+    transformed_payload_json: safeJsonStringify(payload ?? {}),
     zapier_delivery_status:   'not_attempted',
     zapier_sent:              false,
     zapier_sent_at:           '',
@@ -143,6 +151,36 @@ async function upsertIntake(base44, questionnaireSessionId, nextData) {
     questionnaire_session_id: questionnaireSessionId,
     ...nextData,
   });
+}
+
+function buildDraftSnapshot({
+  businessName,
+  businessDomain,
+  userEmail,
+  userId,
+  submitAttemptId,
+  transformedPayload,
+  rawResponseSnapshot,
+  diagnostics,
+  submitContext,
+}) {
+  const now = nowIso();
+  return {
+    business_name: truncate(businessName) || '',
+    domain: truncate(businessDomain) || '',
+    user_email: truncate(userEmail) || '',
+    user_id: truncate(userId) || '',
+    submit_attempt_id: truncate(submitAttemptId) || '',
+    responses_json: safeJsonStringify(rawResponseSnapshot ?? {}),
+    metadata_json: safeJsonStringify(transformedPayload?.metadata ?? {}),
+    userdata_json: safeJsonStringify(transformedPayload?.userdata ?? {}),
+    mapped_payload_json: safeJsonStringify(transformedPayload ?? {}),
+    draft_metadata_json: safeJsonStringify({ diagnostics: diagnostics ?? {}, submitContext: submitContext ?? {} }),
+    last_saved_at: now,
+    last_changed_at: now,
+    submit_attempted_at: now,
+    status: 'submitting',
+  };
 }
 
 function buildIntakePayload({
@@ -262,6 +300,30 @@ Deno.serve(async (req) => {
       submitContext?.source ||
       'questionnaire_submit_fallback';
 
+    const rawResponseSnapshot = rawResponses ?? responseSnapshot ?? {};
+    const draftSnapshot = buildDraftSnapshot({
+      businessName,
+      businessDomain,
+      userEmail,
+      userId,
+      submitAttemptId,
+      transformedPayload,
+      rawResponseSnapshot,
+      diagnostics,
+      submitContext,
+    });
+    return await withSubmissionSessionLease(
+      {
+        base44,
+        sessionId: questionnaireSessionId,
+        purpose: `submission:${questionnaireSessionId}:${submitAttemptId || 'session'}`,
+        initialSnapshot: draftSnapshot,
+        operation: async (coordinatorDraft) => {
+        // Persist the complete incoming snapshot before any validation or create
+        // attempt. Anonymous and authenticated clients therefore have the same
+        // server-side recovery guarantee.
+        await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, draftSnapshot);
+
     // If payload is invalid/missing → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&
       transformedPayload &&
@@ -285,13 +347,17 @@ Deno.serve(async (req) => {
         submitAttemptId,
         primaryError: primaryError || transformError || validationError,
         transformedPayload,
-        rawResponses: rawResponses || responseSnapshot,
+        rawResponses: rawResponseSnapshot,
         diagnostics,
         source,
         createdAtClient,
       });
 
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
+      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        status: 'auto_repair_pending',
+        submit_error: intakeData.primary_error_json || intakeReason,
+      });
 
       return Response.json({
         success: true, received: true, submissionCreated: false,
@@ -334,11 +400,16 @@ Deno.serve(async (req) => {
         businessName, businessDomain, userEmail, userId, submitAttemptId,
         primaryError,
         transformedPayload,
-        rawResponses: rawResponses || responseSnapshot,
+        rawResponses: rawResponseSnapshot,
         diagnostics, source, createdAtClient,
         linkedSubmissionId: existingSubmissionId,
       });
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
+      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        status: 'submitted',
+        submitted_at: nowIso(),
+        final_submission_id: existingSubmissionId,
+      });
 
       return Response.json({
         success: true, received: true, alreadySubmitted: true,
@@ -349,7 +420,12 @@ Deno.serve(async (req) => {
 
     // Attempt FormSubmission create
     const normalized = normalizePayload(transformedPayload, questionnaireSessionId, primaryError);
-    const record = mapExpressPayloadToFormSubmissionRecord(normalized, questionnaireSessionId, submitAttemptId);
+    const record = mapExpressPayloadToFormSubmissionRecord(
+      normalized,
+      questionnaireSessionId,
+      submitAttemptId,
+      rawResponseSnapshot,
+    );
 
     let submission = null;
     let submissionError = null;
@@ -369,12 +445,18 @@ Deno.serve(async (req) => {
         businessName, businessDomain, userEmail, userId, submitAttemptId,
         primaryError,
         transformedPayload: normalized,
-        rawResponses: rawResponses || responseSnapshot,
+        rawResponses: rawResponseSnapshot,
         diagnostics, source, createdAtClient,
         linkedSubmissionId: submissionId,
       });
 
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
+      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        status: 'submitted',
+        submitted_at: nowIso(),
+        final_submission_id: submissionId || '',
+        mapped_payload_json: safeJsonStringify(normalized),
+      });
 
       return Response.json({
         success: true, received: true, submissionCreated: true,
@@ -391,16 +473,24 @@ Deno.serve(async (req) => {
       primaryError,
       fallbackError: submissionError,
       transformedPayload: normalized,
-      rawResponses: rawResponses || responseSnapshot,
+      rawResponses: rawResponseSnapshot,
       diagnostics, source, createdAtClient,
     });
 
     const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
+    await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      status: 'auto_repair_pending',
+      submit_error: safeJsonStringify(submissionError),
+      mapped_payload_json: safeJsonStringify(normalized),
+    });
 
     return Response.json({
       success: true, received: true, submissionCreated: false,
       intakeId: intake?.id || null, usedFallback: true, zapierSent: false,
     }, { headers: corsHeaders });
+        },
+      },
+    );
 
   } catch (error) {
     return Response.json({

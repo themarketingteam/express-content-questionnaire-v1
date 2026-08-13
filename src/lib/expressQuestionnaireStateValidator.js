@@ -35,11 +35,7 @@ const KNOWN_RESPONSE_FIELDS = [
  * Validates and repairs questionnaire state to prevent rendering/persistence failures.
  * Returns normalized safe state with list of repairs and warnings.
  * 
- * @param {Object} params
- * @param {Object} params.formData - Raw form data
- * @param {Object} params.validationStatus - Raw validation status map
- * @param {Object} params.touchedQuestions - Raw touched questions map
- * @param {Object} params.expandedQuestions - Raw expanded questions map
+ * @param {{ formData?: Object, validationStatus?: Object, touchedQuestions?: Object, expandedQuestions?: Object }} params
  * @returns {Object} Validated and repaired state
  */
 export function validateAndRepairQuestionnaireState({
@@ -47,7 +43,7 @@ export function validateAndRepairQuestionnaireState({
   validationStatus = {},
   touchedQuestions = {},
   expandedQuestions = {},
-} = {}) {
+} = /** @type {any} */ ({})) {
   const repairs = [];
   const warnings = [];
   let changed = false;
@@ -89,7 +85,7 @@ export function validateAndRepairQuestionnaireState({
   // Step 2: Remove unknown/stale fields
   const cleanedFormData = {};
   for (const field of KNOWN_RESPONSE_FIELDS) {
-    if (normalizedFormData.hasOwnProperty(field)) {
+    if (Object.prototype.hasOwnProperty.call(normalizedFormData, field)) {
       cleanedFormData[field] = normalizedFormData[field];
     }
   }

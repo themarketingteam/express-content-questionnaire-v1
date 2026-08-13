@@ -48,6 +48,7 @@ export function useExpressTextValidation() {
     setValidatingFields(prev => ({ ...prev, [fieldName]: true }));
     
     try {
+      /** @type {any} */
       const result = await validateExpressTextAnswer({
         fieldName,
         answer,
@@ -72,7 +73,7 @@ export function useExpressTextValidation() {
       }));
       
       return result;
-    } catch (err) {
+    } catch {
       // Fallback to local validation
       const localResult = runLocalExpressTextValidation({ fieldName, answer });
       

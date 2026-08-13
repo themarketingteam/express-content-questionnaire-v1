@@ -5,7 +5,7 @@
  * Used by error boundary and recovery flows.
  */
 
-import { EXPRESS_COOKIE_KEY, EXPRESS_LS_KEY_GLOBAL, clearStateFromLocalStorage } from './expressPersistedState';
+import { EXPRESS_COOKIE_KEY, EXPRESS_LS_KEY_GLOBAL } from './expressPersistedState';
 import { clearQuestionnaireSessionId } from './sessionId';
 import { ACTIVE_SUBMIT_ATTEMPT_KEY } from './submitAttempt';
 import { clearLocalFailedSubmissionBackup } from './localRecoveryBackup';
@@ -89,7 +89,7 @@ export const clearExpressQuestionnaireLocalState = (options = {}) => {
     try {
       const result = clearCookieByName(key);
       if (result.cleared.length > 0) {
-        cleared.push(...result.cleared.map((c) => `${key} (legacy)`));
+        cleared.push(...result.cleared.map(() => `${key} (legacy)`));
       }
     } catch {
       // Ignore legacy key errors

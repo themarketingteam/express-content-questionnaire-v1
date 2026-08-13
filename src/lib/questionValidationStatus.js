@@ -126,7 +126,7 @@ export function hasMeaningfulValue(value) {
  * Get basic completion status for a question (before validation overlay)
  */
 export function getBasicQuestionCompletionStatus({ 
-  questionId, 
+  questionId,
   formData, 
   touchedQuestions,
   isQuestionComplete 
@@ -160,7 +160,7 @@ export function getBasicQuestionCompletionStatus({
  * Get text validation status for a question
  */
 export function getTextValidationQuestionStatus({ 
-  questionId, 
+  questionId: _questionId,
   fieldName, 
   validationStatus,
   isValidating 

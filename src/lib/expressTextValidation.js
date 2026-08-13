@@ -307,6 +307,7 @@ export function normalizeExpressValidationResult(result, fallbackContext = {}) {
 
 /**
  * Main validation function: calls server, falls back to local
+ * @returns {Promise<any>}
  */
 export async function validateExpressTextAnswer({ fieldName, answer, businessName = '', domain = '', context = {} }) {
   const config = EXPRESS_TEXT_VALIDATION_FIELDS[fieldName];
@@ -357,7 +358,7 @@ export async function validateExpressTextAnswer({ fieldName, answer, businessNam
     });
     
     return normalized;
-  } catch (serverErr) {
+  } catch {
     // Server unavailable: use local fallback
     const localResult = runLocalExpressTextValidation({ fieldName, answer });
     return {

@@ -137,6 +137,14 @@
       "type": "string",
       "description": "Description of ideal client"
     },
+    "raw_responses_json": {
+      "type": "string",
+      "description": "Complete raw questionnaire response snapshot retained without requiring authentication"
+    },
+    "transformed_payload_json": {
+      "type": "string",
+      "description": "Complete normalized submission payload snapshot"
+    },
     "questionnaire_session_id": {
       "type": "string",
       "description": "Stable questionnaire recovery/session id"
@@ -180,7 +188,11 @@
   },
   "required": [],
   "rls": {
-    "create": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
     "read": {
       "$or": [
         {

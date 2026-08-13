@@ -38,20 +38,22 @@ function triggerBlobDownload(blob, filename) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-async function downloadStoredVersion(version) {
-  try {
-    const response = await fetch(version.pdf_file_url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Stored PDF returned ${response.status}`);
-    const blob = await response.blob();
-    triggerBlobDownload(blob, version.pdf_filename || "Express_Questionnaire_Responses.pdf");
-  } catch {
-    const anchor = document.createElement("a");
-    anchor.href = version.pdf_file_url;
-    anchor.download = version.pdf_filename || "Express_Questionnaire_Responses.pdf";
-    anchor.target = "_blank";
-    anchor.rel = "noopener noreferrer";
-    anchor.click();
+async function downloadStoredVersion(version, { draftId, recoveryGrant }) {
+  const authorizationResponse = await base44.functions.invoke("draftPdfStorage", {
+    action: "download",
+    draftId,
+    versionId: version.id,
+    recoveryGrant,
+  });
+  const authorization = responseData(authorizationResponse);
+  if (!authorization.success || !authorization.signedUrl) {
+    throw new Error(authorization.error || "The private PDF download could not be authorized.");
   }
+
+  const response = await fetch(authorization.signedUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Private PDF download returned ${response.status}.`);
+  const blob = await response.blob();
+  triggerBlobDownload(blob, authorization.version?.pdf_filename || version.pdf_filename || "Express_Questionnaire_Responses.pdf");
 }
 
 export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
@@ -115,7 +117,7 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
 
       if (reusableVersion) {
         setVersions(currentVersions);
-        await downloadStoredVersion(reusableVersion);
+        await downloadStoredVersion(reusableVersion, { draftId: draft.id, recoveryGrant });
         toast.success(`Downloaded saved PDF version ${reusableVersion.version_number}.`);
         return;
       }
@@ -129,21 +131,16 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
       const pdfBlob = pdf.output("blob");
       const filename = buildQuestionnairePdfFilename(input.businessName);
       const file = new File([pdfBlob], filename, { type: "application/pdf" });
-      const uploadResult = await base44.integrations.Core.UploadFile({ file });
-      const fileUrl = uploadResult?.file_url || uploadResult?.data?.file_url;
-      if (!fileUrl) throw new Error("The PDF was generated, but Base44 did not return a saved file URL.");
-
-      const saveResponse = await base44.functions.invoke("draftRecoveryData", {
-        action: "createPdfVersion",
+      const saveResponse = await base44.functions.invoke("draftPdfStorage", {
+        action: "upload",
+        file,
         draftId: input.draftId,
         questionnaireSessionId: input.questionnaireSessionId,
         submissionId: input.submissionId,
         submitAttemptId: input.submitAttemptId,
         payloadHash,
         payloadSource: input.source,
-        payloadJson: JSON.stringify(input.payloadSnapshot),
         sourceUpdatedAt: input.sourceUpdatedAt,
-        pdfFileUrl: fileUrl,
         pdfFilename: filename,
         pdfByteSize: file.size,
         templateVersion: EXPRESS_PDF_TEMPLATE_VERSION,
@@ -175,11 +172,13 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
   };
 
   const handleDownloadVersion = async (version) => {
-    if (!version?.pdf_file_url) return;
+    if (!version?.storage_available) return;
     setDownloadingVersionId(version.id || String(version.version_number));
     try {
-      await downloadStoredVersion(version);
+      await downloadStoredVersion(version, { draftId: draft.id, recoveryGrant });
       toast.success(`Downloaded PDF version ${version.version_number}.`);
+    } catch (error) {
+      toast.error(error?.message || "Failed to download the private PDF.");
     } finally {
       setDownloadingVersionId("");
     }

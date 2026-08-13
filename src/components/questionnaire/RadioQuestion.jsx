@@ -5,7 +5,7 @@ import OtherField from "./OtherField";
 export default function RadioQuestion({
   questionNumber,
   title,
-  hint,
+  hint = "",
   options,
   selected,
   onSelect,

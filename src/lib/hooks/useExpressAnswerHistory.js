@@ -49,7 +49,7 @@ export function useExpressAnswerHistory() {
     setDismissedFields(prev => ({ ...prev, [field]: true }));
   }, []);
 
-  const restoreField = useCallback((field, value) => {
+  const restoreField = useCallback((field, _value) => {
     // Caller is responsible for calling updateField(field, value).
     // Mark as not dismissed since a restore is an explicit user action.
     setDismissedFields(prev => {

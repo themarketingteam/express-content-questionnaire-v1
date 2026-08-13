@@ -118,8 +118,6 @@ export function repairExpressAdminIntakePayload(payload) {
 }
 
 export function normalizeExpressSubmitIntakePayload(payload) {
-  const errors = [];
-  
   if (!payload || typeof payload !== "object") {
     return { ok: false, payload: null, errors: ["Payload is null or not an object"] };
   }

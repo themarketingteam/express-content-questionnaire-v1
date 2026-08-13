@@ -6,7 +6,6 @@
 import {
   EXPRESS_TEXT_VALIDATION_FIELDS,
   validateExpressTextAnswer,
-  runLocalExpressTextValidation,
 } from "@/lib/expressTextValidation";
 
 /**
@@ -93,7 +92,7 @@ export function isValidationFresh(statusRecord, currentAnswer) {
   // Check if status is older than 24 hours
   const validatedAt = new Date(statusRecord.validatedAt);
   const now = new Date();
-  const hoursSinceValidation = (now - validatedAt) / (1000 * 60 * 60);
+  const hoursSinceValidation = (now.getTime() - validatedAt.getTime()) / (1000 * 60 * 60);
   
   if (hoursSinceValidation > 24) {
     return false;
@@ -151,7 +150,7 @@ export function collectTextFieldsNeedingSubmitValidation({ formData, validationS
     } else if (statusRecord.validatedAt) {
       const validatedAt = new Date(statusRecord.validatedAt);
       const now = new Date();
-      const hoursSinceValidation = (now - validatedAt) / (1000 * 60 * 60);
+      const hoursSinceValidation = (now.getTime() - validatedAt.getTime()) / (1000 * 60 * 60);
       if (hoursSinceValidation > 24) {
         reason = "validation_expired";
       }
@@ -179,7 +178,7 @@ export function collectTextFieldsNeedingSubmitValidation({ formData, validationS
  * @param {string} params.businessName - Business name for context
  * @param {string} params.domain - Business domain for context
  * @param {function} params.onFieldResult - Callback: (fieldName, result) => void
- * @returns {object} { ok, blockingIssues, warnings, resultsByField }
+ * @returns {Promise<object>} { ok, blockingIssues, warnings, resultsByField }
  */
 export async function runSubmitTextValidation({
   formData,
@@ -216,7 +215,7 @@ export async function runSubmitTextValidation({
         fieldName,
         businessName,
         domain,
-        questionId,
+        context: { questionId },
       });
       
       // Store result
@@ -264,7 +263,7 @@ export async function runSubmitTextValidation({
         });
       }
       // "complete" passes without issues
-    } catch (error) {
+    } catch {
       // Validation service error
       const previousStatus = validationStatus?.[fieldName];
       

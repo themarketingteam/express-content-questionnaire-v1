@@ -1,4 +1,3 @@
-import { base44 } from "@/api/base44Client";
 import { invokeExpressSubmissionFallback, buildExpressFallbackBody } from "@/lib/expressSubmissionFallback";
 
 // Constants
@@ -165,73 +164,6 @@ function truncateString(str, maxLength) {
   return str.length > maxLength ? str.slice(0, maxLength) + "..." : str;
 }
 
-// Helper: calculate jitter delay
-function jitterDelay(baseDelayMs, attempt) {
-  const jitter = Math.random() * baseDelayMs * 0.5;
-  return baseDelayMs * Math.pow(2, attempt - 1) + jitter;
-}
-
-// Create FormSubmission with retry logic
-export async function createExpressFormSubmissionResilient(record, options = {}) {
-  const {
-    maxAttempts = 3,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    baseDelayMs = 750,
-  } = options;
-
-  let lastError = null;
-  let attempts = 0;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    attempts = attempt;
-    try {
-      const submission = await withTimeout(
-        () => base44.entities.FormSubmission.create(record),
-        timeoutMs
-      );
-
-      return {
-        ok: true,
-        submission,
-        error: null,
-        attempts,
-        usedFallback: false,
-        failureKind: null,
-      };
-    } catch (err) {
-      lastError = err;
-      const kind = classifySubmitError(err);
-
-      // Don't retry non-retryable errors
-      if (!isRetryableSubmitError(err)) {
-        return {
-          ok: false,
-          submission: null,
-          error: err,
-          attempts,
-          usedFallback: false,
-          failureKind: kind,
-        };
-      }
-
-      // Wait before retry (if not last attempt)
-      if (attempt < maxAttempts) {
-        const delay = jitterDelay(baseDelayMs, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-  }
-
-  return {
-    ok: false,
-    submission: null,
-    error: lastError,
-    attempts,
-    usedFallback: false,
-    failureKind: classifySubmitError(lastError),
-  };
-}
-
 // Build Express payload feature summary
 export function buildExpressPayloadFeatureSummary(payload) {
   const metadata = payload?.metadata || {};
@@ -307,13 +239,13 @@ export async function createExpressFormSubmissionWithFallback(args) {
     draftId,
     submitContext,
     diagnostics,
-    onPrimaryFailure,
+    onPrimaryFailure: _onPrimaryFailure,
     onFallbackAttempt,
     onFallbackSuccess,
     onFallbackFailure,
   } = args;
 
-  // Server is now the primary submit path — skip browser-side FormSubmission.create
+  // Server is now the primary submit path — skip direct browser entity creation
   // and go directly to the server fallback function for all valid payloads.
   if (formSubmissionRecord || transformFailed || validationFailed) {
     if (onFallbackAttempt) {
