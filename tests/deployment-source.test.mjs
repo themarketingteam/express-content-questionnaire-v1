@@ -8,7 +8,7 @@ import {
 
 const expected = {
   base44AppId: "6913611c0ea0f6b631343af8",
-  canonicalOrigin: "https://github.com/h1n3s1ght/express-content-questionnaire-updated.git",
+  canonicalOrigin: "https://github.com/themarketingteam/express-content-questionnaire-v1.git",
   deploymentBranch: "main",
 };
 
@@ -23,7 +23,7 @@ const valid = {
 
 test("normalizes HTTPS and SSH GitHub remotes to the same repository", () => {
   assert.equal(
-    normalizeGitRemote("git@github.com:h1n3s1ght/express-content-questionnaire-updated.git"),
+    normalizeGitRemote("git@github.com:themarketingteam/express-content-questionnaire-v1.git"),
     normalizeGitRemote(expected.canonicalOrigin),
   );
 });
@@ -31,7 +31,7 @@ test("normalizes HTTPS and SSH GitHub remotes to the same repository", () => {
 test("accepts only the canonical app, origin, clean branch, and published commit", () => {
   assert.deepEqual(validateDeploymentIdentity(valid, expected), []);
   assert.match(validateDeploymentIdentity({ ...valid, appId: "wrong" }, expected).join(" "), /app mismatch/i);
-  assert.match(validateDeploymentIdentity({ ...valid, origin: "https://github.com/themarketingteam/express-content-questionnaire-v1.git" }, expected).join(" "), /origin mismatch/i);
+  assert.match(validateDeploymentIdentity({ ...valid, origin: "https://github.com/example/express-content-questionnaire-v1.git" }, expected).join(" "), /origin mismatch/i);
   assert.match(validateDeploymentIdentity({ ...valid, dirty: true }, expected).join(" "), /working tree is dirty/i);
   assert.match(validateDeploymentIdentity({ ...valid, branch: "feature" }, expected).join(" "), /must run from main/i);
   assert.match(validateDeploymentIdentity({ ...valid, head: "local-only" }, expected).join(" "), /not the exact github/i);

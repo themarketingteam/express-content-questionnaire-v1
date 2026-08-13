@@ -2,7 +2,7 @@
 
 This checkout is the only local checkout authorized to deploy Base44 app `6913611c0ea0f6b631343af8`.
 
-- Canonical GitHub origin: `https://github.com/h1n3s1ght/express-content-questionnaire-updated.git`
+- Canonical GitHub origin: `https://github.com/themarketingteam/express-content-questionnaire-v1.git`
 - Release branch: `main`
 - Canonical local folder: `Express-Content-Questionnaire-v1`
 
