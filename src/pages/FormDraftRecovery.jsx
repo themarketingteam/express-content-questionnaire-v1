@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   ChevronDown, ChevronUp, Copy, AlertTriangle, CheckCircle2,
-  Loader2, RefreshCw, Wrench, Stethoscope, RotateCcw,
+  Loader2, RefreshCw, Wrench, Stethoscope, RotateCcw, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
@@ -234,6 +234,8 @@ const SOURCE_LABEL = {
 function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
+  const [payloadEditorOpen, setPayloadEditorOpen] = useState(false);
+  const payloadEditorId = `payload-editor-${draft.id}`;
 
   const metadata = safeJsonParse(draft.metadata_json, {});
   const responses = safeJsonParse(draft.responses_json, {});
@@ -433,6 +435,14 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
           <div className="brand-action-group">
             <p className="brand-action-label">Actions</p>
             <div className="brand-action-buttons">
+              <Button size="sm" variant="outline" className="brand-button-secondary"
+                disabled={isLoading}
+                onClick={() => setPayloadEditorOpen(value => !value)}
+                aria-expanded={payloadEditorOpen}
+                aria-controls={payloadEditorId}>
+                <Pencil className="w-3.5 h-3.5" />
+                Edit Draft
+              </Button>
               <Button size="sm" className="brand-button-primary"
                 disabled={isLoading}
                 onClick={handleRetry}
@@ -441,6 +451,14 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
                 Resubmit to Zapier
               </Button>
             </div>
+            <PayloadEditor
+              draft={draft}
+              initialPayload={preview.payload}
+              onRefresh={onRefresh}
+              recoveryGrant={recoveryGrant}
+              open={payloadEditorOpen}
+              panelId={payloadEditorId}
+            />
           </div>
 
           <div className="brand-action-group">
@@ -521,8 +539,6 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
             </div>
             <pre>{JSON.stringify(preview.payload, null, 2)}</pre>
           </div>
-
-          <PayloadEditor draft={draft} initialPayload={preview.payload} onRefresh={onRefresh} recoveryGrant={recoveryGrant} />
 
           <RawDraftDataSection draft={draft} />
         </div>

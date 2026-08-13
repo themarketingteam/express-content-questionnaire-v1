@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, Send, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 
@@ -31,9 +31,7 @@ function patchPayload(payload, businessName, businessDomain) {
   return next;
 }
 
-export default function PayloadEditor({ draft, initialPayload, onRefresh, recoveryGrant }) {
-  const [open, setOpen] = useState(false);
-
+export default function PayloadEditor({ draft, initialPayload, onRefresh, recoveryGrant, open = false, panelId }) {
   // Editable fields
   const [businessName, setBusinessName] = useState(draft.business_name || "");
   const [businessDomain, setBusinessDomain] = useState(draft.domain || "");
@@ -178,23 +176,11 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
 
   const isLoading = isSaving || isSubmitting;
 
-  return (
-    <div className="brand-edit-panel border rounded-lg overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 transition-colors text-xs font-semibold"
-        aria-expanded={open}
-      >
-        <span className="flex items-center gap-2">
-          <Send className="w-3.5 h-3.5" />
-          Manual Payload Editor
-        </span>
-        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-      </button>
+  if (!open) return null;
 
-      {open && (
-        <div className="p-4 bg-white border-t border-amber-100 space-y-4">
+  return (
+    <div id={panelId} className="brand-edit-panel border rounded-lg overflow-hidden">
+      <div className="p-4 bg-white space-y-4">
           {/* Business Name + Domain */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -270,8 +256,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
           <p className="text-[10px] text-slate-400">
             "Save Changes" updates the draft record only. "Save &amp; Retry Submission" saves then immediately attempts resubmission via the intake retry function.
           </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

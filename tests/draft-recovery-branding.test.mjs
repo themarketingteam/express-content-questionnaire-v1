@@ -30,10 +30,17 @@ test("draft recovery and its access gate use the scoped MSP Success brand shell"
 });
 
 test("draft PDF and recovery actions remain inside each expanded record", async () => {
-  const page = await readProjectFile("src/pages/FormDraftRecovery.jsx");
+  const [page, payloadEditor] = await Promise.all([
+    readProjectFile("src/pages/FormDraftRecovery.jsx"),
+    readProjectFile("src/components/admin/PayloadEditor.jsx"),
+  ]);
   const expandedPanelIndex = page.indexOf("{expanded && (");
   const pdfManagerIndex = page.indexOf("<DraftPdfManager", expandedPanelIndex);
   const recordEndIndex = page.indexOf("</article>", expandedPanelIndex);
+  const actionsIndex = page.indexOf(">Actions</p>", expandedPanelIndex);
+  const editDraftIndex = page.indexOf("Edit Draft", actionsIndex);
+  const resubmitIndex = page.indexOf("Resubmit to Zapier", actionsIndex);
+  const payloadEditorIndex = page.indexOf("<PayloadEditor", actionsIndex);
 
   assert.ok(expandedPanelIndex >= 0, "expanded record panel is present");
   assert.ok(pdfManagerIndex > expandedPanelIndex, "PDF controls render only after a record is expanded");
@@ -41,6 +48,13 @@ test("draft PDF and recovery actions remain inside each expanded record", async 
   assert.match(page, /Resubmit to Zapier/);
   assert.match(page, /AI Repair \+ Retry/);
   assert.match(page, /Copy Endpoint Payload/);
-  assert.match(page, /<PayloadEditor/);
+  assert.ok(actionsIndex >= 0, "Actions section is present");
+  assert.ok(editDraftIndex > actionsIndex, "Edit Draft renders inside Actions");
+  assert.ok(editDraftIndex < resubmitIndex, "Edit Draft renders left of Resubmit to Zapier");
+  assert.ok(payloadEditorIndex > resubmitIndex, "the controlled editor panel remains in the Actions section");
+  assert.doesNotMatch(page, /Manual Payload Editor/);
+  assert.doesNotMatch(payloadEditor, /Manual Payload Editor/);
+  assert.match(payloadEditor, /Save Changes/);
+  assert.match(payloadEditor, /Save &amp; Retry Submission/);
   assert.match(page, /<RawDraftDataSection/);
 });
