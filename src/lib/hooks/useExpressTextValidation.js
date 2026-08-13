@@ -156,6 +156,16 @@ export function useExpressTextValidation() {
     
     delete dirtyFieldsRef.current[fieldName];
   }, []);
+
+  /**
+   * Reset validation state after a successful submission or an explicit form clear.
+   */
+  const resetAllFields = useCallback(() => {
+    setValidationStatus({});
+    setValidatingFields({});
+    dirtyFieldsRef.current = {};
+    inFlightValidationRef.current = {};
+  }, []);
   
   /**
    * Check if a field is currently validating
@@ -209,6 +219,7 @@ export function useExpressTextValidation() {
     markFieldDirty,
     setFieldValidation,
     clearFieldValidation,
+    resetAllFields,
     isFieldValidating,
     getFieldStatus,
     isFieldDirty,

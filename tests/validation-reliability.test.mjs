@@ -259,3 +259,14 @@ test("unavailable results always retain the answer fingerprint", () => {
   assert.equal(result.blocking, false);
   assert.match(result.message, /answer is saved/i);
 });
+
+test("the validation hook exposes the reset used by successful submission cleanup", async () => {
+  const source = await readFile(
+    new URL("../src/lib/hooks/useExpressTextValidation.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /const resetAllFields = useCallback/);
+  assert.match(source, /setValidationStatus\(\{\}\)/);
+  assert.match(source, /setValidatingFields\(\{\}\)/);
+  assert.match(source, /\n\s+resetAllFields,/);
+});
