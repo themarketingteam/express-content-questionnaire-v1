@@ -47,7 +47,7 @@ test("a non-empty required answer is complete without running optional validatio
     touchedQuestions: { "3": true },
     validationStatus: {},
     validatingFields: [],
-    isQuestionComplete: (questionId) => questionId === "3",
+    isQuestionComplete: (questionId) => questionId === 3,
   });
   assert.equal(status, QUESTION_STATUS.complete);
 

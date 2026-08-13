@@ -132,7 +132,7 @@ export function getBasicQuestionCompletionStatus({
   isQuestionComplete 
 }) {
   // Check if question is complete using existing logic
-  if (isQuestionComplete && isQuestionComplete(questionId)) {
+  if (isQuestionComplete && isQuestionComplete(Number(questionId))) {
     return QUESTION_STATUS.complete;
   }
   
