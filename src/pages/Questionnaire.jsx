@@ -1777,7 +1777,7 @@ export default function Questionnaire() {
             </div>
 
             <div ref={el => questionRefs.current[9] = el}>
-              <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex flex-wrap sm:flex-nowrap items-start justify-between gap-4 mb-3">
                 <NumericRangeQuestion
                   questionNumber={9}
                   title="What is the typical size of your client companies?"

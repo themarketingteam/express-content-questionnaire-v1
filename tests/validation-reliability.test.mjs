@@ -277,4 +277,5 @@ test("questionnaire controls wrap instead of overflowing narrow mobile viewports
     "utf8",
   );
   assert.match(source, /className="flex flex-wrap gap-3 mb-8"/);
+  assert.match(source, /className="flex flex-wrap sm:flex-nowrap items-start justify-between gap-4 mb-3"/);
 });
