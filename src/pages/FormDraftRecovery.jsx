@@ -448,7 +448,7 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
                 onClick={handleRetry}
                 title="Re-sends the payload to Zapier every time. The webhook handles de-duplication.">
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                Resubmit to Zapier
+                Retry Submission
               </Button>
             </div>
             <PayloadEditor
@@ -468,20 +468,20 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
                 disabled={isLoading}
                 onClick={() => handleAiAction("diagnose_only")}>
                 {actionLoading === "diagnose_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
-                AI Diagnose
+                Diagnose
               </Button>
               <Button size="sm" variant="outline" className="brand-button-secondary"
                 disabled={isLoading}
                 onClick={() => handleAiAction("repair_only")}>
                 {actionLoading === "repair_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
-                AI Repair Only
+                Repair Only
               </Button>
               <Button size="sm" className="brand-button-dark"
                 disabled={isLoading}
                 title="For draft rows: prefer intake retry for safest recovery. This uses the draft payload directly."
                 onClick={() => { if (window.confirm("AI Repair + Retry from draft will attempt to create a FormSubmission from the repaired draft payload. For safer recovery, use intake retry from the Submission Intake Recovery section. Continue?")) handleAiAction("repair_and_retry"); }}>
                 {actionLoading === "repair_and_retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                AI Repair + Retry
+                Repair + Retry
               </Button>
             </div>
           </div>
@@ -491,7 +491,7 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
             <div className="brand-action-buttons">
               <Button size="sm" variant="outline" className="brand-button-secondary"
                 onClick={() => { navigator.clipboard.writeText(JSON.stringify(preview.payload, null, 2)); toast.success("Endpoint payload copied"); }}>
-                <Copy className="w-3 h-3" /> Copy Endpoint Payload
+                <Copy className="w-3 h-3" /> Endpoint Payload
               </Button>
               <Button size="sm" variant="outline" className="brand-button-secondary"
                 onClick={() => {
@@ -499,7 +499,7 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
                   navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
                   toast.success("Raw draft data copied");
                 }}>
-                <Copy className="w-3 h-3" /> Copy Raw Draft Data
+                <Copy className="w-3 h-3" /> Raw Draft
               </Button>
               {aiRepairedPayload && (
                 <Button size="sm" variant="outline" className="brand-button-secondary"
