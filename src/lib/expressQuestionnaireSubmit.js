@@ -17,6 +17,11 @@ import {
 } from "@/lib/expressSubmissionResilience";
 import { sendExpressZapierSafe, buildExpressZapierPayload } from "@/lib/expressZapierDelivery";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
+import {
+  hasDurableSubmissionReceipt,
+  isFinalSubmissionConfirmed,
+  wasSubmissionIntakeCaptured,
+} from "@/lib/submissionReceipt";
 
 // Best-effort Zapier delivery status persistence
 export async function updateZapierDeliveryStatusSafe(args) {
@@ -387,33 +392,30 @@ export async function submitExpressQuestionnaire(args) {
     });
 
     if (fallbackResult.ok && fallbackResult.receivedViaIntake) {
-      // Fallback received intake - treat as handled recovery
-      if (onFinalSubmitSuccess) {
-        onFinalSubmitSuccess({
-          ok: true,
-          accepted: true,
-          receivedViaIntake: true,
-          submissionCreated: false,
-          intakeId: fallbackResult.intakeId,
-          submissionId: null,
-          submission: null,
+      const safeMessage = "We saved your answers for recovery, but the submission payload could not be prepared for Zapier.";
+      if (onFinalSubmitFailure) {
+        onFinalSubmitFailure({
+          error: { message: safeMessage },
           recoveryCode,
-          zapierSent: false,
-          zapierError: null,
+          failureKind: "transform",
+          intakeId: fallbackResult.intakeId,
+          intakeCaptured: true,
+          sessionId: questionnaireSessionId,
+          submitAttemptId,
+          safeMessage,
         });
       }
-      return {
-        ok: true,
-        accepted: true,
-        receivedViaIntake: true,
-        submissionCreated: false,
-        intakeId: fallbackResult.intakeId,
-        submissionId: null,
-        submission: null,
+      throw new SubmitFlowError({
+        userMessage: `${safeMessage} Recovery code: ${recoveryCode}`,
+        safeMessage,
         recoveryCode,
-        zapierSent: false,
-        zapierError: null,
-      };
+        failureKind: "transform",
+        stage: "payload_transform_failed",
+        serializedError,
+        intakeId: fallbackResult.intakeId,
+        sessionId: questionnaireSessionId,
+        submitAttemptId,
+      });
     }
 
     // Fallback failed - throw SubmitFlowError
@@ -424,6 +426,7 @@ export async function submitExpressQuestionnaire(args) {
       failureKind: fallbackResult.failureKind || "transform",
       stage: "payload_transform_failed",
       serializedError,
+      intakeId: null,
       sessionId: questionnaireSessionId,
       submitAttemptId,
     });
@@ -525,20 +528,30 @@ export async function submitExpressQuestionnaire(args) {
     });
 
     if (fallbackValidFail.ok && fallbackValidFail.receivedViaIntake) {
-      if (onFinalSubmitSuccess) {
-        onFinalSubmitSuccess({
-          ok: true, accepted: true, receivedViaIntake: true,
-          submissionCreated: false, intakeId: fallbackValidFail.intakeId,
-          submissionId: null, submission: null, recoveryCode,
-          zapierSent: false, zapierError: null,
+      const safeMessage = "We saved your answers for recovery, but validation prevented Zapier delivery.";
+      if (onFinalSubmitFailure) {
+        onFinalSubmitFailure({
+          error: { message: safeMessage },
+          recoveryCode,
+          failureKind: "validation",
+          intakeId: fallbackValidFail.intakeId,
+          intakeCaptured: true,
+          sessionId: questionnaireSessionId,
+          submitAttemptId,
+          safeMessage,
         });
       }
-      return {
-        ok: true, accepted: true, receivedViaIntake: true,
-        submissionCreated: false, intakeId: fallbackValidFail.intakeId,
-        submissionId: null, submission: null, recoveryCode,
-        zapierSent: false, zapierError: null,
-      };
+      throw new SubmitFlowError({
+        userMessage: `${safeMessage} Recovery code: ${recoveryCode}`,
+        safeMessage,
+        recoveryCode,
+        failureKind: "validation",
+        stage: "payload_validation_failed",
+        serializedError: serializeExpressError({ message: payloadValidation.errors.join("; ") }),
+        intakeId: fallbackValidFail.intakeId,
+        sessionId: questionnaireSessionId,
+        submitAttemptId,
+      });
     }
 
     throw new SubmitFlowError({
@@ -548,6 +561,7 @@ export async function submitExpressQuestionnaire(args) {
       failureKind: "validation",
       stage: "payload_validation_failed",
       serializedError: serializeExpressError({ message: payloadValidation.errors.join("; ") }),
+      intakeId: null,
       sessionId: questionnaireSessionId,
       submitAttemptId,
     });
@@ -627,6 +641,12 @@ export async function submitExpressQuestionnaire(args) {
     diagnostics,
   });
 
+  if (submitResult.ok && !hasDurableSubmissionReceipt(submitResult)) {
+    submitResult.ok = false;
+    submitResult.error = new Error("Submission backend did not return a durable receipt.");
+    submitResult.failureKind = "receipt";
+  }
+
   // Step 9: Handle successful result
   if (submitResult.ok) {
     const successTimestamp = new Date().toISOString();
@@ -646,7 +666,6 @@ export async function submitExpressQuestionnaire(args) {
         zapierError = zapierResult.error;
       }
     } catch (zapierErr) {
-      // Silently ignore Zapier errors - don't fail the submission
       zapierError = zapierErr.message || 'Zapier delivery failed';
       zapierResult = { ok: false, error: zapierError };
     }
@@ -661,6 +680,80 @@ export async function submitExpressQuestionnaire(args) {
       businessName,
       domain,
     });
+
+    if (!isFinalSubmissionConfirmed(submitResult, zapierResult)) {
+      const deliveryMessage = typeof zapierError === "string"
+        ? zapierError
+        : (zapierError?.message || "Zapier did not accept the Express submission.");
+      const serializedDeliveryError = serializeExpressError({
+        message: deliveryMessage,
+        status: zapierResult.zapierStatus,
+      });
+      await safeDraftSave({
+        saveDraftNow,
+        draftData: {
+          status: "auto_repair_pending",
+          submitError: safeJsonStringify(serializedDeliveryError || {}),
+          responsesSnapshot: responseSnapshot,
+          validationStatusSnapshot: validationStatus || {},
+          touchedQuestionsSnapshot: touchedQuestions || {},
+          expandedQuestionsSnapshot: expandedQuestions || {},
+          submitAttemptId,
+        },
+        questionnaireSessionId,
+        submitAttemptId,
+        businessName,
+        domain,
+        responses: responseSnapshot,
+        transformedPayload,
+        validationStatus,
+        touchedQuestions,
+        expandedQuestions,
+        stage: "zapier_failed",
+      });
+      writeLocalFailedSubmissionBackup({
+        sessionId: questionnaireSessionId,
+        submitAttemptId,
+        businessName,
+        domain,
+        responses: responseSnapshot,
+        transformedPayload,
+        validationStatus: validationStatus || {},
+        touchedQuestions: touchedQuestions || {},
+        expandedQuestions: expandedQuestions || {},
+        stage: "zapier_failed",
+        error: { message: deliveryMessage },
+        diagnostics: {
+          submissionId: submitResult.submissionId || null,
+          intakeId: submitResult.intakeId || null,
+          zapierStatus: zapierResult.zapierStatus ?? null,
+          zapierEndpoint: zapierResult.zapierEndpoint || null,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      const failureDetails = {
+        error: { message: deliveryMessage },
+        recoveryCode,
+        failureKind: "delivery",
+        intakeId: submitResult.intakeId || null,
+        intakeCaptured: hasDurableSubmissionReceipt(submitResult),
+        sessionId: questionnaireSessionId,
+        submitAttemptId,
+        safeMessage: deliveryMessage,
+      };
+      if (onFinalSubmitFailure) onFinalSubmitFailure(failureDetails);
+      throw new SubmitFlowError({
+        userMessage: `${deliveryMessage} Recovery code: ${recoveryCode}`,
+        safeMessage: deliveryMessage,
+        recoveryCode,
+        failureKind: "delivery",
+        stage: "zapier_failed",
+        serializedError: serializedDeliveryError,
+        intakeId: submitResult.intakeId || null,
+        sessionId: questionnaireSessionId,
+        submitAttemptId,
+      });
+    }
 
     // Record submit success stage
     if (createDraftEvent) {
@@ -766,9 +859,7 @@ export async function submitExpressQuestionnaire(args) {
     });
   }
 
-  // Consider data captured if: intake received it, OR the fallback itself failed (data is in local backup + we'll retry)
-  // We never want to show an error to the user when their answers have been preserved in any form.
-  const intakeCaptured = submitResult.receivedViaIntake || !!submitResult.intakeId || true;
+  const intakeCaptured = wasSubmissionIntakeCaptured(submitResult);
 
   // Save draft status — always use auto_repair_pending since data was captured
   const draftFailStatus = "auto_repair_pending";
@@ -820,34 +911,31 @@ export async function submitExpressQuestionnaire(args) {
     },
   });
 
-  // If intake captured the data: redirect user to thank-you (silent recovery), queue auto repair
+  // Intake capture preserves the answers, but it is not final success until Zapier accepts them.
   if (intakeCaptured) {
-    if (onFinalSubmitSuccess) {
-      onFinalSubmitSuccess({
-        ok: true,
-        accepted: true,
-        receivedViaIntake: true,
-        submissionCreated: false,
-        intakeId: submitResult.intakeId || null,
-        submissionId: null,
-        submission: null,
+    if (onFinalSubmitFailure) {
+      onFinalSubmitFailure({
+        error: submitResult.error,
         recoveryCode,
-        zapierSent: false,
-        zapierError: null,
+        failureKind: submitResult.failureKind,
+        intakeId: submitResult.intakeId || null,
+        intakeCaptured: true,
+        sessionId: questionnaireSessionId,
+        submitAttemptId,
+        safeMessage: "Your answers were saved for recovery, but final delivery was not confirmed.",
       });
     }
-    return {
-      ok: true,
-      accepted: true,
-      receivedViaIntake: true,
-      submissionCreated: false,
-      intakeId: submitResult.intakeId || null,
-      submissionId: null,
-      submission: null,
+    throw new SubmitFlowError({
+      userMessage: `Your answers were saved, but final delivery was not confirmed. Recovery code: ${recoveryCode}`,
+      safeMessage: "Your answers were saved for recovery, but final delivery was not confirmed.",
       recoveryCode,
-      zapierSent: false,
-      zapierError: null,
-    };
+      failureKind: submitResult.failureKind || "delivery",
+      stage: "submit_recovery_pending",
+      serializedError,
+      intakeId: submitResult.intakeId || null,
+      sessionId: questionnaireSessionId,
+      submitAttemptId,
+    });
   }
 
   // No intake capture — surface error to user normally

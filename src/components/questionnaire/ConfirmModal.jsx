@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { X, CheckCircle, AlertCircle, Download, Loader2, Copy } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { generatePDF } from "./PDFGenerator";
+import { generatePDF } from "./PDFGenerator.js";
 import { normalizeExpressFormData } from "@/lib/expressQuestionnairePayload";
 
 const capitalizeBusinessName = (name) => {

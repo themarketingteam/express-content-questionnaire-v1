@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Send, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
+import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
@@ -30,7 +31,7 @@ function patchPayload(payload, businessName, businessDomain) {
   return next;
 }
 
-export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
+export default function PayloadEditor({ draft, initialPayload, onRefresh, recoveryGrant }) {
   const [open, setOpen] = useState(false);
 
   // Editable fields
@@ -111,13 +112,14 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
           domain: businessDomain,
           mapped_payload_json: JSON.stringify(payload),
         },
+        recoveryGrant,
       });
       const data = response?.data || response || {};
       if (!data.success) throw new Error(data.error || "Failed to save draft.");
       toast.success("Draft updated — payload, business name, and domain saved.");
       onRefresh?.();
     } catch (err) {
-      toast.error(err?.message || "Failed to save draft.");
+      toast.error(getBackendErrorMessage(err, "Failed to save draft."));
     } finally {
       setIsSaving(false);
     }
@@ -140,6 +142,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
           domain: businessDomain,
           mapped_payload_json: JSON.stringify(payload),
         },
+        recoveryGrant,
       });
       const updateData = updateResponse?.data || updateResponse || {};
       if (!updateData.success) throw new Error(updateData.error || "Failed to save draft.");
@@ -149,6 +152,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
         questionnaireSessionId: draft.session_id,
         forceRetry: true,
         payload,
+        recoveryGrant,
       });
       const data = res?.data || res;
 
@@ -166,7 +170,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh }) {
       }
       onRefresh?.();
     } catch (err) {
-      toast.error(err?.message || "Save + Retry failed.");
+      toast.error(getBackendErrorMessage(err, "Save + Retry failed."));
     } finally {
       setIsSubmitting(false);
     }

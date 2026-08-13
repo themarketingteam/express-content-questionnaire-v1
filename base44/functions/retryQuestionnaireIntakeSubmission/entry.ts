@@ -1,4 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { secrets } from 'base44:runtime';
+import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -192,10 +194,24 @@ Deno.serve(async (req) => {
 
   try {
     const base44 = createClientFromRequest(req);
+    const { intakeId, questionnaireSessionId, forceRetry = false, payload: providedPayload, recoveryGrant } = body;
 
-    // Intentionally public: this action is part of the password-free recovery page.
-
-    const { intakeId, questionnaireSessionId, forceRetry = false, payload: providedPayload } = body;
+    let recoverySecret = '';
+    try {
+      recoverySecret = secrets.get('DRAFT_RECOVERY_PASSWORD') || '';
+    } catch {
+      return Response.json({ success: false, error: { message: 'Draft recovery access is not configured.' } }, { status: 503, headers: corsHeaders });
+    }
+    const authorization = await authorizeRecoveryRequest({ base44, recoveryGrant, recoverySecret });
+    if (!authorization.authorized) {
+      return Response.json({ success: false, error: { message: authorization.error } }, { status: 403, headers: corsHeaders });
+    }
+    safeRecoveryLog({
+      functionName: 'retryQuestionnaireIntakeSubmission',
+      authorizationMode: authorization.mode,
+      identifier: intakeId || questionnaireSessionId || providedPayload?.metadata?.questionnaire_session_id,
+      deliveryStage: 'authorized',
+    });
 
     // If a payload is provided directly (e.g. from a FormDraft), use it as the source of truth.
     // Otherwise, resolve the intake record and use its transformed_payload_json.

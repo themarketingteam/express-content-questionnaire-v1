@@ -1,6 +1,37 @@
 const isNode = typeof window === 'undefined';
-const windowObj = isNode ? { localStorage: new Map() } : window;
+const memoryStorage = new Map();
+const nodeStorage = {
+	getItem: (key) => memoryStorage.get(key) ?? null,
+	setItem: (key, value) => memoryStorage.set(key, String(value)),
+	removeItem: (key) => memoryStorage.delete(key),
+};
+const windowObj = isNode ? { localStorage: nodeStorage } : window;
 const storage = windowObj.localStorage;
+
+export const EXPRESS_BASE44_APP_ID = '6913611c0ea0f6b631343af8';
+export const EXPRESS_BASE44_BACKEND_URL = 'https://base44.app';
+
+const PUBLISHED_EXPRESS_HOSTS = new Set([
+	'expressform.tmtwebsiteresources.xyz',
+	'it-business-insights-31343af8.base44.app',
+]);
+
+export function isPublishedExpressHost(hostname = '') {
+	return PUBLISHED_EXPRESS_HOSTS.has(String(hostname).trim().toLowerCase());
+}
+
+export function getPublishedExpressRuntimeParams({ token = null, fromUrl = '' } = {}) {
+	return {
+		appId: EXPRESS_BASE44_APP_ID,
+		serverUrl: EXPRESS_BASE44_BACKEND_URL,
+		token,
+		fromUrl,
+		functionsVersion: undefined,
+	};
+}
+
+const defaultAppId = import.meta.env.VITE_BASE44_APP_ID || EXPRESS_BASE44_APP_ID;
+const defaultBackendUrl = import.meta.env.VITE_BASE44_BACKEND_URL || EXPRESS_BASE44_BACKEND_URL;
 
 const toSnakeCase = (str) => {
 	return str.replace(/([A-Z])/g, '_$1').toLowerCase();
@@ -35,11 +66,28 @@ const getAppParamValue = (paramName, { defaultValue = undefined, removeFromUrl =
 }
 
 const getAppParams = () => {
+	const hostname = isNode ? '' : window.location.hostname;
+
+	if (isPublishedExpressHost(hostname)) {
+		try {
+			storage.removeItem('base44_app_id');
+			storage.removeItem('base44_server_url');
+			storage.removeItem('base44_functions_version');
+		} catch {
+			// Storage may be unavailable in privacy-restricted browsers.
+		}
+
+		return getPublishedExpressRuntimeParams({
+			token: getAppParamValue('access_token', { removeFromUrl: true }),
+			fromUrl: window.location.href,
+		});
+	}
+
 	return {
-		appId: getAppParamValue("app_id", { defaultValue: import.meta.env.VITE_BASE44_APP_ID }),
-		serverUrl: getAppParamValue("server_url", { defaultValue: import.meta.env.VITE_BASE44_BACKEND_URL }),
+		appId: getAppParamValue("app_id", { defaultValue: defaultAppId }),
+		serverUrl: getAppParamValue("server_url", { defaultValue: defaultBackendUrl }),
 		token: getAppParamValue("access_token", { removeFromUrl: true }),
-		fromUrl: getAppParamValue("from_url", { defaultValue: window.location.href }),
+		fromUrl: getAppParamValue("from_url", { defaultValue: isNode ? '' : window.location.href }),
 		functionsVersion: getAppParamValue("functions_version"),
 	}
 }

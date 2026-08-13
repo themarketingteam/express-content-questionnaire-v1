@@ -1,4 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { secrets } from 'base44:runtime';
+import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -380,10 +382,24 @@ Deno.serve(async (req) => {
 
   try {
     const base44 = createClientFromRequest(req);
+    const { draftId, intakeId, questionnaireSessionId, mode = 'repair_only', forceRetry = false, recoveryGrant } = body;
 
-    // Intentionally public: this action is part of the password-free recovery page.
-
-    const { draftId, intakeId, questionnaireSessionId, mode = 'repair_only', forceRetry = false } = body;
+    let recoverySecret = '';
+    try {
+      recoverySecret = secrets.get('DRAFT_RECOVERY_PASSWORD') || '';
+    } catch {
+      return Response.json({ ok: false, error: 'Draft recovery access is not configured.' }, { status: 503, headers: corsHeaders });
+    }
+    const authorization = await authorizeRecoveryRequest({ base44, recoveryGrant, recoverySecret });
+    if (!authorization.authorized) {
+      return Response.json({ ok: false, error: authorization.error }, { status: 403, headers: corsHeaders });
+    }
+    safeRecoveryLog({
+      functionName: 'repairExpressQuestionnaireIntakeSubmission',
+      authorizationMode: authorization.mode,
+      identifier: draftId || intakeId || questionnaireSessionId,
+      deliveryStage: 'authorized',
+    });
 
     if (!draftId && !intakeId && !questionnaireSessionId) {
       return Response.json({ ok: false, error: 'draftId, intakeId, or questionnaireSessionId is required' }, { status: 400, headers: corsHeaders });

@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
-import { getOrCreateQuestionnaireSessionId, clearQuestionnaireSessionId } from "@/lib/sessionId";
+import { getOrCreateQuestionnaireDraftIdentity, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
 import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions, saveStateToLocalStorage, loadStateFromLocalStorage, writeStateMarkerCookie, clearStateFromLocalStorage } from "@/lib/expressPersistedState";
 import { clearExpressQuestionnaireLocalState, createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
+import { createSaveDraftSnapshot, writeDraftFailureBackup } from "@/lib/draftPersistence";
+import { createQuestionnaireDraftApi, createSerialDraftSaveQueue } from "@/lib/questionnaireDraftApi";
 import {
-  createFindExistingDraftBySessionId,
-  createSaveDraftSnapshot,
-  writeDraftFailureBackup,
-} from "@/lib/draftPersistence";
+  buildPersistedStateFromRemoteDraft,
+  parseRemoteAnswerHistory,
+  selectNewestPersistedState,
+} from "@/lib/remoteDraftState";
 import { submitExpressQuestionnaire, SubmitFlowError } from "@/lib/expressQuestionnaireSubmit";
 import {
   createSubmitAttemptId,
@@ -47,6 +49,7 @@ import { useExpressAnswerHistory } from "@/lib/hooks/useExpressAnswerHistory";
 import { parseAnswerHistory } from "@/lib/expressAnswerHistory";
 import RecoverLastAnswerNotice from "@/components/questionnaire/RecoverLastAnswerNotice";
 import SubmitRecoveryCard from "@/components/questionnaire/SubmitRecoveryCard";
+import ExpressDraftSaveStatus from "@/components/questionnaire/ExpressDraftSaveStatus";
 import { HELPER_COPY } from "@/lib/questionnaireHelperCopy";
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
@@ -106,6 +109,8 @@ export default function Questionnaire() {
   const [submitAttemptedWithIncomplete, setSubmitAttemptedWithIncomplete] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
+  const [isDraftHydrating, setIsDraftHydrating] = useState(true);
+  const [draftSaveStatus, setDraftSaveStatus] = useState({ state: "initializing" });
 
   // Last-failed submit context — drives the recovery card
   const [lastSubmitContext, setLastSubmitContext] = useState(null);
@@ -186,10 +191,13 @@ export default function Questionnaire() {
   const draftSaveTimeoutRef = useRef(null);
   const draftTextEventTimeoutsRef = useRef({});
   const draftRecordIdRef = useRef("");
+  const remoteDraftRef = useRef(null);
+  const draftRequestVersionRef = useRef(0);
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
 
-  const [questionnaireSessionId] = useState(() => getOrCreateQuestionnaireSessionId());
+  const [draftIdentity] = useState(() => getOrCreateQuestionnaireDraftIdentity());
+  const questionnaireSessionId = draftIdentity.sessionId;
 
   const urlParams = new URLSearchParams(window.location.search);
   const businessNameParam = urlParams.get("businessName") || urlParams.get("business_name") || urlParams.get("name") || "";
@@ -202,14 +210,79 @@ export default function Questionnaire() {
     userName: urlParams.get("userName") || "",
   };
 
-  const findExistingDraftBySessionId = useCallback(
-    createFindExistingDraftBySessionId({ draftRecordIdRef }),
-    []
+  const draftApi = useMemo(() => createQuestionnaireDraftApi({
+    invoke: (name, body) => base44.functions.invoke(name, body),
+    sessionId: draftIdentity.sessionId,
+    accessKey: draftIdentity.accessKey,
+  }), [draftIdentity]);
+  const enqueueDraftSave = useMemo(
+    () => createSerialDraftSaveQueue((draftRecord) => draftApi.save(draftRecord)),
+    [draftApi]
   );
 
+  const findExistingDraftBySessionId = useCallback(async () => remoteDraftRef.current, []);
+
+  const persistDraftRecord = useCallback(async (draftRecord) => {
+    const requestVersion = draftRequestVersionRef.current + 1;
+    draftRequestVersionRef.current = requestVersion;
+    setDraftSaveStatus((previous) => ({
+      ...previous,
+      state: "saving_server",
+      pendingLocalChanges: true,
+      lastError: "",
+    }));
+
+    const performSave = async () => {
+      let result;
+      try {
+        result = await enqueueDraftSave(draftRecord);
+      } catch (error) {
+        if (requestVersion !== draftRequestVersionRef.current && error && typeof error === "object") {
+          error.draftSaveSuperseded = true;
+        }
+        throw error;
+      }
+      if (requestVersion !== draftRequestVersionRef.current) return result;
+
+      if (result.stale) {
+        const currentDraft = await draftApi.load();
+        remoteDraftRef.current = currentDraft;
+        setDraftSaveStatus({
+          state: "saved_server",
+          lastServerSavedAt: currentDraft?.last_saved_at || result.lastSavedAt || "",
+          pendingLocalChanges: false,
+          lastError: "",
+        });
+        return result;
+      }
+
+      const savedAt = result.lastSavedAt || draftRecord.last_saved_at || new Date().toISOString();
+      remoteDraftRef.current = {
+        ...(remoteDraftRef.current || {}),
+        ...draftRecord,
+        id: result.draftId || remoteDraftRef.current?.id || "",
+        last_saved_at: savedAt,
+      };
+      setDraftSaveStatus({
+        state: "saved_server",
+        lastServerSavedAt: savedAt,
+        pendingLocalChanges: false,
+        lastError: "",
+      });
+      return result;
+    };
+
+    return performSave();
+  }, [draftApi, enqueueDraftSave]);
+
   const saveDraftSnapshot = useCallback(
-    createSaveDraftSnapshot({ entities: base44.entities, draftRecordIdRef, findExistingDraftBySessionId }),
-    [findExistingDraftBySessionId]
+    createSaveDraftSnapshot({
+      entities: base44.entities,
+      draftRecordIdRef,
+      findExistingDraftBySessionId,
+      persistDraftRecord,
+    }),
+    [findExistingDraftBySessionId, persistDraftRecord]
   );
 
   const saveDraftNow = useCallback(async ({
@@ -252,6 +325,12 @@ export default function Questionnaire() {
     if (hasFinalSubmittedRef.current) return;
     if (!isHydratedRef.current) return; // Don't save before cookie state is loaded
     lastChangedQuestionIdRef.current = String(changedQuestionId || "");
+    setDraftSaveStatus((previous) => ({
+      ...previous,
+      state: "saved_local",
+      pendingLocalChanges: true,
+      lastLocalSavedAt: new Date().toISOString(),
+    }));
     if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
     draftSaveTimeoutRef.current = setTimeout(async () => {
       try {
@@ -281,6 +360,14 @@ export default function Questionnaire() {
         });
       } catch (err) {
         console.error("[draft] save failed:", err?.message || err);
+        if (!err?.draftSaveSuperseded) {
+          setDraftSaveStatus((previous) => ({
+            ...previous,
+            state: navigator.onLine === false ? "offline_saved_local" : "server_error",
+            pendingLocalChanges: true,
+            lastError: err?.message || "Secure draft save failed",
+          }));
+        }
         writeDraftFailureBackup({
           questionnaireSessionId,
           responses: nextFormData,
@@ -293,7 +380,7 @@ export default function Questionnaire() {
           submitAttemptId: "",
         });
       }
-    }, 600);
+    }, 1800);
   }, [saveDraftSnapshot, questionnaireSessionId, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
   // Cleanup draft save timeout on unmount
@@ -377,145 +464,171 @@ export default function Questionnaire() {
 
 
 
-  // Load saved data and validation status
+  // Restore the newest valid browser or secure-server snapshot before accepting edits.
   useEffect(() => {
-    // Primary: load from localStorage
-    let result = null;
-    let source = null;
+    let active = true;
 
-    const lsResult = loadStateFromLocalStorage(questionnaireSessionId);
-    if (lsResult.state) {
-      result = { ok: true, state: lsResult.state, migrated: false, repaired: false, discarded: false, error: null, diagnostics: { detectedFormat: "localStorage", source: lsResult.source } };
-      source = lsResult.source;
-    }
+    const hydrateDraft = async () => {
+      let localResult = null;
+      let localSource = null;
+      const lsResult = loadStateFromLocalStorage(questionnaireSessionId);
+      const localStateSessionId = lsResult.state?.questionnaireSessionId || "";
+      const localStateMatchesSession = !localStateSessionId
+        || localStateSessionId === questionnaireSessionId;
 
-    // Fallback: try cookie if localStorage had nothing
-    if (!result) {
-      const saved = getCookie(STORAGE_KEY);
-      const cookieResult = parsePersistedStateCookie(saved);
-      if (cookieResult.ok && cookieResult.state && cookieResult.state.formData) {
-        result = cookieResult;
-        source = "cookie_fallback";
+      if (lsResult.state && localStateMatchesSession) {
+        localResult = {
+          ok: true,
+          state: lsResult.state,
+          migrated: false,
+          repaired: false,
+          discarded: false,
+          error: null,
+          diagnostics: { detectedFormat: "localStorage", source: lsResult.source },
+        };
+        localSource = lsResult.source;
+      }
 
-        // Migrate cookie state into localStorage immediately
-        try {
-          saveStateToLocalStorage(cookieResult.state, questionnaireSessionId);
-          writeStateMarkerCookie(questionnaireSessionId, cookieResult.state.savedAt);
-          if (import.meta.env.DEV) {
-            console.log("[persisted-state] Migrated cookie state into localStorage");
-          }
-        } catch (err) {
-          if (import.meta.env.DEV) {
-            console.warn("[persisted-state] Failed to migrate cookie state to localStorage:", err?.message);
-          }
+      if (!localResult) {
+        const saved = getCookie(STORAGE_KEY);
+        const cookieResult = parsePersistedStateCookie(saved);
+        const cookieSessionId = cookieResult.state?.questionnaireSessionId || "";
+        const cookieMatchesSession = !cookieSessionId || cookieSessionId === questionnaireSessionId;
+        if (cookieResult.ok && cookieResult.state?.formData && cookieMatchesSession) {
+          localResult = cookieResult;
+          localSource = "cookie_fallback";
         }
       }
-    }
 
-    if (result && result.ok) {
-      // Restore form data
-      setFormData(prev => ({ ...prev, ...result.state.formData }));
-      
-      // Restore validation status if available
-      if (result.state.validationStatus && typeof result.state.validationStatus === 'object') {
-        Object.entries(result.state.validationStatus).forEach(([fieldName, status]) => {
-          textValidation.setFieldValidation(fieldName, status);
+      let remoteDraft = null;
+      let remoteError = null;
+      try {
+        remoteDraft = await draftApi.load();
+      } catch (error) {
+        remoteError = error;
+        console.error("[draft] secure restore failed:", error?.message || error);
+      }
+
+      if (!active) return;
+
+      remoteDraftRef.current = remoteDraft;
+      draftRecordIdRef.current = remoteDraft?.id || "";
+      const remoteState = buildPersistedStateFromRemoteDraft(remoteDraft, questionnaireSessionId);
+      const selected = selectNewestPersistedState(localResult?.state || null, remoteState);
+      const restoredState = selected.state;
+
+      if (restoredState?.formData) {
+        setFormData((previous) => ({ ...previous, ...restoredState.formData }));
+
+        if (restoredState.validationStatus && typeof restoredState.validationStatus === "object") {
+          Object.entries(restoredState.validationStatus).forEach(([fieldName, status]) => {
+            textValidation.setFieldValidation(fieldName, status);
+          });
+        }
+        if (restoredState.touchedQuestions && typeof restoredState.touchedQuestions === "object") {
+          setTouchedQuestions(restoredState.touchedQuestions);
+        }
+        if (restoredState.expandedQuestions && typeof restoredState.expandedQuestions === "object") {
+          const expandedNums = [];
+          for (let questionNumber = 1; questionNumber <= 12; questionNumber += 1) {
+            if (restoredState.expandedQuestions[String(questionNumber)]) expandedNums.push(questionNumber);
+          }
+          setOpenQuestions(expandedNums.length > 0 ? expandedNums : [1]);
+        }
+
+        // Repopulate browser storage after a server recovery so subsequent reloads are instant.
+        saveStateToLocalStorage(restoredState, questionnaireSessionId);
+        writeStateMarkerCookie(questionnaireSessionId, restoredState.savedAt);
+      }
+
+      const remoteHistory = selected.source === "server_draft"
+        ? parseRemoteAnswerHistory(remoteDraft)
+        : null;
+      if (remoteHistory) {
+        answerHistory.hydrateFromStored(remoteHistory);
+      } else {
+        try {
+          const historyRaw = localStorage.getItem(`express_questionnaire_answer_history_${questionnaireSessionId}`);
+          if (historyRaw) answerHistory.hydrateFromStored(parseAnswerHistory(historyRaw));
+        } catch {
+          // Ignore browser storage errors.
+        }
+      }
+
+      if (import.meta.env.DEV && restoredState) {
+        console.log(`[persisted-state] Loaded from ${selected.source || localSource}`);
+      }
+
+      if (remoteDraft) {
+        setDraftSaveStatus({
+          state: "saved_server",
+          lastServerSavedAt: remoteDraft.last_saved_at || remoteDraft.updated_date || "",
+          pendingLocalChanges: selected.source === "local",
+          lastError: "",
+        });
+      } else if (remoteError) {
+        setDraftSaveStatus({
+          state: navigator.onLine === false ? "offline_saved_local" : "server_error",
+          lastLocalSavedAt: restoredState?.savedAt || "",
+          pendingLocalChanges: Boolean(restoredState),
+          lastError: remoteError?.message || "Secure restore failed",
+        });
+      } else if (restoredState) {
+        setDraftSaveStatus({
+          state: "saved_local",
+          lastLocalSavedAt: restoredState.savedAt || "",
+          pendingLocalChanges: true,
+          lastError: "",
+        });
+      } else {
+        setDraftSaveStatus({
+          state: "ready",
+          pendingLocalChanges: false,
+          lastError: "",
         });
       }
-      
-      // Restore touched questions
-      if (result.state.touchedQuestions && typeof result.state.touchedQuestions === 'object') {
-        setTouchedQuestions(result.state.touchedQuestions);
-      }
-      
-      // Restore expanded questions
-      if (result.state.expandedQuestions && typeof result.state.expandedQuestions === 'object') {
-        const expandedNums = [];
-        for (let i = 1; i <= 12; i++) {
-          if (result.state.expandedQuestions[String(i)]) {
-            expandedNums.push(i);
-          }
-        }
-        setOpenQuestions(expandedNums.length > 0 ? expandedNums : [1]);
-      }
-      
-      // Log diagnostics in development
-      if (import.meta.env.DEV) {
-        if (result.migrated) {
-          console.log("[persisted-state] Migrated from old format:", result.diagnostics);
-        }
-        if (result.repaired) {
-          console.log("[persisted-state] Repaired invalid fields:", result.diagnostics);
-        }
-        if (result.discarded) {
-          console.warn("[persisted-state] Discarded corrupted state:", result.diagnostics);
-        }
-        if (source) {
-          console.log(`[persisted-state] Loaded from ${source}`);
-        }
-      }
-    } else if (result && result.error) {
-      if (import.meta.env.DEV) {
-        console.warn("[persisted-state] Failed to parse saved state, using defaults:", result.error.message);
-      }
-    }
-    
-    // Create draft event for migration/repair/discard if session exists
-    if (questionnaireSessionId && result && (result.migrated || result.repaired || result.discarded)) {
-      const eventType = result.migrated ? "persisted_state_migrated"
-        : result.repaired ? "persisted_state_repaired"
-        : result.discarded ? "persisted_state_discarded"
-        : null;
-      
-      if (eventType) {
-        // Best-effort event creation - don't block if it fails
-        setTimeout(() => {
-          createDraftEvent({
-            eventType,
-            questionId: "",
-            questionType: "persistence",
-            value: {
-              session_id: questionnaireSessionId,
-              ...result.diagnostics,
-              timestamp: new Date().toISOString(),
-            },
-          }).catch(() => {
-            // Silently ignore draft event failures
+
+      isHydratedRef.current = true;
+      setIsDraftHydrating(false);
+
+      // Upload a newer browser snapshot (including legacy cookie data) immediately.
+      if (restoredState && selected.source === "local") {
+        try {
+          await saveDraftSnapshot({
+            sessionId: questionnaireSessionId,
+            responses: restoredState.formData,
+            validationStatus: restoredState.validationStatus || {},
+            touchedQuestions: restoredState.touchedQuestions || {},
+            expandedQuestions: restoredState.expandedQuestions || getDefaultExpandedQuestions(),
+            credentials: urlCredentials,
+            businessNameParam,
+            domainParam,
+            currentQuestionId: "",
+            lastChangedQuestionId: "",
+            status: "draft",
+            submitError: "",
+            finalSubmissionId: "",
+            submitAttemptId: "",
+            lastNonEmptyAnswers: remoteHistory || answerHistory.lastNonEmptyAnswers,
+            fieldHistory: answerHistory.fieldHistory,
+            lastLocalPersistedAt: restoredState.savedAt || new Date().toISOString(),
           });
-        }, 100);
+        } catch (error) {
+          if (!active) return;
+          setDraftSaveStatus({
+            state: navigator.onLine === false ? "offline_saved_local" : "server_error",
+            lastLocalSavedAt: restoredState.savedAt || "",
+            pendingLocalChanges: true,
+            lastError: error?.message || "Secure draft save failed",
+          });
+        }
       }
-    }
-    
-    // If state was discarded and local backup utility exists, write diagnostic
-    if (result && result.discarded && questionnaireSessionId) {
-      try {
-        localStorage.setItem(
-          `express_questionnaire_recovery_${questionnaireSessionId}`,
-          JSON.stringify({
-            session_id: questionnaireSessionId,
-            stage: "persisted_state_discarded",
-            reason: "corrupted_json",
-            timestamp: new Date().toISOString(),
-          })
-        );
-      } catch {
-        // Ignore storage errors
-      }
-    }
+    };
 
-    // Hydrate answer history from localStorage if available
-    try {
-      const historyRaw = localStorage.getItem(`express_questionnaire_answer_history_${questionnaireSessionId}`);
-      if (historyRaw) {
-        const parsed = parseAnswerHistory(historyRaw);
-        answerHistory.hydrateFromStored(parsed);
-      }
-    } catch {
-      // ignore storage errors
-    }
-
-    // Mark hydration complete — queueDraftSave is now safe to run
-    isHydratedRef.current = true;
+    hydrateDraft();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Auto-save with validation status
@@ -945,27 +1058,45 @@ export default function Questionnaire() {
           setShowThankYouModal(true);
         },
         onFinalSubmitFailure: (_failureResult) => {
-          // Data was captured (intake or local backup) — silently redirect to Thank You.
-          // The auto-repair automation will recover the submission in the background.
-          hasFinalSubmittedRef.current = true;
-          if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-          setLastSubmitContext(null);
-          setSubmittedData({ businessName, domain, formData: rawFormData });
+          const errorMessage = _failureResult?.safeMessage || _failureResult?.error?.message || "Final delivery could not be confirmed.";
+          setSubmitError(errorMessage);
+          setRecoveryCode(_failureResult?.recoveryCode || questionnaireSessionId);
+          setLastSubmitContext({
+            businessName,
+            businessDomain: domain,
+            sessionId: questionnaireSessionId,
+            lastSubmitAttemptId: activeSubmitAttemptIdRef.current,
+            failedAt: new Date().toISOString(),
+            recoveryCode: _failureResult?.recoveryCode || questionnaireSessionId,
+            errorMessage,
+            intakeId: _failureResult?.intakeId || null,
+            intakeCaptured: Boolean(_failureResult?.intakeCaptured),
+          });
           setShowConfirmModal(false);
-          setShowThankYouModal(true);
+          setShowThankYouModal(false);
+          toast.error(errorMessage);
         },
       });
 
       // Success is handled in onFinalSubmitSuccess callback
     } catch (error) {
-      // Any error after answers were captured → silently redirect to Thank You.
-      // The auto-repair automation will recover the submission in the background.
-      hasFinalSubmittedRef.current = true;
-      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-      setLastSubmitContext(null);
-      setSubmittedData({ businessName, domain, formData: rawFormData });
+      const errorMessage = error?.safeMessage || error?.response?.data?.error?.message || error?.message || "Final delivery could not be confirmed.";
+      setSubmitError(errorMessage);
+      setRecoveryCode(error?.recoveryCode || questionnaireSessionId);
+      setLastSubmitContext((current) => current || {
+        businessName,
+        businessDomain: domain,
+        sessionId: questionnaireSessionId,
+        lastSubmitAttemptId: activeSubmitAttemptIdRef.current,
+        failedAt: new Date().toISOString(),
+        recoveryCode: error?.recoveryCode || questionnaireSessionId,
+        errorMessage,
+        intakeId: error?.intakeId || null,
+        intakeCaptured: Boolean(error?.intakeId),
+      });
       setShowConfirmModal(false);
-      setShowThankYouModal(true);
+      setShowThankYouModal(false);
+      toast.error(errorMessage);
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);
@@ -1320,7 +1451,15 @@ export default function Questionnaire() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-16">
+        <div className="mb-6 min-h-5">
+          <ExpressDraftSaveStatus saveStatus={draftSaveStatus} />
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          aria-busy={isDraftHydrating}
+          className={`space-y-16 transition-opacity ${isDraftHydrating ? "pointer-events-none opacity-60" : ""}`}
+        >
           <section className="space-y-8">
             <div className="pb-6 border-b-2" style={{ borderColor: '#009ADD' }}>
               <h2 className="text-2xl font-bold" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>Section 1: About Your Business</h2>
@@ -1865,7 +2004,7 @@ export default function Questionnaire() {
         <div className="mt-16 rounded-xl p-6" style={{ backgroundColor: '#E6F4FF', border: '1px solid #009ADD' }}>
           <h3 className="font-semibold mb-2" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>💾 Auto-Save</h3>
           <p className="text-sm" style={{ color: '#3D5A73', fontFamily: 'Lato, sans-serif' }}>
-            Your answers are saved in this browser in real time and backed up to a secure draft when possible. If submission fails, your answers are preserved and can be recovered using your session recovery code.
+            A few seconds after each answer changes, it is backed up to your secure server draft. Keep this page bookmarked or return through your browser history to restore those answers even if this browser's saved data is cleared.
           </p>
         </div>
       </main>

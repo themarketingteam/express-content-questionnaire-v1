@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
+import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ function AiRepairSummary({ record }) {
 
 // ─── Intake Record Row ────────────────────────────────────────────────────────
 
-function IntakeRecordRow({ record, onRefresh }) {
+function IntakeRecordRow({ record, onRefresh, recoveryGrant }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null); // null | 'retry' | 'force_retry' | 'diagnose' | 'repair_only' | 'repair_and_retry'
 
@@ -191,6 +192,7 @@ function IntakeRecordRow({ record, onRefresh }) {
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
         mode,
+        recoveryGrant,
       });
       const data = response?.data || response;
       if (data?.ok) {
@@ -219,10 +221,10 @@ function IntakeRecordRow({ record, onRefresh }) {
           else toast.error(`Zapier delivery failed: ${data.zapierError || "unknown"}`);
         }
       } else {
-        toast.error(data?.error || `${mode} failed`);
+        toast.error(getBackendErrorMessage({ response: { data } }, `${mode} failed`));
       }
     } catch (err) {
-      toast.error(err?.message || `${mode} failed`);
+      toast.error(getBackendErrorMessage(err, `${mode} failed`));
     } finally {
       setActionLoading(null);
       onRefresh?.();
@@ -236,6 +238,7 @@ function IntakeRecordRow({ record, onRefresh }) {
         intakeId: record.id,
         questionnaireSessionId: record.questionnaire_session_id,
         forceRetry,
+        recoveryGrant,
       });
       const data = response?.data || response;
       if (data?.success) {
@@ -251,10 +254,10 @@ function IntakeRecordRow({ record, onRefresh }) {
           toast.success(forceRetry ? "Force retry completed" : "Retry completed");
         }
       } else {
-        toast.error(data?.error?.message || "Retry failed");
+        toast.error(getBackendErrorMessage({ response: { data } }, "Retry failed"));
       }
     } catch (err) {
-      toast.error(err?.message || "Retry failed");
+      toast.error(getBackendErrorMessage(err, "Retry failed"));
     } finally {
       setActionLoading(null);
       onRefresh?.();
@@ -467,7 +470,7 @@ function IntakeRecordRow({ record, onRefresh }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function QuestionnaireIntakeRecovery() {
+export default function QuestionnaireIntakeRecovery({ recoveryGrant = "" }) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -480,9 +483,10 @@ export default function QuestionnaireIntakeRecovery() {
       setLoadError("");
       const response = await base44.functions.invoke("draftRecoveryData", {
         action: "listIntakes",
+        recoveryGrant,
       });
       const data = response?.data || response || {};
-      if (!data.success) throw new Error(data.error || "Failed to load intake records.");
+      if (!data.success) throw { response: { data } };
       const records = [...(data.intakes || [])];
       records.sort((a, b) => {
         const aDate = new Date(a.created_at_server || a.created_date || a.last_retry_at || 0).getTime();
@@ -491,11 +495,11 @@ export default function QuestionnaireIntakeRecovery() {
       });
       setRecords(records);
     } catch (err) {
-      setLoadError("Failed to load intake records: " + (err?.message || "Unknown error"));
+      setLoadError("Failed to load intake records: " + getBackendErrorMessage(err, "Unknown error"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [recoveryGrant]);
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
 
@@ -560,7 +564,7 @@ export default function QuestionnaireIntakeRecovery() {
           <Card><CardContent className="p-6 text-center text-slate-500 text-sm">No intake records found</CardContent></Card>
         ) : (
           filtered.map((record) => (
-            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} />
+            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} recoveryGrant={recoveryGrant} />
           ))
         )}
       </div>

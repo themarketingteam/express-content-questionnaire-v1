@@ -18,6 +18,9 @@ import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeR
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
 import PayloadEditor from "@/components/admin/PayloadEditor";
+import DraftPdfManager from "@/components/admin/DraftPdfManager";
+import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
+import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -228,7 +231,7 @@ const SOURCE_LABEL = {
   empty_schema: "empty schema — no data available",
 };
 
-function DraftRow({ draft, isDuplicate, onRefresh }) {
+function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
   const [expanded, setExpanded] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
@@ -259,6 +262,7 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
         questionnaireSessionId: draft.session_id,
         forceRetry: true,
         payload: preview?.payload || mappedPayload || null,
+        recoveryGrant,
       });
       const data = res?.data || res;
       if (data?.success) {
@@ -288,10 +292,10 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
           toast.success("Retry completed");
         }
       } else {
-        toast.error(data?.error?.message || "Retry failed");
+        toast.error(getBackendErrorMessage({ response: { data } }, "Retry failed"));
       }
     } catch (err) {
-      const msg = err?.response?.data?.error?.message || err?.message || "Retry failed";
+      const msg = getBackendErrorMessage(err, "Retry failed");
       toast.error(msg);
     }
   });
@@ -302,6 +306,7 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
         draftId: draft.id,
         questionnaireSessionId: draft.session_id,
         mode,
+        recoveryGrant,
       });
       const data = res?.data || res;
     if (data?.ok) {
@@ -328,11 +333,10 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
         else toast.error(`Zapier delivery failed: ${data.zapierError || "unknown"}`);
       }
     } else {
-      toast.error(data?.error || "AI action failed");
+      toast.error(getBackendErrorMessage({ response: { data } }, "AI action failed"));
     }
     } catch (err) {
-      const errData = err?.response?.data;
-      const msg = typeof errData?.error === 'string' ? errData.error : (errData?.error?.message || err?.message || "AI action failed");
+      const msg = getBackendErrorMessage(err, "AI action failed");
       toast.error(msg);
     }
   });
@@ -376,6 +380,10 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
           {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </div>
       </button>
+
+      <div className="border-t border-slate-100 bg-white px-4 py-3">
+        <DraftPdfManager draft={draft} recoveryGrant={recoveryGrant} />
+      </div>
 
       {expanded && (
         <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 space-y-4">
@@ -511,7 +519,7 @@ function DraftRow({ draft, isDuplicate, onRefresh }) {
           </div>
 
           {/* Manual Payload Editor */}
-          <PayloadEditor draft={draft} initialPayload={preview.payload} onRefresh={onRefresh} />
+          <PayloadEditor draft={draft} initialPayload={preview.payload} onRefresh={onRefresh} recoveryGrant={recoveryGrant} />
 
           {/* Raw Draft Data (collapsed) */}
           <RawDraftDataSection draft={draft} />
@@ -595,6 +603,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function FormDraftRecovery() {
+  const { recoveryGrant } = useDraftRecoveryAccess();
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -608,9 +617,10 @@ export default function FormDraftRecovery() {
     try {
       const response = await base44.functions.invoke("draftRecoveryData", {
         action: "listDrafts",
+        recoveryGrant,
       });
       const data = response?.data || response || {};
-      if (!data.success) throw new Error(data.error || "Failed to load drafts.");
+      if (!data.success) throw { response: { data } };
       const sorted = [...(data.drafts || [])].sort((a, b) => {
         const ta = new Date(a.last_saved_at || a.created_date || 0).getTime();
         const tb = new Date(b.last_saved_at || b.created_date || 0).getTime();
@@ -628,22 +638,14 @@ export default function FormDraftRecovery() {
         });
         return merged;
       });
+      setLoadError("");
       setLastRefreshedAt(new Date());
     } catch (err) {
-      if (!silent) setLoadError(err?.message || "Failed to load drafts.");
+      if (!silent) setLoadError(getBackendErrorMessage(err, "Failed to load drafts."));
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
-
-  // Remove the obsolete signed token left by the former password gate.
-  useEffect(() => {
-    try {
-      window.localStorage.removeItem("express_draft_recovery_access_v1");
-    } catch {
-      // Storage may be unavailable in a privacy-restricted browser.
-    }
-  }, []);
+  }, [recoveryGrant]);
 
   // Load on mount; auto-refresh silently every 30 seconds (no state thrash, no scroll jump)
   useEffect(() => {
@@ -723,7 +725,7 @@ export default function FormDraftRecovery() {
         ) : (
           <div className="space-y-2">
             {filtered.map(draft => (
-              <DraftRow key={draft.id} draft={draft} isDuplicate={duplicateSessionIds.has(draft.session_id)} onRefresh={loadDrafts} />
+              <DraftRow key={draft.id} draft={draft} isDuplicate={duplicateSessionIds.has(draft.session_id)} onRefresh={loadDrafts} recoveryGrant={recoveryGrant} />
             ))}
           </div>
         )}
@@ -739,7 +741,7 @@ export default function FormDraftRecovery() {
             View and manage Express questionnaire submission intakes. Retry, AI-diagnose, and repair failed submissions.
           </p>
         </div>
-        <QuestionnaireIntakeRecovery />
+        <QuestionnaireIntakeRecovery recoveryGrant={recoveryGrant} />
       </div>
 
       {/* ── Local Browser Recovery Backups ── */}

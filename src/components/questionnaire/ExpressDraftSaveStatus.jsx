@@ -10,6 +10,13 @@ const STATUS_CONFIG = {
     textClass: "text-slate-500",
     spin: false,
   },
+  ready: {
+    icon: Cloud,
+    iconClass: "text-blue-500",
+    text: "Secure auto-save is ready",
+    textClass: "text-slate-600",
+    spin: false,
+  },
   saved_local: {
     icon: Save,
     iconClass: "text-slate-500",
@@ -93,8 +100,7 @@ export default function ExpressDraftSaveStatus({ saveStatus }) {
   const config = STATUS_CONFIG[state] || STATUS_CONFIG.initializing;
   const Icon = config.icon;
 
-  // Don't render for states that have no meaningful display
-  if (!state || state === "initializing") return null;
+  if (!state) return null;
 
   return (
     <AnimatePresence mode="wait">

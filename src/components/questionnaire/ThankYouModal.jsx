@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { CheckCircle2, Download, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { generatePDF } from "./PDFGenerator";
+import { generatePDF } from "./PDFGenerator.js";
 
 export default function ThankYouModal({ businessName, domain, formData }) {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);

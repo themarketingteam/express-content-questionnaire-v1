@@ -1,0 +1,106 @@
+{
+  "name": "SubmissionPdfVersion",
+  "type": "object",
+  "required": [
+    "draft_id",
+    "payload_hash",
+    "pdf_file_url",
+    "pdf_filename",
+    "template_version",
+    "version_number"
+  ],
+  "properties": {
+    "draft_id": {
+      "type": "string",
+      "description": "FormDraft record that owns this saved PDF version"
+    },
+    "questionnaire_session_id": {
+      "type": "string",
+      "description": "Stable questionnaire session ID"
+    },
+    "submission_id": {
+      "type": "string",
+      "description": "FormSubmission record used for this PDF, when available"
+    },
+    "submit_attempt_id": {
+      "type": "string",
+      "description": "Submit attempt ID represented by this PDF"
+    },
+    "payload_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 fingerprint of all values rendered into the PDF"
+    },
+    "payload_source": {
+      "type": "string",
+      "description": "Payload source used for generation, such as mapped_payload_json or form_submission"
+    },
+    "payload_json": {
+      "type": "string",
+      "description": "Canonical payload snapshot represented by this PDF"
+    },
+    "source_updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of the source draft or submission used for generation"
+    },
+    "pdf_file_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Stored Base44 file URL for this PDF"
+    },
+    "pdf_filename": {
+      "type": "string",
+      "description": "Download filename for this PDF"
+    },
+    "pdf_byte_size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Generated PDF file size in bytes"
+    },
+    "template_version": {
+      "type": "string",
+      "description": "Version of the Express PDF template used"
+    },
+    "version_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version number within the draft"
+    },
+    "business_name": {
+      "type": "string",
+      "description": "Business name rendered in the PDF"
+    },
+    "business_domain": {
+      "type": "string",
+      "description": "Business domain rendered in the PDF"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this PDF version was generated and saved"
+    }
+  },
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -9,6 +9,11 @@
       "type": "string",
       "description": "Stable questionnaire session ID"
     },
+    "draft_access_key_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hash of the client-held secret used to access this draft"
+    },
     "business_name": {
       "type": "string",
       "description": "Business name associated with the draft"
@@ -69,6 +74,11 @@
       "type": "string",
       "description": "JSON string of full mapped final-style Express questionnaire payload"
     },
+    "payload_edited_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When an administrator last changed the normalized payload"
+    },
     "draft_metadata_json": {
       "type": "string",
       "description": "Technical draft autosave metadata such as page path, source, app name, and user agent"
@@ -96,6 +106,19 @@
     "last_saved_at": {
       "type": "string",
       "description": "When the draft was last saved"
+    },
+    "last_non_empty_answers_json": {
+      "type": "string",
+      "description": "Serialized last-known non-empty answer values used for field recovery"
+    },
+    "field_history_json": {
+      "type": "string",
+      "description": "Serialized field-level answer history used for recovery"
+    },
+    "last_local_persisted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this state was most recently persisted in the client browser"
     },
     "final_submission_id": {
       "type": "string",
@@ -135,20 +158,25 @@
     }
   },
   "rls": {
-    "create": null,
-    "read": null,
-    "update": null,
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
     "delete": {
-      "$or": [
-        {
-          "created_by_id": "{{user.id}}"
-        },
-        {
-          "user_condition": {
-            "role": "admin"
-          }
-        }
-      ]
+      "user_condition": {
+        "role": "admin"
+      }
     }
   }
 }

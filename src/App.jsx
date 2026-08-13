@@ -16,6 +16,8 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import QuestionnaireRouteBoundary from '@/components/questionnaire/QuestionnaireRouteBoundary';
 import { isPublicDraftRecoveryPath } from '@/lib/publicRoutes';
+import { DraftRecoveryAccessProvider } from '@/lib/DraftRecoveryAccessContext';
+import DraftRecoveryAccessGate from '@/components/admin/DraftRecoveryAccessGate';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -112,13 +114,17 @@ const AuthenticatedApp = () => {
 const AppContent = () => {
   const location = useLocation();
 
-  // Keep the recovery route completely outside Base44 auth enforcement. The
-  // suffix match also supports Base44 deployments mounted below a base path.
+  // Keep the recovery route outside Base44 login redirects so password-grant
+  // access can work. The suffix match supports deployments below a base path.
   if (isPublicDraftRecoveryPath(location.pathname)) {
     return (
-      <LayoutWrapper currentPageName={"admin/draft-recovery"}>
-        <FormDraftRecovery />
-      </LayoutWrapper>
+      <DraftRecoveryAccessProvider>
+        <DraftRecoveryAccessGate>
+          <LayoutWrapper currentPageName={"admin/draft-recovery"}>
+            <FormDraftRecovery />
+          </LayoutWrapper>
+        </DraftRecoveryAccessGate>
+      </DraftRecoveryAccessProvider>
     );
   }
 

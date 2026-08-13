@@ -10,7 +10,7 @@ import {
   buildExpressSubmissionPayload,
   normalizeExpressFormData,
   cleanExpressDomain,
-} from "@/lib/expressQuestionnairePayload";
+} from "./expressQuestionnairePayload.js";
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;

@@ -118,7 +118,7 @@ function mergeFormResponses(existing, incoming) {
   return merged;
 }
 
-export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExistingDraftBySessionId }) {
+export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExistingDraftBySessionId, persistDraftRecord }) {
   // Cache the last merged state so subsequent saves don't need a server round-trip.
   // Reset to null on page load; populated after the first save.
   const lastMergedResponsesRef = { current: null };
@@ -251,6 +251,14 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       ...(fieldHistory !== null ? { field_history_json: safeJsonStringify(fieldHistory) } : {}),
       ...(lastLocalPersistedAt ? { last_local_persisted_at: lastLocalPersistedAt } : {})
     };
+
+    if (persistDraftRecord) {
+      const result = await persistDraftRecord(draftRecord);
+      if (result?.draftId) {
+        draftRecordIdRef.current = result.draftId;
+      }
+      return result;
+    }
 
     if (existing?.id) {
       await entities.FormDraft.update(existing.id, draftRecord);
