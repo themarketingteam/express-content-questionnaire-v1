@@ -185,11 +185,16 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
   };
 
   return (
-    <div className="w-full border border-indigo-200 rounded-lg bg-indigo-50/60 p-3 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+    <section className="brand-pdf-panel" aria-label="Questionnaire PDF downloads">
+      <div className="brand-pdf-panel__copy">
+        <p className="brand-action-label">PDF Downloads</p>
+        <p>Current questionnaire values · payload changes create a new saved version</p>
+      </div>
+
+      <div className="brand-pdf-panel__actions">
         <Button
           size="sm"
-          className="text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+          className="brand-button-primary"
           disabled={preparing}
           onClick={handleDownloadCurrentPdf}
           title="Downloads the newest saved PDF when the payload is unchanged, or creates and saves a new version when values changed."
@@ -201,7 +206,7 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
         <Button
           size="sm"
           variant="outline"
-          className="text-xs gap-1.5 border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50"
+          className="brand-button-secondary"
           disabled={loadingHistory}
           onClick={handleToggleHistory}
         >
@@ -209,14 +214,10 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
           Saved PDFs ({versions.length})
           {historyOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </Button>
-
-        <p className="text-[10px] text-indigo-700">
-          Payload changes automatically create a new retained version.
-        </p>
       </div>
 
       {historyOpen && (
-        <div className="border-t border-indigo-200 pt-2 space-y-1.5">
+        <div className="brand-pdf-history">
           {versions.length === 0 ? (
             <p className="text-xs text-slate-500">No PDF has been saved yet. The first download will generate and save version 1.</p>
           ) : versions.map((version, index) => {
@@ -236,18 +237,18 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 text-[10px] gap-1"
-                  disabled={isDownloading}
+                  className="brand-button-secondary"
+                  disabled={isDownloading || !version.storage_available}
                   onClick={() => handleDownloadVersion(version)}
                 >
                   {isDownloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                  Download v{version.version_number}
+                  {version.storage_available ? `Download v${version.version_number}` : "Unavailable"}
                 </Button>
               </div>
             );
           })}
         </div>
       )}
-    </div>
+    </section>
   );
 }

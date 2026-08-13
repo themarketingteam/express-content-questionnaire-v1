@@ -179,10 +179,12 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
   const isLoading = isSaving || isSubmitting;
 
   return (
-    <div className="border border-amber-200 rounded-lg overflow-hidden">
+    <div className="brand-edit-panel border rounded-lg overflow-hidden">
       <button
+        type="button"
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-amber-50 hover:bg-amber-100 transition-colors text-xs font-semibold text-amber-800"
+        className="w-full flex items-center justify-between px-3 py-2 transition-colors text-xs font-semibold"
+        aria-expanded={open}
       >
         <span className="flex items-center gap-2">
           <Send className="w-3.5 h-3.5" />
@@ -247,7 +249,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
             <Button
               size="sm"
               variant="outline"
-              className="text-xs gap-1.5 border-slate-300"
+              className="brand-button-secondary"
               onClick={handleSavePayload}
               disabled={isLoading || !!jsonError}
             >
@@ -256,7 +258,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
             </Button>
             <Button
               size="sm"
-              className="text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              className="brand-button-primary"
               onClick={handleSaveAndRetry}
               disabled={isLoading || !!jsonError}
             >

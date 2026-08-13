@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -15,12 +14,13 @@ import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
 import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeRecovery";
-import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
 import PayloadEditor from "@/components/admin/PayloadEditor";
 import DraftPdfManager from "@/components/admin/DraftPdfManager";
+import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
+import "./FormDraftRecovery.css";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,12 +40,12 @@ function formatDate(value) {
 }
 
 const STATUS_BADGE = {
-  draft: "bg-slate-100 text-slate-700 border-slate-300",
-  submit_attempted: "bg-yellow-50 text-yellow-800 border-yellow-300",
-  submit_failed: "bg-red-50 text-red-700 border-red-300",
-  submitted: "bg-green-50 text-green-700 border-green-300",
-  auto_repair_pending: "bg-blue-50 text-blue-700 border-blue-300",
-  auto_repair_failed: "bg-red-100 text-red-800 border-red-400",
+  draft: "brand-status-badge--neutral",
+  submit_attempted: "brand-status-badge--warning",
+  submit_failed: "brand-status-badge--danger",
+  submitted: "brand-status-badge--success",
+  auto_repair_pending: "brand-status-badge--info",
+  auto_repair_failed: "brand-status-badge--danger",
 };
 
 const AI_REPAIR_STATUS_STYLE = {
@@ -57,15 +57,15 @@ const AI_REPAIR_STATUS_STYLE = {
 };
 
 function StatusBadge({ status }) {
-  const cls = STATUS_BADGE[status] || "bg-slate-100 text-slate-600 border-slate-300";
-  return <Badge variant="outline" className={`text-xs font-medium border ${cls}`}>{status || "unknown"}</Badge>;
+  const cls = STATUS_BADGE[status] || "brand-status-badge--neutral";
+  return <Badge variant="outline" className={`brand-status-badge ${cls}`}>{(status || "unknown").replace(/_/g, " ")}</Badge>;
 }
 
 function Detail({ label, value, mono = false }) {
   return (
-    <div>
-      <p className="text-slate-400 font-medium uppercase tracking-wide text-[10px]">{label}</p>
-      <p className={`text-slate-700 truncate mt-0.5 ${mono ? "font-mono text-xs" : "text-xs"}`}>{value || "—"}</p>
+    <div className="brand-detail">
+      <p className="brand-detail__label">{label}</p>
+      <p className={`brand-detail__value ${mono ? "font-mono" : ""}`}>{value || "—"}</p>
     </div>
   );
 }
@@ -80,7 +80,7 @@ function DraftAiRepairSection({ draft }) {
   if (!draft.ai_repair_status) return null;
 
   return (
-    <div className="border border-violet-200 rounded-lg overflow-hidden">
+    <div className="brand-ai-panel border border-violet-200 rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-3 py-2 bg-violet-50 hover:bg-violet-100 transition-colors text-xs font-semibold text-violet-800"
@@ -176,7 +176,7 @@ function RawDraftDataSection({ draft }) {
   const metadata = safeJsonParse(draft.metadata_json, null);
 
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden">
+    <div className="brand-raw-panel border border-slate-200 rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200 transition-colors text-xs font-semibold text-slate-600"
@@ -344,57 +344,63 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
   const isLoading = !!actionLoading;
 
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden">
+    <article className={`brand-record-card ${expanded ? "brand-record-card--expanded" : ""}`}>
       <button
+        type="button"
         onClick={() => setExpanded(v => !v)}
-        className="w-full text-left px-4 py-3 bg-white hover:bg-slate-50 transition-colors flex items-start gap-3"
+        className="brand-record-trigger"
+        aria-expanded={expanded}
       >
-        <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-1">
-          <div>
-            <p className="text-sm font-semibold text-slate-800 truncate">{draft.business_name || "Unnamed business"}</p>
-            <p className="text-xs text-slate-500 truncate">{draft.domain || "—"}</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 truncate">{draft.user_email || "—"}</p>
-            <p className="text-xs text-slate-400 truncate font-mono">{draft.session_id}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <StatusBadge status={draft.status} />
-            {isDuplicate && (
-              <Badge variant="outline" className="text-xs border-orange-300 bg-orange-50 text-orange-700 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Duplicate
-              </Badge>
-            )}
-            {draft.ai_repair_status && (
-              <Badge variant="outline" className={`text-[10px] border ${AI_REPAIR_STATUS_STYLE[draft.ai_repair_status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
-                AI: {draft.ai_repair_status.replace(/_/g, " ")}
-              </Badge>
-            )}
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-500">{formatDate(draft.last_saved_at || draft.created_date)}</p>
-            {draft.last_changed_question_id && <p className="text-xs text-slate-400">Last Q: {draft.last_changed_question_id}</p>}
-          </div>
+        <div className="brand-record-primary">
+          <strong>{draft.business_name || "Unnamed business"}</strong>
+          <span>{draft.domain || "—"}</span>
         </div>
-        <div className="shrink-0 ml-2 mt-0.5 text-slate-400">
+        <div className="brand-record-field">
+          <span className="brand-record-label">User Email</span>
+          <span className="brand-record-value">{draft.user_email || "—"}</span>
+        </div>
+        <div className="brand-record-status">
+          <StatusBadge status={draft.status} />
+          {isDuplicate && (
+            <Badge variant="outline" className="brand-status-badge brand-status-badge--warning">
+              <AlertTriangle className="w-3 h-3" /> Duplicate
+            </Badge>
+          )}
+          {draft.ai_repair_status && (
+            <Badge variant="outline" className={`brand-status-badge ${AI_REPAIR_STATUS_STYLE[draft.ai_repair_status] || "brand-status-badge--info"}`}>
+              AI: {draft.ai_repair_status.replace(/_/g, " ")}
+            </Badge>
+          )}
+        </div>
+        <div className="brand-record-field">
+          <span className="brand-record-label">Last Saved</span>
+          <span className="brand-record-value">{formatDate(draft.last_saved_at || draft.created_date)}</span>
+        </div>
+        <div className="brand-record-field brand-record-field--question">
+          <span className="brand-record-label">Last Changed Question</span>
+          <span className="brand-record-value">{draft.last_changed_question_id || draft.current_question_id || "—"}</span>
+        </div>
+        <div className="brand-record-field brand-record-field--session">
+          <span className="brand-record-label">Session ID</span>
+          <span className="brand-record-value font-mono">{draft.session_id || "—"}</span>
+        </div>
+        <div className="brand-record-chevron" aria-hidden="true">
           {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </div>
       </button>
 
-      <div className="border-t border-slate-100 bg-white px-4 py-3">
-        <DraftPdfManager draft={draft} recoveryGrant={recoveryGrant} />
-      </div>
-
       {expanded && (
-        <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 space-y-4">
-          {/* Detail fields */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="brand-expanded-panel">
+          <div className="brand-detail-grid">
+            <Detail label="Business name" value={draft.business_name} />
+            <Detail label="Domain" value={draft.domain} />
             <Detail label="User name" value={draft.user_name} />
+            <Detail label="User email" value={draft.user_email} />
             <Detail label="User ID" value={draft.user_id} mono />
+            <Detail label="Final submission ID" value={draft.final_submission_id} mono />
             <Detail label="Submit attempt ID" value={metadata?.submit_attempt_id} mono />
             <Detail label="Submit attempted" value={formatDate(draft.submit_attempted_at)} />
             <Detail label="Submitted at" value={formatDate(draft.submitted_at)} />
-            <Detail label="Final submission ID" value={draft.final_submission_id} mono />
             <Detail label="Current question" value={draft.current_question_id} />
             <Detail label="Last changed at" value={formatDate(draft.last_changed_at)} />
             <Detail label="Last saved at" value={formatDate(draft.last_saved_at)} />
@@ -404,8 +410,7 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
             </>}
           </div>
 
-          {/* Data flags */}
-          <div className="flex flex-wrap gap-4 text-xs bg-white border border-slate-200 rounded px-3 py-2">
+          <div className="brand-data-flags">
             <span><span className="text-slate-500 font-medium">Mapped Payload:</span> <span className={hasMapped ? "text-green-700" : "text-slate-400"}>{hasMapped ? "Yes" : "No"}</span></span>
             <span><span className="text-slate-500 font-medium">Responses:</span> <span className={hasResponses ? "text-green-700" : "text-slate-400"}>{hasResponses ? "Yes" : "No"}</span></span>
             <span><span className="text-slate-500 font-medium">Validation:</span> <span className={hasValidation ? "text-green-700" : "text-slate-400"}>{hasValidation ? `Yes (${Object.keys(validationStatus).length})` : "No"}</span></span>
@@ -423,64 +428,37 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
             </div>
           )}
 
-          {/* AI Repair Section */}
-          <DraftAiRepairSection draft={draft} />
+          <DraftPdfManager draft={draft} recoveryGrant={recoveryGrant} />
 
-          {/* ── Endpoint Submission Payload ── */}
-          <div className="border border-slate-300 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between">
-              <p className="text-xs font-semibold text-slate-700">Endpoint Submission Payload</p>
-              <div className="flex items-center gap-2">
-                {preview.ok
-                  ? <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">Valid</span>
-                  : <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Incomplete</span>
-                }
-              </div>
-            </div>
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 space-y-1">
-              <p className="text-[10px] text-slate-500">
-                <span className="font-semibold">Source:</span> {SOURCE_LABEL[preview.source] || preview.source}
-              </p>
-              {preview.missingRequiredFields.length > 0 && (
-                <p className="text-[10px] text-amber-700">
-                  <span className="font-semibold">Missing required:</span> {preview.missingRequiredFields.join(", ")}
-                </p>
-              )}
-              {preview.warnings.map((w, i) => (
-                <p key={i} className="text-[10px] text-amber-600 flex items-start gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" /> {w}
-                </p>
-              ))}
-            </div>
-            <pre className="bg-white p-3 text-xs font-mono overflow-auto max-h-72 text-slate-700 whitespace-pre-wrap">
-              {JSON.stringify(preview.payload, null, 2)}
-            </pre>
-          </div>
-
-          {/* ── Action buttons ── */}
-          <div className="space-y-2">
-            {/* Retry + AI actions */}
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+          <div className="brand-action-group">
+            <p className="brand-action-label">Actions</p>
+            <div className="brand-action-buttons">
+              <Button size="sm" className="brand-button-primary"
                 disabled={isLoading}
                 onClick={handleRetry}
                 title="Re-sends the payload to Zapier every time. The webhook handles de-duplication.">
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 Resubmit to Zapier
               </Button>
-              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
+            </div>
+          </div>
+
+          <div className="brand-action-group">
+            <p className="brand-action-label">AI Actions</p>
+            <div className="brand-action-buttons">
+              <Button size="sm" variant="outline" className="brand-button-secondary"
                 disabled={isLoading}
                 onClick={() => handleAiAction("diagnose_only")}>
                 {actionLoading === "diagnose_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
                 AI Diagnose
               </Button>
-              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50"
+              <Button size="sm" variant="outline" className="brand-button-secondary"
                 disabled={isLoading}
                 onClick={() => handleAiAction("repair_only")}>
                 {actionLoading === "repair_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
                 AI Repair Only
               </Button>
-              <Button size="sm" variant="outline" className="text-xs gap-1.5 border-green-200 text-green-700 hover:bg-green-50"
+              <Button size="sm" className="brand-button-dark"
                 disabled={isLoading}
                 title="For draft rows: prefer intake retry for safest recovery. This uses the draft payload directly."
                 onClick={() => { if (window.confirm("AI Repair + Retry from draft will attempt to create a FormSubmission from the repaired draft payload. For safer recovery, use intake retry from the Submission Intake Recovery section. Continue?")) handleAiAction("repair_and_retry"); }}>
@@ -488,14 +466,16 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
                 AI Repair + Retry
               </Button>
             </div>
+          </div>
 
-            {/* Copy buttons */}
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+          <div className="brand-action-group">
+            <p className="brand-action-label">Data Copy Options (JSON)</p>
+            <div className="brand-action-buttons">
+              <Button size="sm" variant="outline" className="brand-button-secondary"
                 onClick={() => { navigator.clipboard.writeText(JSON.stringify(preview.payload, null, 2)); toast.success("Endpoint payload copied"); }}>
                 <Copy className="w-3 h-3" /> Copy Endpoint Payload
               </Button>
-              <Button size="sm" variant="outline" className="text-xs gap-1.5"
+              <Button size="sm" variant="outline" className="brand-button-secondary"
                 onClick={() => {
                   const bundle = { session_id: draft.session_id, business_name: draft.business_name, domain: draft.domain, status: draft.status, last_saved_at: draft.last_saved_at, submitted_at: draft.submitted_at, final_submission_id: draft.final_submission_id, responses };
                   navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
@@ -504,13 +484,13 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
                 <Copy className="w-3 h-3" /> Copy Raw Draft Data
               </Button>
               {aiRepairedPayload && (
-                <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                <Button size="sm" variant="outline" className="brand-button-secondary"
                   onClick={() => { navigator.clipboard.writeText(JSON.stringify(aiRepairedPayload, null, 2)); toast.success("AI repaired payload copied"); }}>
                   <Copy className="w-3 h-3" /> Copy AI Repaired Payload
                 </Button>
               )}
               {aiRepairReport && (
-                <Button size="sm" variant="outline" className="text-xs gap-1.5"
+                <Button size="sm" variant="outline" className="brand-button-secondary"
                   onClick={() => { navigator.clipboard.writeText(JSON.stringify(aiRepairReport, null, 2)); toast.success("AI repair report copied"); }}>
                   <Copy className="w-3 h-3" /> Copy AI Repair Report
                 </Button>
@@ -518,14 +498,36 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
             </div>
           </div>
 
-          {/* Manual Payload Editor */}
+          <DraftAiRepairSection draft={draft} />
+
+          <div className="brand-json-panel">
+            <div className="brand-json-panel__header">
+              <p>Endpoint Submission Payload</p>
+              {preview.ok
+                ? <span className="brand-status-badge brand-status-badge--success">Valid</span>
+                : <span className="brand-status-badge brand-status-badge--warning">Incomplete</span>
+              }
+            </div>
+            <div className="brand-json-panel__meta">
+              <p><span className="font-semibold">Source:</span> {SOURCE_LABEL[preview.source] || preview.source}</p>
+              {preview.missingRequiredFields.length > 0 && (
+                <p className="text-amber-700"><span className="font-semibold">Missing required:</span> {preview.missingRequiredFields.join(", ")}</p>
+              )}
+              {preview.warnings.map((warning, index) => (
+                <p key={index} className="text-amber-700 flex items-start gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" /> {warning}
+                </p>
+              ))}
+            </div>
+            <pre>{JSON.stringify(preview.payload, null, 2)}</pre>
+          </div>
+
           <PayloadEditor draft={draft} initialPayload={preview.payload} onRefresh={onRefresh} recoveryGrant={recoveryGrant} />
 
-          {/* Raw Draft Data (collapsed) */}
           <RawDraftDataSection draft={draft} />
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -539,14 +541,6 @@ const AUTO_FILLED_RESPONSE_FIELDS = new Set([
   "clientSize",        // "1-50 employees" default
   "geographicAreaMeta", // { source: "google" } default
   "serviceType",       // "express" default
-]);
-
-const AUTO_FILLED_PAYLOAD_FIELDS = new Set([
-  "submission_datetime",
-  "questionnaire_session_id",
-  "geographic_area_meta",
-  "client_size",
-  "service_type",
 ]);
 
 /**
@@ -673,81 +667,126 @@ export default function FormDraftRecovery() {
   const emptyDraftCount = useMemo(() => drafts.filter(d => !hasMeaningfulAnswers(d)).length, [drafts]);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10 space-y-12">
-      {/* ── Draft Recovery ── */}
-      <div>
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
-            Express Form Draft Recovery
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">Review Express questionnaire drafts and initiate AI-assisted or manual recovery.</p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-          <Input placeholder="Search by business, domain, email, or session id…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1" />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All Statuses" /></SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button
-            variant={hideEmpty ? "default" : "outline"}
-            size="sm"
-            onClick={() => setHideEmpty(v => !v)}
-            className="gap-1.5 shrink-0 text-xs"
-            title={hideEmpty ? "Click to show drafts with no answers" : "Click to hide drafts with no answers"}
-          >
-            {hideEmpty ? "Hiding Empty" : "Showing Empty"}
-            {emptyDraftCount > 0 && <span className="ml-1 bg-white/20 text-current rounded px-1">{emptyDraftCount}</span>}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => loadDrafts({ silent: true })} disabled={loading} className="gap-1.5 shrink-0">
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </Button>
-        </div>
-        {lastRefreshedAt && (
-          <p className="text-xs text-slate-400 mb-4">
-            Auto-refreshes every 15s — last updated {lastRefreshedAt.toLocaleTimeString()}
-          </p>
-        )}
-
-        {loadError && (
-          <Card className="border-red-200 bg-red-50 mb-6">
-            <CardContent className="pt-4 text-sm text-red-700">{loadError}</CardContent>
-          </Card>
-        )}
-
-        {loading ? (
-          <div className="flex items-center gap-2 text-slate-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading drafts…</div>
-        ) : filtered.length === 0 ? (
-          <p className="text-slate-500 text-sm">No matching drafts found.</p>
-        ) : (
-          <div className="space-y-2">
-            {filtered.map(draft => (
-              <DraftRow key={draft.id} draft={draft} isDuplicate={duplicateSessionIds.has(draft.session_id)} onRefresh={loadDrafts} recoveryGrant={recoveryGrant} />
-            ))}
+    <main className="draft-recovery-brand draft-recovery-brand-page">
+      <div className="draft-recovery-brand__shell">
+        <header className="draft-recovery-brand__hero">
+          <div className="draft-recovery-brand__logo-plate">
+            <img
+              className="draft-recovery-brand__logo"
+              src={EXPRESS_TEMPLATE_LOGO_DATA_URI}
+              alt="Kaseya MSP Success Digital"
+            />
           </div>
-        )}
-      </div>
+          <div>
+            <p className="draft-recovery-brand__eyebrow">Admin support workspace</p>
+            <h1>Express Form Draft Recovery</h1>
+            <p className="draft-recovery-brand__hero-copy">
+              Review questionnaire drafts, recover failed submissions, and manage saved client PDFs.
+            </p>
+          </div>
+        </header>
 
-      {/* ── Submission Intake Recovery ── */}
-      <div>
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
-            Submission Intake Recovery
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            View and manage Express questionnaire submission intakes. Retry, AI-diagnose, and repair failed submissions.
-          </p>
+        <div className="draft-recovery-brand__content">
+          <section className="brand-panel" aria-labelledby="draft-filters-heading">
+            <div className="brand-section-header">
+              <p className="draft-recovery-brand__section-kicker">Find a questionnaire</p>
+              <h2 id="draft-filters-heading" className="brand-section-title">Draft Filters</h2>
+              <p className="draft-recovery-brand__section-copy">Narrow the records by workflow status or client details.</p>
+            </div>
+
+            <div className="draft-recovery-brand__filter-controls">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger aria-label="Filter by status"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={hideEmpty ? "active" : "all"} onValueChange={value => setHideEmpty(value === "active")}>
+                <SelectTrigger aria-label="Filter empty drafts"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active Records</SelectItem>
+                  <SelectItem value="all">All Records{emptyDraftCount > 0 ? ` (${emptyDraftCount} empty)` : ""}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Search by business name, domain, user email, or session ID"
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                className="draft-recovery-brand__filter-search"
+                aria-label="Search questionnaire drafts"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => loadDrafts({ silent: true })}
+                disabled={loading}
+                className="brand-button-secondary draft-recovery-brand__refresh"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+
+            {lastRefreshedAt && (
+              <p className="draft-recovery-brand__refresh-meta">
+                Auto-refreshes every 30 seconds · Last updated {lastRefreshedAt.toLocaleTimeString()}
+              </p>
+            )}
+          </section>
+
+          {loadError && (
+            <div className="brand-panel draft-recovery-brand__error" role="alert">
+              <AlertTriangle className="w-4 h-4" /> {loadError}
+            </div>
+          )}
+
+          <section className="draft-recovery-brand__list" aria-labelledby="questionnaire-drafts-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <h2 id="questionnaire-drafts-heading">Questionnaire Drafts</h2>
+              <p>{filtered.length} matching record{filtered.length === 1 ? "" : "s"}</p>
+            </div>
+
+            {loading ? (
+              <div className="brand-panel draft-recovery-brand__loading" role="status">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading drafts…
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="brand-panel draft-recovery-brand__loading">No matching drafts found.</div>
+            ) : (
+              filtered.map(draft => (
+                <DraftRow
+                  key={draft.id}
+                  draft={draft}
+                  isDuplicate={duplicateSessionIds.has(draft.session_id)}
+                  onRefresh={loadDrafts}
+                  recoveryGrant={recoveryGrant}
+                />
+              ))
+            )}
+          </section>
+
+          <section className="brand-secondary-section" aria-labelledby="intake-recovery-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <div>
+                <h2 id="intake-recovery-heading">Submission Intake Recovery</h2>
+                <p>Retry, diagnose, and repair failed Express questionnaire submissions.</p>
+              </div>
+            </div>
+            <div className="brand-panel brand-secondary-body">
+              <QuestionnaireIntakeRecovery recoveryGrant={recoveryGrant} />
+            </div>
+          </section>
+
+          <section className="brand-secondary-section" aria-labelledby="local-backups-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <h2 id="local-backups-heading">Local Browser Recovery Backups</h2>
+            </div>
+            <div className="brand-panel brand-secondary-body">
+              <LocalRecoveryBackupsPanel embedded />
+            </div>
+          </section>
         </div>
-        <QuestionnaireIntakeRecovery recoveryGrant={recoveryGrant} />
       </div>
-
-      {/* ── Local Browser Recovery Backups ── */}
-      <div>
-        <LocalRecoveryBackupsPanel />
-      </div>
-    </div>
+    </main>
   );
 }

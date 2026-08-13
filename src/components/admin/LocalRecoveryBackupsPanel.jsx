@@ -39,7 +39,7 @@ function sanitizeBackupForCopy(backup) {
   };
 }
 
-export default function LocalRecoveryBackupsPanel() {
+export default function LocalRecoveryBackupsPanel({ embedded = false }) {
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -92,11 +92,13 @@ export default function LocalRecoveryBackupsPanel() {
   };
 
   return (
-    <Card className="border-slate-200">
+    <Card className={embedded ? "border-0 shadow-none" : "border-slate-200"}>
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-bold text-slate-800">
-          Local Browser Recovery Backups
-        </CardTitle>
+        {!embedded && (
+          <CardTitle className="text-lg font-bold text-slate-800">
+            Local Browser Recovery Backups
+          </CardTitle>
+        )}
         <p className="text-xs text-slate-500 mt-1">
           These backups exist only in this browser. They are useful when support is working from the same browser where a failed submission occurred.
         </p>
