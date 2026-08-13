@@ -267,25 +267,12 @@ export function getExpressQuestionDisplayStatus({
     isValidating,
   });
   
-  // If validation is missing/dirty/error, return validation status
-  if (
-    validationQuestionStatus === QUESTION_STATUS.needs_validation ||
-    validationQuestionStatus === QUESTION_STATUS.dirty ||
-    validationQuestionStatus === QUESTION_STATUS.error
-  ) {
-    return validationQuestionStatus;
+  // Validation is an optional quality check. Once a required text answer is
+  // non-empty, validation feedback must not make the question incomplete or
+  // reduce progress. Keep only the transient validating indicator.
+  if (validationQuestionStatus === QUESTION_STATUS.validating) {
+    return QUESTION_STATUS.validating;
   }
-  
-  // If validation is complete, return complete
-  if (validationQuestionStatus === QUESTION_STATUS.complete) {
-    return QUESTION_STATUS.complete;
-  }
-  
-  // If validation shows needs_attention, return that
-  if (validationQuestionStatus === QUESTION_STATUS.needs_attention) {
-    return QUESTION_STATUS.needs_attention;
-  }
-  
-  // Fallback to base status
-  return baseStatus;
+
+  return QUESTION_STATUS.complete;
 }

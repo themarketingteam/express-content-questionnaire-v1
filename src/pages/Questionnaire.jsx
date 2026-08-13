@@ -949,8 +949,19 @@ export default function Questionnaire() {
         },
       });
       
-      // Capture final validation status after submit-time validation
-      const finalValidationStatus = textValidation.getAllFieldStatuses();
+      // React state updates from onFieldResult are asynchronous. Merge the
+      // results returned by this run so the draft and final submission receive
+      // the exact validation snapshot that was just shown to the user.
+      const finalValidationStatus = Object.entries(validationResult.resultsByField).reduce(
+        (statuses, [fieldName, result]) => ({
+          ...statuses,
+          [fieldName]: {
+            ...(statuses[fieldName] || {}),
+            ...result,
+          },
+        }),
+        textValidation.getAllFieldStatuses(),
+      );
       
       // Save updated validation status to draft — use modal inputs for business name/domain
       await saveDraftSnapshot({
@@ -1569,7 +1580,7 @@ export default function Questionnaire() {
                     >
                       {textValidation.isFieldValidating("differentiation") ? "Validating..." : "Validate Answer"}
                     </button>
-                    <span className="text-xs text-slate-500">This quick check looks for enough useful detail, not perfect wording.</span>
+                    <span className="text-xs text-slate-500">Optional check only. Any non-empty answer can continue and submit.</span>
                     <button
                       type="button"
                       onClick={() => setShowValidationGuide(true)}
@@ -1586,7 +1597,7 @@ export default function Questionnaire() {
                     const statusConfig = {
                       complete: { color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', label: 'Looks complete' },
                       needs_work: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', label: 'Could use a little more detail' },
-                      incomplete: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', label: 'Needs more detail before submission' },
+                      incomplete: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', label: 'Optional suggestion' },
                       dirty: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Edited since last validation' },
                       error: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Validation unavailable right now' },
                     };
@@ -1610,10 +1621,10 @@ export default function Questionnaire() {
                           </ul>
                         )}
                         {(status.status === 'needs_work' || status.status === 'incomplete') && (
-                          <p className="text-xs text-slate-600 mt-2">Try adding specific clients, services, outcomes, or business problems.</p>
+                          <p className="text-xs text-slate-600 mt-2">You may submit this answer as-is or add more specific clients, services, outcomes, or business problems.</p>
                         )}
                         {status.status === 'dirty' && (
-                          <p className="text-xs text-slate-600 mt-2">You edited this after the last check. Validate again before submitting.</p>
+                          <p className="text-xs text-slate-600 mt-2">You can submit now or run the optional check again.</p>
                         )}
                       </div>
                     );
@@ -1872,7 +1883,7 @@ export default function Questionnaire() {
                     >
                       {textValidation.isFieldValidating("idealClient") ? "Validating..." : "Validate Answer"}
                     </button>
-                    <span className="text-xs text-slate-500">This quick check looks for enough useful detail, not perfect wording.</span>
+                    <span className="text-xs text-slate-500">Optional check only. Any non-empty answer can continue and submit.</span>
                     <button
                       type="button"
                       onClick={() => setShowValidationGuide(true)}
@@ -1889,7 +1900,7 @@ export default function Questionnaire() {
                     const statusConfig = {
                       complete: { color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', label: 'Looks complete' },
                       needs_work: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', label: 'Could use a little more detail' },
-                      incomplete: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', label: 'Needs more detail before submission' },
+                      incomplete: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', label: 'Optional suggestion' },
                       dirty: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Edited since last validation' },
                       error: { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200', label: 'Validation unavailable right now' },
                     };
@@ -1913,10 +1924,10 @@ export default function Questionnaire() {
                           </ul>
                         )}
                         {(status.status === 'needs_work' || status.status === 'incomplete') && (
-                          <p className="text-xs text-slate-600 mt-2">Try adding specific clients, services, outcomes, or business problems.</p>
+                          <p className="text-xs text-slate-600 mt-2">You may submit this answer as-is or add more specific clients, services, outcomes, or business problems.</p>
                         )}
                         {status.status === 'dirty' && (
-                          <p className="text-xs text-slate-600 mt-2">You edited this after the last check. Validate again before submitting.</p>
+                          <p className="text-xs text-slate-600 mt-2">You can submit now or run the optional check again.</p>
                         )}
                       </div>
                     );

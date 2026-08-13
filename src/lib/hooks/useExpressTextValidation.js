@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef } from "react";
 import {
   validateExpressTextAnswer,
-  runLocalExpressTextValidation,
   isExpressTextValidationField,
   createAnswerHash,
+  createValidationUnavailableResult,
 } from "@/lib/expressTextValidation";
 
 // Debounce helper
@@ -26,6 +26,7 @@ export function useExpressTextValidation() {
   
   // Track dirty fields (changed since last validation)
   const dirtyFieldsRef = useRef({});
+  const inFlightValidationRef = useRef({});
   
   /**
    * Validate a field answer
@@ -44,57 +45,57 @@ export function useExpressTextValidation() {
       };
     }
     
-    // Mark as validating
-    setValidatingFields(prev => ({ ...prev, [fieldName]: true }));
-    
-    try {
-      /** @type {any} */
-      const result = await validateExpressTextAnswer({
-        fieldName,
-        answer,
-        businessName: context.businessName || '',
-        domain: context.domain || '',
-        context: context.extra || {},
-      });
-      
-      // Update validation status with hash from result
-      setValidationStatus(prev => ({
-        ...prev,
-        [fieldName]: {
-          status: result.success ? result.status : 'error',
-          message: result.message || '',
-          suggestions: result.suggestions || [],
-          reason_codes: result.reason_codes || [],
-          validatedAt: result.validatedAt || new Date().toISOString(),
-          answerHash: result.answerHash || createAnswerHash(answer),
-          dirtySince: null,
-          source: result.reason_codes?.includes('server_validation_unavailable') ? 'local_fallback' : 'server',
-        },
-      }));
-      
-      return result;
-    } catch {
-      // Fallback to local validation
-      const localResult = runLocalExpressTextValidation({ fieldName, answer });
-      
-      setValidationStatus(prev => ({
-        ...prev,
-        [fieldName]: {
-          status: localResult.status,
-          message: localResult.message || '',
-          suggestions: localResult.suggestions || [],
-          reason_codes: [...(localResult.reason_codes || []), 'server_validation_unavailable'],
-          validatedAt: localResult.validatedAt || new Date().toISOString(),
-          answerHash: localResult.answerHash || createAnswerHash(answer),
-          dirtySince: null,
-          source: 'local_fallback',
-        },
-      }));
-      
-      return localResult;
-    } finally {
-      setValidatingFields(prev => ({ ...prev, [fieldName]: false }));
+    if (inFlightValidationRef.current[fieldName]) {
+      return inFlightValidationRef.current[fieldName];
     }
+
+    const validationPromise = (async () => {
+      setValidatingFields(prev => ({ ...prev, [fieldName]: true }));
+
+      try {
+        /** @type {any} */
+        const result = await validateExpressTextAnswer({
+          fieldName,
+          answer,
+          businessName: context.businessName || '',
+          domain: context.domain || '',
+          context: context.extra || {},
+        });
+
+        setValidationStatus(prev => ({
+          ...prev,
+          [fieldName]: {
+            status: result.success ? result.status : 'error',
+            message: result.message || '',
+            suggestions: result.suggestions || [],
+            reason_codes: result.reason_codes || [],
+            validatedAt: result.validatedAt || new Date().toISOString(),
+            answerHash: result.answerHash || createAnswerHash(answer),
+            dirtySince: null,
+            source: result.status === 'error' ? 'server_unavailable' : 'server',
+          },
+        }));
+
+        return result;
+      } catch {
+        const unavailableResult = createValidationUnavailableResult({ fieldName, answer });
+        setValidationStatus(prev => ({
+          ...prev,
+          [fieldName]: {
+            ...unavailableResult,
+            dirtySince: null,
+            source: 'server_unavailable',
+          },
+        }));
+        return unavailableResult;
+      } finally {
+        delete inFlightValidationRef.current[fieldName];
+        setValidatingFields(prev => ({ ...prev, [fieldName]: false }));
+      }
+    })();
+
+    inFlightValidationRef.current[fieldName] = validationPromise;
+    return validationPromise;
   }, []);
   
   /**

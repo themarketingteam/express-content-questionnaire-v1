@@ -1,4 +1,59 @@
-import { base44 } from "@/api/base44Client";
+import { base44 } from "../api/base44Client.js";
+
+export const EXPRESS_VALIDATION_TIMEOUT_MS = 12_000;
+export const EXPRESS_VALIDATION_UNAVAILABLE_MESSAGE =
+  "Validation is temporarily unavailable. Your answer is saved, and you can continue or submit without this optional check.";
+
+const VALIDATION_RESULT_STATUSES = new Set(["complete", "needs_work", "incomplete", "error"]);
+
+const invokeBase44Validation = (functionName, requestBody) =>
+  base44.functions.invoke(functionName, requestBody);
+
+function createValidationTimeout(timeoutMs) {
+  const error = new Error(`Validation timed out after ${timeoutMs}ms.`);
+  error.name = "ValidationTimeoutError";
+  return error;
+}
+
+async function withValidationTimeout(promise, timeoutMs) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(createValidationTimeout(timeoutMs)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * @param {{ fieldName?: string, questionId?: string, answer?: string, answerHash?: string, reasonCode?: string }} params
+ */
+export function createValidationUnavailableResult({
+  fieldName,
+  questionId = "",
+  answer = "",
+  answerHash,
+  reasonCode = "server_validation_unavailable",
+} = {}) {
+  return {
+    success: false,
+    status: "error",
+    score: 0,
+    message: EXPRESS_VALIDATION_UNAVAILABLE_MESSAGE,
+    suggestions: [],
+    reason_codes: [reasonCode],
+    fieldName,
+    questionId,
+    answerHash: answerHash || createAnswerHash(answer),
+    validatedAt: new Date().toISOString(),
+    validationAvailable: false,
+    blocking: false,
+  };
+}
 
 /**
  * Create a simple stable hash for answer comparison
@@ -266,30 +321,29 @@ export function runLocalExpressTextValidation({ fieldName, answer }) {
  */
 export function normalizeExpressValidationResult(result, fallbackContext = {}) {
   if (!result || typeof result !== 'object') {
-    return {
-      success: false,
-      status: 'error',
-      score: 0,
-      message: 'Invalid validation response.',
-      suggestions: [],
-      reason_codes: ['invalid_response'],
+    return createValidationUnavailableResult({
       ...fallbackContext,
-    };
+      reasonCode: 'invalid_response',
+    });
   }
   
   // Handle both { data: ... } and direct object shapes
   const data = result.data || result;
   
   if (!data.success) {
-    return {
-      success: false,
-      status: 'error',
-      score: 0,
-      message: data.message || 'Validation failed.',
-      suggestions: data.suggestions || [],
-      reason_codes: data.reason_codes || ['validator_error'],
+    return createValidationUnavailableResult({
       ...fallbackContext,
-    };
+      reasonCode: Array.isArray(data.reason_codes) && data.reason_codes[0]
+        ? data.reason_codes[0]
+        : 'validator_error',
+    });
+  }
+
+  if (!VALIDATION_RESULT_STATUSES.has(data.status)) {
+    return createValidationUnavailableResult({
+      ...fallbackContext,
+      reasonCode: 'invalid_response',
+    });
   }
   
   return {
@@ -306,10 +360,14 @@ export function normalizeExpressValidationResult(result, fallbackContext = {}) {
 }
 
 /**
- * Main validation function: calls server, falls back to local
+ * Main validation function: calls the optional server validator. Blank answers
+ * use the required-field check; server failures become non-blocking notices.
  * @returns {Promise<any>}
  */
-export async function validateExpressTextAnswer({ fieldName, answer, businessName = '', domain = '', context = {} }) {
+export async function validateExpressTextAnswer(
+  { fieldName, answer, businessName = '', domain = '', context = {} },
+  { invoke = invokeBase44Validation, timeoutMs = EXPRESS_VALIDATION_TIMEOUT_MS } = {},
+) {
   const config = EXPRESS_TEXT_VALIDATION_FIELDS[fieldName];
   const isOptionalOther = OPTIONAL_OTHER_TEXT_FIELDS.includes(fieldName);
   const answerHash = createAnswerHash(answer);
@@ -348,7 +406,10 @@ export async function validateExpressTextAnswer({ fieldName, answer, businessNam
       context,
     };
     
-    const response = await base44.functions.invoke('validateExpressQuestionText', requestBody);
+    const response = await withValidationTimeout(
+      invoke('validateExpressQuestionText', requestBody),
+      timeoutMs,
+    );
     
     // Normalize response (handles both { data } and direct shapes)
     const normalized = normalizeExpressValidationResult(response, {
@@ -358,12 +419,14 @@ export async function validateExpressTextAnswer({ fieldName, answer, businessNam
     });
     
     return normalized;
-  } catch {
-    // Server unavailable: use local fallback
-    const localResult = runLocalExpressTextValidation({ fieldName, answer });
-    return {
-      ...localResult,
-      reason_codes: [...(localResult.reason_codes || []), 'server_validation_unavailable'],
-    };
+  } catch (error) {
+    return createValidationUnavailableResult({
+      fieldName,
+      questionId: config?.questionId || '',
+      answer,
+      reasonCode: error?.name === 'ValidationTimeoutError'
+        ? 'validation_timeout'
+        : 'server_validation_unavailable',
+    });
   }
 }

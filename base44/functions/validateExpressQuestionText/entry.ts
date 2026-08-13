@@ -2,11 +2,17 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
+// The browser SDK uses bearer/anonymous headers with credentialed CORS disabled,
+// so wildcard origin safely covers the live domain, Base44 preview, and local dev.
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-App-Id, X-Origin-URL, X-Base44-Anonymous-Id',
+  'Access-Control-Max-Age': '600',
 };
+
+const VALIDATION_UNAVAILABLE_MESSAGE =
+  'Validation is temporarily unavailable. Your answer is saved, and you can continue or submit without this optional check.';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -150,10 +156,14 @@ Reason codes can be: blank_answer, placeholder_detected, too_short, insufficient
       },
     });
 
-    return response;
+    if (!response || !['complete', 'needs_work', 'incomplete'].includes(response.status)) {
+      return { ok: false, errorKind: 'malformed_response' };
+    }
+
+    return { ok: true, result: response };
   } catch (error) {
     console.error('[validateExpressQuestionText] AI validation failed:', error.message);
-    return null;
+    return { ok: false, errorKind: classifyError(error) };
   }
 }
 
@@ -201,11 +211,25 @@ Deno.serve(async (req) => {
       return Response.json(localResult, { headers: corsHeaders });
     }
 
-    const aiResult = await invokeAiValidation({ answer, questionTitle, questionPrompt, businessName, domain, questionId, fieldName, base44 });
+    const aiValidation = await invokeAiValidation({ answer, questionTitle, questionPrompt, businessName, domain, questionId, fieldName, base44 });
 
-    if (!aiResult) {
-      return Response.json(localResult, { headers: corsHeaders });
+    if (!aiValidation.ok) {
+      return Response.json({
+        success: false,
+        status: 'error',
+        score: 0,
+        message: VALIDATION_UNAVAILABLE_MESSAGE,
+        suggestions: [],
+        reason_codes: ['server_validation_unavailable', aiValidation.errorKind],
+        questionId,
+        fieldName,
+        validationAvailable: false,
+        blocking: false,
+        source: 'unavailable',
+      }, { headers: corsHeaders });
     }
+
+    const aiResult = aiValidation.result;
 
     return Response.json({
       success: true,
@@ -216,6 +240,9 @@ Deno.serve(async (req) => {
       reason_codes: aiResult.reason_codes,
       questionId,
       fieldName,
+      validationAvailable: true,
+      blocking: false,
+      source: 'ai',
     }, { headers: corsHeaders });
 
   } catch (error) {
@@ -224,11 +251,14 @@ Deno.serve(async (req) => {
 
     return Response.json({
       success: false, status: 'error', score: 0,
-      message: 'Validation could not be completed right now.',
-      suggestions: ['Please try again in a moment.'],
+      message: VALIDATION_UNAVAILABLE_MESSAGE,
+      suggestions: [],
       reason_codes: ['validator_error'],
       questionId: 'unknown',
       fieldName: 'unknown',
+      validationAvailable: false,
+      blocking: false,
+      source: 'unavailable',
     }, { status: 500, headers: corsHeaders });
   }
 });

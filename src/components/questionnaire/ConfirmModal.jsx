@@ -348,17 +348,17 @@ export default function ConfirmModal({
           ))}
         </div>
 
-        {/* Submit-time text validation issues (blocking) */}
+        {/* Required-answer issues (the optional quality check never blocks) */}
         {submitValidationIssues.length > 0 && (
           <div className="mx-6 mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl space-y-3">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-red-800 mb-1">
-                  A few answers need more detail before submitting
+                  A required answer is missing
                 </p>
                 <p className="text-xs text-red-700 mb-3">
-                  These answers need a little more detail before we can submit the questionnaire.
+                  Only genuinely empty required answers can stop submission here.
                 </p>
                 <div className="space-y-2 mt-3">
                   {submitValidationIssues.map((issue, idx) => (
@@ -382,7 +382,7 @@ export default function ConfirmModal({
                 </div>
                 <div className="flex items-center justify-between mt-4">
                   <p className="text-xs text-red-700 italic">
-                    Use the Go Back button to update these answers, then return to submit again.
+                    Use the Go Back button to complete the missing answer, then return to submit again.
                   </p>
                   {typeof onOpenValidationGuide === 'function' && (
                     <button
@@ -399,17 +399,19 @@ export default function ConfirmModal({
           </div>
         )}
 
-        {/* Submit-time text validation warnings (non-blocking) */}
+        {/* Optional validation feedback (always non-blocking) */}
         {submitValidationWarnings.length > 0 && (
           <div className="mx-6 mb-4 p-4 bg-amber-50 border-2 border-amber-200 rounded-xl space-y-3">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-amber-800 mb-1">
-                  Optional improvements
+                  {submitValidationWarnings.some((warning) => warning.kind === 'validation_unavailable')
+                    ? 'Optional validation notice'
+                    : 'Optional improvements'}
                 </p>
                 <p className="text-xs text-amber-700 mb-3">
-                  These suggestions are optional, but improving them may help the team use your answers more effectively.
+                  These checks never block submission. Your non-empty answers remain saved and can be submitted as-is.
                 </p>
                 <div className="space-y-2 mt-3">
                   {submitValidationWarnings.map((warning, idx) => (

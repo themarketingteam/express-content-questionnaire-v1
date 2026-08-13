@@ -148,22 +148,23 @@ export function buildIncompleteQuestionSummary({
           fieldName
         });
       }
-      // Validation status is incomplete (blocking)
+      // Validation feedback is optional for non-empty answers. An AI rejection
+      // can suggest improvements, but it cannot make a completed question block.
       else if (isValStatusIncomplete) {
-        attentionItems.push({
+        warningItems.push({
           ...item,
-          blocking: true,
+          blocking: false,
           status: 'incomplete',
-          reason: valStatus.message || 'Needs more detail before submission',
+          reason: valStatus.message || 'Optional suggestion: consider adding more detail',
           fieldName,
           message: valStatus.message,
           suggestions: valStatus.suggestions
         });
         allItems.push({
           ...item,
-          blocking: true,
+          blocking: false,
           status: 'incomplete',
-          reason: valStatus.message || 'Needs more detail before submission',
+          reason: valStatus.message || 'Optional suggestion: consider adding more detail',
           fieldName,
           message: valStatus.message,
           suggestions: valStatus.suggestions
@@ -196,14 +197,14 @@ export function buildIncompleteQuestionSummary({
           ...item,
           blocking: false,
           status: 'error',
-          reason: 'Validation unavailable',
+          reason: valStatus.message || 'Validation is temporarily unavailable. Your answer is saved, and you can continue.',
           fieldName
         });
         allItems.push({
           ...item,
           blocking: false,
           status: 'error',
-          reason: 'Validation unavailable',
+          reason: valStatus.message || 'Validation is temporarily unavailable. Your answer is saved, and you can continue.',
           fieldName
         });
       }
