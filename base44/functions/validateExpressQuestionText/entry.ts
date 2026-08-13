@@ -13,6 +13,16 @@ const corsHeaders = {
 
 const VALIDATION_UNAVAILABLE_MESSAGE =
   'Validation is temporarily unavailable. Your answer is saved, and you can continue or submit without this optional check.';
+const VALIDATION_POLICY_VERSION = 'optional-validation-v1';
+
+function withValidationPolicy(result, validationAvailable = true) {
+  return {
+    ...result,
+    validationAvailable,
+    blocking: false,
+    policyVersion: VALIDATION_POLICY_VERSION,
+  };
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -204,17 +214,17 @@ Deno.serve(async (req) => {
     const localResult = buildLocalValidationResult(answer, questionId, fieldName);
 
     if (OTHER_FIELDS.has(fieldName) || !SUPPORTED_TEXT_FIELDS[questionId]) {
-      return Response.json(localResult, { headers: corsHeaders });
+      return Response.json(withValidationPolicy(localResult), { headers: corsHeaders });
     }
 
     if (localResult.status === 'incomplete') {
-      return Response.json(localResult, { headers: corsHeaders });
+      return Response.json(withValidationPolicy(localResult), { headers: corsHeaders });
     }
 
     const aiValidation = await invokeAiValidation({ answer, questionTitle, questionPrompt, businessName, domain, questionId, fieldName, base44 });
 
     if (!aiValidation.ok) {
-      return Response.json({
+      return Response.json(withValidationPolicy({
         success: false,
         status: 'error',
         score: 0,
@@ -223,15 +233,13 @@ Deno.serve(async (req) => {
         reason_codes: ['server_validation_unavailable', aiValidation.errorKind],
         questionId,
         fieldName,
-        validationAvailable: false,
-        blocking: false,
         source: 'unavailable',
-      }, { headers: corsHeaders });
+      }, false), { headers: corsHeaders });
     }
 
     const aiResult = aiValidation.result;
 
-    return Response.json({
+    return Response.json(withValidationPolicy({
       success: true,
       status: aiResult.status,
       score: aiResult.score,
@@ -240,25 +248,21 @@ Deno.serve(async (req) => {
       reason_codes: aiResult.reason_codes,
       questionId,
       fieldName,
-      validationAvailable: true,
-      blocking: false,
       source: 'ai',
-    }, { headers: corsHeaders });
+    }), { headers: corsHeaders });
 
   } catch (error) {
     const errorKind = classifyError(error);
     console.error('[validateExpressQuestionText] Handler error:', error.message, errorKind);
 
-    return Response.json({
+    return Response.json(withValidationPolicy({
       success: false, status: 'error', score: 0,
       message: VALIDATION_UNAVAILABLE_MESSAGE,
       suggestions: [],
       reason_codes: ['validator_error'],
       questionId: 'unknown',
       fieldName: 'unknown',
-      validationAvailable: false,
-      blocking: false,
       source: 'unavailable',
-    }, { status: 500, headers: corsHeaders });
+    }, false), { status: 500, headers: corsHeaders });
   }
 });

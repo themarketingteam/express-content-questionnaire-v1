@@ -246,8 +246,10 @@ test("the deployed function CORS policy supports credentialless live and preview
   assert.match(source, /'Access-Control-Allow-Origin': '\*'/);
   assert.match(source, /X-App-Id/);
   assert.doesNotMatch(source, /Access-Control-Allow-Credentials/i);
-  assert.match(source, /validationAvailable: false/);
+  assert.match(source, /function withValidationPolicy/);
+  assert.match(source, /}, false\)/);
   assert.match(source, /blocking: false/);
+  assert.match(source, /optional-validation-v1/);
 });
 
 test("unavailable results always retain the answer fingerprint", () => {
