@@ -1415,7 +1415,7 @@ export default function Questionnaire() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-12">
-        <div className="flex gap-3 mb-8">
+        <div className="flex flex-wrap gap-3 mb-8">
           <button
             type="button"
             onClick={handleExpandAll}

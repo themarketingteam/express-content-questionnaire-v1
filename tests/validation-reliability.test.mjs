@@ -270,3 +270,11 @@ test("the validation hook exposes the reset used by successful submission cleanu
   assert.match(source, /setValidatingFields\(\{\}\)/);
   assert.match(source, /\n\s+resetAllFields,/);
 });
+
+test("questionnaire controls wrap instead of overflowing narrow mobile viewports", async () => {
+  const source = await readFile(
+    new URL("../src/pages/Questionnaire.jsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /className="flex flex-wrap gap-3 mb-8"/);
+});
