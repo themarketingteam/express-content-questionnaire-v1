@@ -914,7 +914,7 @@
   .draft-recovery-brand__hero {
     grid-template-columns: minmax(16.25rem, 25.6875rem) 1fr;
     gap: 3rem;
-    padding: 0.75rem 0 2rem;
+    padding: 0.75rem 0 3.5rem;
   }
 }
 
