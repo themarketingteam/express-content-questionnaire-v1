@@ -33,6 +33,9 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(gate, /Admin Workspace Access/);
   assert.match(gate, /Access remains available in this browser for seven days/);
   assert.match(menu, /Pro Form Recovery/);
+  assert.match(menu, /import \{ ExternalLink, FileInput, History \} from "lucide-react"/);
+  assert.match(menu, /<ExternalLink aria-hidden="true" \/>[\s\S]*?Pro Form Recovery/);
+  assert.match(menu, /<InternalLinkIcon aria-hidden="true" \/>[\s\S]*?\{internalLink\.label\}/);
   assert.match(menu, /https:\/\/proform\.tmtwebsiteresources\.xyz\/admin\/draft-recovery/);
   assert.match(menu, /target="_blank"/);
   assert.match(menu, /rel="noopener noreferrer"/);
@@ -53,6 +56,7 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(styles, /\.admin-floating-menu__line:nth-child\(3\)\s*\{[\s\S]*?align-self:\s*flex-end/);
   assert.match(styles, /\.admin-floating-menu__trigger:not\(\.is-open\):hover[\s\S]*?width:\s*100%/);
   assert.match(styles, /\.admin-floating-menu__links\.is-open/);
+  assert.match(styles, /\.admin-floating-menu__link svg\s*\{[\s\S]*?width:\s*0\.95rem/);
   assert.match(styles, /@media \(max-width: 44rem\)/);
   assert.match(styles, /@media \(max-width: 44rem\)[\s\S]*?\.draft-recovery-brand__hero\s*\{[\s\S]*?padding-top:\s*4rem/);
   assert.match(intakeStyles, /admin-submit-intake__json-shell/);

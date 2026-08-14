@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { ExternalLink, FileInput, History } from "lucide-react";
 
 const PRO_FORM_RECOVERY_URL = "https://proform.tmtwebsiteresources.xyz/admin/draft-recovery";
 
@@ -7,6 +8,7 @@ export default function AdminFloatingMenu({ currentPage }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuId = useId();
   const navRef = useRef(null);
+  const InternalLinkIcon = currentPage === "submit-intake" ? History : FileInput;
   const internalLink = currentPage === "submit-intake"
     ? { label: "Draft Recovery", to: "/admin/draft-recovery" }
     : { label: "Submit Intake (JSON)", to: "/admin/submit-intake" };
@@ -58,6 +60,7 @@ export default function AdminFloatingMenu({ currentPage }) {
           rel="noopener noreferrer"
           tabIndex={isOpen ? 0 : -1}
         >
+          <ExternalLink aria-hidden="true" />
           Pro Form Recovery
         </a>
         <Link
@@ -66,6 +69,7 @@ export default function AdminFloatingMenu({ currentPage }) {
           tabIndex={isOpen ? 0 : -1}
           onClick={() => setIsOpen(false)}
         >
+          <InternalLinkIcon aria-hidden="true" />
           {internalLink.label}
         </Link>
       </div>
