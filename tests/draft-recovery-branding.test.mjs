@@ -48,7 +48,10 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(styles, /"Figtree", Arial, sans-serif/);
   assert.match(styles, /"Plus Jakarta Sans", Arial, sans-serif/);
   assert.match(styles, /\.admin-floating-menu\s*\{[\s\S]*position:\s*fixed/);
-  assert.match(styles, /\.admin-floating-menu__trigger/);
+  assert.match(styles, /\.admin-floating-menu__trigger\s*\{[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
+  assert.match(styles, /\.admin-floating-menu__line:nth-child\(1\)\s*\{[\s\S]*?align-self:\s*flex-start/);
+  assert.match(styles, /\.admin-floating-menu__line:nth-child\(3\)\s*\{[\s\S]*?align-self:\s*flex-end/);
+  assert.match(styles, /\.admin-floating-menu__trigger:not\(\.is-open\):hover[\s\S]*?width:\s*100%/);
   assert.match(styles, /\.admin-floating-menu__links\.is-open/);
   assert.match(styles, /@media \(max-width: 44rem\)/);
   assert.match(intakeStyles, /admin-submit-intake__json-shell/);
