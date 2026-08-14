@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +17,7 @@ import QuestionnaireIntakeRecovery from "@/components/admin/QuestionnaireIntakeR
 import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmissionPreview";
 import PayloadEditor from "@/components/admin/PayloadEditor";
 import DraftPdfManager from "@/components/admin/DraftPdfManager";
+import AdminFloatingMenu from "@/components/admin/AdminFloatingMenu";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
@@ -685,6 +685,7 @@ export default function FormDraftRecovery() {
 
   return (
     <main className="draft-recovery-brand draft-recovery-brand-page">
+      <AdminFloatingMenu currentPage="draft-recovery" />
       <div className="draft-recovery-brand__shell">
         <header className="draft-recovery-brand__hero">
           <div className="draft-recovery-brand__logo-plate">
@@ -702,11 +703,6 @@ export default function FormDraftRecovery() {
             </p>
           </div>
         </header>
-
-        <nav className="draft-recovery-brand__admin-nav" aria-label="Admin workspace">
-          <Link to="/admin/draft-recovery" className="is-active" aria-current="page">Draft Recovery</Link>
-          <Link to="/admin/submit-intake">Submit Intake</Link>
-        </nav>
 
         <div className="draft-recovery-brand__content">
           <section className="brand-panel" aria-labelledby="draft-filters-heading">

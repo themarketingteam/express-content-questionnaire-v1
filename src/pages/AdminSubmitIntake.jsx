@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,6 +10,7 @@ import {
   validateExpressAdminIntakePayload,
 } from "@/lib/adminExpressIntakePayload";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
+import AdminFloatingMenu from "@/components/admin/AdminFloatingMenu";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 import "./FormDraftRecovery.css";
@@ -159,6 +159,7 @@ export default function AdminSubmitIntake() {
 
   return (
     <main className="draft-recovery-brand draft-recovery-brand-page admin-submit-intake-page">
+      <AdminFloatingMenu currentPage="submit-intake" />
       <div className="draft-recovery-brand__shell">
         <header className="draft-recovery-brand__hero">
           <div className="draft-recovery-brand__logo-plate">
@@ -176,11 +177,6 @@ export default function AdminSubmitIntake() {
             </p>
           </div>
         </header>
-
-        <nav className="draft-recovery-brand__admin-nav" aria-label="Admin workspace">
-          <Link to="/admin/draft-recovery">Draft Recovery</Link>
-          <Link to="/admin/submit-intake" className="is-active" aria-current="page">Submit Intake</Link>
-        </nav>
 
         <div className="draft-recovery-brand__content">
           {submittedId && (
