@@ -102,6 +102,7 @@ test("the browser requests one page with server filters and fetches detail by ID
     search: "client",
   });
   assert.equal(page.records.length, 1);
+  assert.equal(calls[0].functionName, "adminRecoveryPagination");
   assert.deepEqual(calls[0].payload, createRecoveryListPayload({
     recordType: "draft",
     recoveryGrant: "grant",
@@ -120,6 +121,7 @@ test("the browser requests one page with server filters and fetches detail by ID
     recoveryGrant: "grant",
   });
   assert.equal(record.secret, "full");
+  assert.equal(calls[1].functionName, "adminRecoveryPagination");
   assert.equal(calls[1].payload.action, "get");
   assert.equal(calls[1].payload.recordId, "draft-1");
 });
@@ -148,7 +150,7 @@ test("frontend uses protected pagination, resets filters to page one, lazy-loads
     read("src/pages/FormDraftRecovery.jsx"),
     read("src/components/admin/QuestionnaireIntakeRecovery.jsx"),
     read("src/hooks/useAdminRecoveryPagination.js"),
-    read("base44/functions/draftRecoveryData/entry.ts"),
+    read("base44/functions/adminRecoveryPagination/entry.ts"),
   ]);
 
   assert.doesNotMatch(page, /action:\s*["']listDrafts["']/);
@@ -167,6 +169,7 @@ test("frontend uses protected pagination, resets filters to page one, lazy-loads
   assert.ok(authorization >= 0 && protectedRead > authorization, "authorization must precede service-role detail reads");
   assert.match(backend, /request\.pageSize \+ 1/);
   assert.match(backend, /\[\.\.\.config\.listFields\]/);
+  assert.match(backend, /functionName: 'adminRecoveryPagination'/);
 
   for (const capability of [
     /<PayloadEditor/,

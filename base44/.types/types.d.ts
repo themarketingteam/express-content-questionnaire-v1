@@ -630,17 +630,18 @@ declare module '@base44/sdk' {
   }
   
   interface FunctionNameRegistry {
-    "draftPdfStorage": true;
-    "draftRecoveryRetention": true;
+    "adminRecoveryPagination": true;
     "autoRepairRetryIntake": true;
     "draftRecoveryData": true;
-    "questionnaireDraftData": true;
-    "retryQuestionnaireIntakeSubmission": true;
+    "draftPdfStorage": true;
+    "draftRecoveryRetention": true;
     "repairExpressQuestionnaireIntakeSubmission": true;
+    "questionnaireDraftData": true;
+    "sendExpressToZapier": true;
+    "retryQuestionnaireIntakeSubmission": true;
     "submitExpressAdminIntake": true;
     "submitExpressQuestionnaireFallback": true;
     "validateExpressQuestionText": true;
-    "sendExpressToZapier": true;
     "verifyDraftRecoveryAccess": true;
   }
   

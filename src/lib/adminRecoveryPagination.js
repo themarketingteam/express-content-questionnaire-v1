@@ -1,5 +1,6 @@
 export const ADMIN_RECOVERY_PAGE_SIZE = 25;
 export const ADMIN_RECOVERY_SEARCH_DELAY_MS = 400;
+export const ADMIN_RECOVERY_PAGINATION_FUNCTION = "adminRecoveryPagination";
 
 function unwrapFunctionResponse(response) {
   const data = response?.data || response || {};
@@ -52,7 +53,7 @@ export async function requestRecoveryPage({
   archiveState,
   search,
 }) {
-  const response = await invoke("draftRecoveryData", createRecoveryListPayload({
+  const response = await invoke(ADMIN_RECOVERY_PAGINATION_FUNCTION, createRecoveryListPayload({
     recordType,
     recoveryGrant,
     page,
@@ -65,7 +66,7 @@ export async function requestRecoveryPage({
 }
 
 export async function requestRecoveryRecord({ invoke, recordType, recordId, archiveState, recoveryGrant }) {
-  const response = await invoke("draftRecoveryData", createRecoveryGetPayload({
+  const response = await invoke(ADMIN_RECOVERY_PAGINATION_FUNCTION, createRecoveryGetPayload({
     recordType,
     recordId,
     archiveState,
