@@ -54,6 +54,7 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(styles, /\.draft-recovery-brand__product-name\s*\{[\s\S]*?color:\s*var\(--msp-express-accent\)/);
   assert.match(page, /submitted:\s*"brand-status-badge--submitted"/);
   assert.match(styles, /\.brand-status-badge--submitted\s*\{[\s\S]*?background:\s*rgba\(216,\s*201,\s*174,\s*0\.75\);[\s\S]*?color:\s*var\(--msp-blue-900\);/);
+  assert.match(styles, /\.brand-status-badge\s*\{[\s\S]*?font-weight:\s*700;/);
   assert.match(styles, /"Figtree", Arial, sans-serif/);
   assert.match(styles, /"Plus Jakarta Sans", Arial, sans-serif/);
   assert.match(styles, /\.admin-floating-menu\s*\{[\s\S]*position:\s*fixed/);
