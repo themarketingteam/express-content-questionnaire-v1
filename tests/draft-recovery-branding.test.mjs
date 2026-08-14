@@ -58,6 +58,11 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(styles, /\.admin-floating-menu__trigger:not\(\.is-open\):hover[\s\S]*?width:\s*100%/);
   assert.match(styles, /\.admin-floating-menu__links\.is-open/);
   assert.match(styles, /\.admin-floating-menu__link svg\s*\{[\s\S]*?width:\s*0\.95rem/);
+  assert.match(page, /className="brand-json-panel__source"/);
+  assert.match(page, /className="brand-json-panel__warning"/);
+  assert.match(styles, /\.brand-json-panel__meta\s*\{[\s\S]*?font-size:\s*0\.78rem;[\s\S]*?line-height:\s*1\.55;/);
+  assert.match(styles, /\.brand-json-panel__source\s*\{[\s\S]*?color:\s*#dedfff;/);
+  assert.match(styles, /\.brand-json-panel__warning\s*\{[\s\S]*?color:\s*#ffd166;[\s\S]*?font-weight:\s*500;/);
   assert.match(styles, /@media \(max-width: 44rem\)/);
   assert.match(styles, /@media \(max-width: 44rem\)[\s\S]*?\.draft-recovery-brand__hero\s*\{[\s\S]*?padding-top:\s*4rem/);
   assert.match(intakeStyles, /admin-submit-intake__json-shell/);

@@ -571,12 +571,12 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
               }
             </div>
             <div className="brand-json-panel__meta">
-              <p><span className="font-semibold">Source:</span> {SOURCE_LABEL[preview.source] || preview.source}</p>
+              <p className="brand-json-panel__source"><span className="font-semibold">Source:</span> {SOURCE_LABEL[preview.source] || preview.source}</p>
               {preview.missingRequiredFields.length > 0 && (
-                <p className="text-amber-700"><span className="font-semibold">Missing required:</span> {preview.missingRequiredFields.join(", ")}</p>
+                <p className="brand-json-panel__warning"><span className="font-semibold">Missing required:</span> {preview.missingRequiredFields.join(", ")}</p>
               )}
               {preview.warnings.map((warning, index) => (
-                <p key={index} className="text-amber-700 flex items-start gap-1">
+                <p key={index} className="brand-json-panel__warning flex items-start gap-1">
                   <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" /> {warning}
                 </p>
               ))}
