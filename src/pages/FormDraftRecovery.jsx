@@ -50,7 +50,7 @@ const STATUS_BADGE = {
   draft: "brand-status-badge--neutral",
   submit_attempted: "brand-status-badge--warning",
   submit_failed: "brand-status-badge--danger",
-  submitted: "brand-status-badge--success",
+  submitted: "brand-status-badge--submitted",
   auto_repair_pending: "brand-status-badge--info",
   auto_repair_failed: "brand-status-badge--danger",
 };

@@ -601,6 +601,12 @@
   color: #15803d;
 }
 
+.draft-recovery-brand .brand-status-badge--submitted {
+  border-color: #c2af8e;
+  background: var(--msp-express-accent);
+  color: var(--msp-blue-900);
+}
+
 .draft-recovery-brand .brand-status-badge--warning {
   border-color: #fcd34d;
   background: #fef3c7;
