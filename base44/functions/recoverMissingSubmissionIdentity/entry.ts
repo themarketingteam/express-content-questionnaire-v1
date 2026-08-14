@@ -1,13 +1,12 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
-import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 import {
   createIdentityFingerprint,
   getChicagoScheduleParts,
   isChicagoIdentityRecoveryWindow,
   isMissingIdentityValue,
   resolveSubmissionIdentity,
-} from '../../shared/submissionIdentityRecovery.js';
+} from './submissionIdentityRecovery.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -195,7 +194,6 @@ Deno.serve(async (req) => {
           serpApiKey: readSecret('SERPAPI_API_KEY'),
           recoveryEnabled: true,
           webSearchEnabled: readBooleanSecret('IDENTITY_WEB_SEARCH_ENABLED', true),
-          withSessionLease: withSubmissionSessionLease,
         });
         const resolution = result.resolution;
         metrics.attempted += 1;

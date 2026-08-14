@@ -333,6 +333,12 @@ test("the source-controlled scheduler is DST-safe, bounded, shadow-first, and ne
   assert.doesNotMatch(worker, /EXPRESS_ZAPIER_WEBHOOK_URL/);
 });
 
+test("the scheduled function bundles an exact copy of the canonical identity resolver", () => {
+  const canonical = read("base44/shared/submissionIdentityRecovery.js");
+  const bundled = read("base44/functions/recoverMissingSubmissionIdentity/submissionIdentityRecovery.js");
+  assert.equal(bundled, canonical);
+});
+
 test("manual actions share identity recovery, require both fields for retry, and persist final domains", () => {
   const repair = read("base44/functions/repairExpressQuestionnaireIntakeSubmission/entry.ts");
   assert.match(repair, /resolveSubmissionIdentity/);
