@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,12 @@ import { toast } from "sonner";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
+import { useAdminRecoveryPagination } from "@/hooks/useAdminRecoveryPagination";
+import {
+  getPaginationControls,
+  getVisibleRecordRange,
+  requestRecoveryRecord,
+} from "@/lib/adminRecoveryPagination";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -181,9 +187,35 @@ function AiRepairSummary({ record }) {
 
 // ─── Intake Record Row ────────────────────────────────────────────────────────
 
-function IntakeRecordRow({ record, onRefresh, recoveryGrant }) {
+function IntakeRecordRow({ record: recordSummary, onRefresh, onLoadDetail, recoveryGrant }) {
   const [expanded, setExpanded] = useState(false);
+  const [fullRecord, setFullRecord] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [actionLoading, setActionLoading] = useState(null); // null | 'retry' | 'force_retry' | 'diagnose' | 'repair_only' | 'repair_and_retry'
+  const record = fullRecord || recordSummary;
+
+  const loadDetails = useCallback(async () => {
+    setDetailLoading(true);
+    setDetailError("");
+    try {
+      const completeRecord = await onLoadDetail(recordSummary.id);
+      setFullRecord(completeRecord);
+    } catch (error) {
+      setDetailError(getBackendErrorMessage(error, "Failed to load the complete intake record."));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [onLoadDetail, recordSummary.id]);
+
+  const toggleExpanded = () => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    if (!fullRecord && !detailLoading) loadDetails();
+  };
 
   const runAiAction = async (mode) => {
     setActionLoading(mode);
@@ -270,7 +302,7 @@ function IntakeRecordRow({ record, onRefresh, recoveryGrant }) {
     <Card className="overflow-hidden">
       <div
         className="p-4 cursor-pointer hover:bg-slate-50 transition-colors"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggleExpanded}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1 min-w-0 grid grid-cols-12 gap-3 items-center">
@@ -308,6 +340,17 @@ function IntakeRecordRow({ record, onRefresh, recoveryGrant }) {
 
       {expanded && (
         <CardContent className="p-4 border-t bg-slate-50 space-y-4">
+          {detailLoading ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-500" role="status">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading complete intake…
+            </div>
+          ) : detailError ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-sm" role="alert">
+              <span className="flex items-center gap-2"><AlertTriangle className="w-4 h-4" />{detailError}</span>
+              <Button type="button" size="sm" variant="outline" onClick={loadDetails}>Retry</Button>
+            </div>
+          ) : fullRecord ? (
+            <>
           {/* Key fields */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
             {[
@@ -462,6 +505,8 @@ function IntakeRecordRow({ record, onRefresh, recoveryGrant }) {
               </Button>
             </div>
           </div>
+            </>
+          ) : null}
         </CardContent>
       )}
     </Card>
@@ -470,59 +515,52 @@ function IntakeRecordRow({ record, onRefresh, recoveryGrant }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function QuestionnaireIntakeRecovery({ recoveryGrant = "" }) {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+export default function QuestionnaireIntakeRecovery({ recoveryGrant = "", onAvailabilityChange = null }) {
   const [statusFilter, setStatusFilter] = useState("received_intake");
   const [searchTerm, setSearchTerm] = useState("");
+  const [archiveState, setArchiveState] = useState("active");
+  const pagination = useAdminRecoveryPagination({
+    recordType: "intake",
+    recoveryGrant,
+    status: statusFilter,
+    archiveState,
+    search: searchTerm,
+  });
+  const records = pagination.records;
+  const visibleRange = getVisibleRecordRange({
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    recordCount: records.length,
+  });
+  const paginationControls = getPaginationControls({
+    page: pagination.page,
+    hasMore: pagination.hasMore,
+    loading: pagination.loading,
+  });
+  const loadIntakeDetail = useCallback((recordId) => requestRecoveryRecord({
+    invoke: (functionName, payload) => base44.functions.invoke(functionName, payload),
+    recordType: "intake",
+    recordId,
+    archiveState,
+    recoveryGrant,
+  }), [archiveState, recoveryGrant]);
 
-  const loadRecords = useCallback(async () => {
-    try {
-      setLoading(true);
-      setLoadError("");
-      const response = await base44.functions.invoke("draftRecoveryData", {
-        action: "listIntakes",
-        recoveryGrant,
-      });
-      const data = response?.data || response || {};
-      if (!data.success) throw { response: { data } };
-      const records = [...(data.intakes || [])];
-      records.sort((a, b) => {
-        const aDate = new Date(a.created_at_server || a.created_date || a.last_retry_at || 0).getTime();
-        const bDate = new Date(b.created_at_server || b.created_date || b.last_retry_at || 0).getTime();
-        return bDate - aDate;
-      });
-      setRecords(records);
-    } catch (err) {
-      setLoadError("Failed to load intake records: " + getBackendErrorMessage(err, "Unknown error"));
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (typeof pagination.hasAnyRecords === "boolean") {
+      onAvailabilityChange?.(pagination.hasAnyRecords);
     }
-  }, [recoveryGrant]);
+  }, [onAvailabilityChange, pagination.hasAnyRecords]);
 
-  useEffect(() => { loadRecords(); }, [loadRecords]);
-
-  const filtered = useMemo(() => records.filter((record) => {
-    if (statusFilter !== "all" && record.status !== statusFilter) return false;
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      const fields = [record.business_name, record.business_domain, record.user_email,
-        record.questionnaire_session_id, record.linked_submission_id, record.intake_reason].filter(Boolean);
-      return fields.some((f) => String(f).toLowerCase().includes(q));
-    }
-    return true;
-  }), [records, statusFilter, searchTerm]);
-
-  if (loading) {
+  if (pagination.loading && records.length === 0) {
     return <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
   }
 
-  if (loadError) {
+  if (pagination.error) {
     return (
       <div className="p-4">
-        <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
-          <AlertTriangle className="w-4 h-4" />{loadError}
+        <div className="flex flex-wrap items-center justify-between gap-3 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
+          <span className="flex items-center gap-2"><AlertTriangle className="w-4 h-4" />{pagination.error}</span>
+          <Button type="button" size="sm" variant="outline" onClick={pagination.retry}>Retry</Button>
         </div>
       </div>
     );
@@ -545,6 +583,7 @@ export default function QuestionnaireIntakeRecovery({ recoveryGrant = "" }) {
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="received_intake">Received Intake</SelectItem>
+            <SelectItem value="auto_repair_pending">Auto Repair Pending</SelectItem>
             <SelectItem value="retry_pending">Retry Pending</SelectItem>
             <SelectItem value="retry_failed">Retry Failed</SelectItem>
             <SelectItem value="retry_success">Retry Success</SelectItem>
@@ -552,21 +591,63 @@ export default function QuestionnaireIntakeRecovery({ recoveryGrant = "" }) {
             <SelectItem value="abandoned">Abandoned</SelectItem>
           </SelectContent>
         </Select>
-        <Button size="sm" variant="outline" onClick={loadRecords} className="gap-1.5">
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        <Select value={archiveState} onValueChange={setArchiveState}>
+          <SelectTrigger className="w-44" aria-label="Filter intake archive state">
+            <SelectValue placeholder="Archive state" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active Records</SelectItem>
+            <SelectItem value="archived">Archived Records</SelectItem>
+            <SelectItem value="all">All Records</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button size="sm" variant="outline" onClick={pagination.refresh} disabled={pagination.loading} className="gap-1.5">
+          <RefreshCw className={`w-3.5 h-3.5 ${pagination.loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
-        <span className="text-xs text-slate-500">{filtered.length} records</span>
+        <span className="text-xs text-slate-500">
+          {records.length === 0
+            ? `Page ${pagination.page} · no visible records`
+            : `Showing ${visibleRange.start}–${visibleRange.end} · Page ${pagination.page}`}
+        </span>
       </div>
 
       {/* Records */}
       <div className="space-y-2">
-        {filtered.length === 0 ? (
+        {records.length === 0 ? (
           <Card><CardContent className="p-6 text-center text-slate-500 text-sm">No intake records found</CardContent></Card>
         ) : (
-          filtered.map((record) => (
-            <IntakeRecordRow key={record.id} record={record} onRefresh={loadRecords} recoveryGrant={recoveryGrant} />
+          records.map((record) => (
+            <IntakeRecordRow
+              key={`${record.id}:${pagination.refreshVersion}`}
+              record={record}
+              onRefresh={pagination.refresh}
+              onLoadDetail={loadIntakeDetail}
+              recoveryGrant={recoveryGrant}
+            />
           ))
         )}
+      </div>
+
+      <div className="flex items-center justify-end gap-3 pt-2" aria-label="Intake pagination">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={pagination.goToPreviousPage}
+          disabled={paginationControls.previousDisabled}
+        >
+          Previous
+        </Button>
+        <span className="text-xs text-slate-500">Page {pagination.page}</span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={pagination.goToNextPage}
+          disabled={paginationControls.nextDisabled}
+        >
+          Next
+        </Button>
       </div>
     </div>
   );

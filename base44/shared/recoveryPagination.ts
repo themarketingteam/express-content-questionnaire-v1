@@ -1,0 +1,193 @@
+export const DEFAULT_RECOVERY_PAGE_SIZE = 25;
+export const MAX_RECOVERY_PAGE_SIZE = 100;
+const MAX_PAGE = 10_000;
+const MAX_SEARCH_LENGTH = 160;
+
+export const RECOVERY_RECORD_CONFIG = {
+  draft: {
+    entityName: 'FormDraft',
+    statuses: new Set([
+      'all',
+      'draft',
+      'submit_attempted',
+      'submit_failed',
+      'submitted',
+      'auto_repair_pending',
+      'auto_repair_failed',
+    ]),
+    searchFields: ['business_name', 'domain', 'user_email', 'session_id'],
+    listFields: [
+      'id',
+      'status',
+      'business_name',
+      'domain',
+      'user_email',
+      'session_id',
+      'last_saved_at',
+      'last_changed_question_id',
+      'current_question_id',
+      'final_submission_id',
+      'ai_repair_status',
+      'archived',
+      'archived_at',
+      'created_date',
+      'updated_date',
+    ],
+  },
+  intake: {
+    entityName: 'FormSubmissionIntake',
+    statuses: new Set([
+      'all',
+      'received_intake',
+      'auto_repair_pending',
+      'retry_pending',
+      'retry_failed',
+      'retry_success',
+      'submitted',
+      'abandoned',
+    ]),
+    searchFields: [
+      'business_name',
+      'business_domain',
+      'user_email',
+      'questionnaire_session_id',
+      'linked_submission_id',
+    ],
+    listFields: [
+      'id',
+      'status',
+      'business_name',
+      'business_domain',
+      'user_email',
+      'questionnaire_session_id',
+      'created_at_server',
+      'primary_failure_kind',
+      'linked_submission_id',
+      'zapier_sent',
+      'ai_repair_status',
+      'archived',
+      'archived_at',
+      'created_date',
+      'updated_date',
+    ],
+  },
+} as const;
+
+type RecordType = keyof typeof RECOVERY_RECORD_CONFIG;
+type ArchiveState = 'active' | 'archived' | 'all';
+
+export type NormalizedRecoveryListRequest = {
+  action: 'list';
+  recordType: RecordType;
+  page: number;
+  pageSize: number;
+  status: string;
+  archiveState: ArchiveState;
+  search: string;
+};
+
+export type NormalizedRecoveryGetRequest = {
+  action: 'get';
+  recordType: RecordType;
+  recordId: string;
+  archiveState: ArchiveState;
+};
+
+type NormalizedRequestResult =
+  | { ok: true; value: NormalizedRecoveryListRequest | NormalizedRecoveryGetRequest }
+  | { ok: false; error: string };
+
+function clampInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(maximum, Math.max(minimum, Math.trunc(numeric)));
+}
+
+function normalizeArchiveState(value: unknown): ArchiveState | null {
+  const normalized = typeof value === 'string' ? value : 'active';
+  return normalized === 'active' || normalized === 'archived' || normalized === 'all'
+    ? normalized
+    : null;
+}
+
+function replaceControlCharacters(value: string): string {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127 ? ' ' : character;
+  }).join('');
+}
+
+export function normalizeRecoveryRequest(body: Record<string, unknown>): NormalizedRequestResult {
+  const action = body.action;
+  if (action !== 'list' && action !== 'get') {
+    return { ok: false, error: 'action must be list or get.' };
+  }
+
+  const recordType = body.recordType;
+  if (recordType !== 'draft' && recordType !== 'intake') {
+    return { ok: false, error: 'Unsupported recordType.' };
+  }
+
+  const archiveState = normalizeArchiveState(body.archiveState);
+  if (!archiveState) return { ok: false, error: 'Unsupported archiveState.' };
+
+  if (action === 'get') {
+    const recordId = typeof body.recordId === 'string' ? body.recordId.trim() : '';
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(recordId)) {
+      return { ok: false, error: 'A valid recordId is required.' };
+    }
+    return { ok: true, value: { action, recordType, recordId, archiveState } };
+  }
+
+  const status = typeof body.status === 'string' ? body.status : 'all';
+  if (!RECOVERY_RECORD_CONFIG[recordType].statuses.has(status)) {
+    return { ok: false, error: 'Unsupported status filter.' };
+  }
+
+  const search = replaceControlCharacters(typeof body.search === 'string' ? body.search : '')
+    .trim()
+    .slice(0, MAX_SEARCH_LENGTH);
+
+  return {
+    ok: true,
+    value: {
+      action,
+      recordType,
+      page: clampInteger(body.page, 1, 1, MAX_PAGE),
+      pageSize: clampInteger(body.pageSize, DEFAULT_RECOVERY_PAGE_SIZE, 1, MAX_RECOVERY_PAGE_SIZE),
+      status,
+      archiveState,
+      search,
+    },
+  };
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): Record<string, unknown> {
+  const config = RECOVERY_RECORD_CONFIG[request.recordType];
+  const query: Record<string, unknown> = {};
+
+  if (request.status !== 'all') query.status = request.status;
+  if (request.archiveState === 'active') query.archived = { $ne: true };
+  if (request.archiveState === 'archived') query.archived = true;
+
+  if (request.search) {
+    const pattern = escapeRegex(request.search);
+    query.$or = config.searchFields.map((field) => ({
+      [field]: { $regex: pattern, $options: 'i' },
+    }));
+  }
+
+  return query;
+}
+
+export function recordMatchesArchiveState(
+  record: Record<string, unknown>,
+  archiveState: ArchiveState,
+): boolean {
+  if (archiveState === 'all') return true;
+  return archiveState === 'archived' ? record.archived === true : record.archived !== true;
+}

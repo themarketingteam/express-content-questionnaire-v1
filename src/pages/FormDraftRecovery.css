@@ -702,9 +702,40 @@
 }
 
 .draft-recovery-brand__error {
+  justify-content: space-between;
   border-color: #fca5a5 !important;
   color: #b91c1c;
   background: #fef2f2 !important;
+}
+
+.draft-recovery-brand__error > span,
+.draft-recovery-brand__detail-error > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.draft-recovery-brand__detail-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #fca5a5;
+  border-radius: 0.55rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  font-size: 0.82rem;
+}
+
+.draft-recovery-brand__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  color: #85859f;
+  font-size: 0.78rem;
 }
 
 .draft-recovery-brand :is(input, select, textarea, [role="combobox"]) {

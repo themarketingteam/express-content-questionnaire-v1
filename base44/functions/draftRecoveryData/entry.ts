@@ -2,6 +2,12 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
 import { sanitizePdfVersions } from '../../shared/pdfVersionPrivacy.ts';
+import {
+  buildRecoveryListQuery,
+  normalizeRecoveryRequest,
+  RECOVERY_RECORD_CONFIG,
+  recordMatchesArchiveState,
+} from '../../shared/recoveryPagination.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -66,15 +72,64 @@ Deno.serve(async (req) => {
   });
 
   try {
+    if (body.action === 'list' || body.action === 'get') {
+      const normalized = normalizeRecoveryRequest(body);
+      if (!normalized.ok) return json({ success: false, error: normalized.error }, 400);
+
+      const request = normalized.value;
+      const config = RECOVERY_RECORD_CONFIG[request.recordType];
+      const entity = request.recordType === 'draft'
+        ? base44.asServiceRole.entities.FormDraft
+        : base44.asServiceRole.entities.FormSubmissionIntake;
+
+      if (request.action === 'get') {
+        let record: Record<string, unknown> | null = null;
+        try {
+          record = await entity.get(request.recordId);
+        } catch {
+          record = null;
+        }
+        if (!record || !recordMatchesArchiveState(record, request.archiveState)) {
+          return json({ success: false, error: 'Record not found.' }, 404);
+        }
+        return json({ success: true, record });
+      }
+
+      const skip = (request.page - 1) * request.pageSize;
+      const query = buildRecoveryListQuery(request);
+      const pageRecords = await entity.filter(
+        query,
+        '-updated_date',
+        request.pageSize + 1,
+        skip,
+        [...config.listFields],
+      );
+      const sourceProbe = await entity.list('-updated_date', 1, 0, ['id']);
+      const hasMore = pageRecords.length > request.pageSize;
+
+      return json({
+        success: true,
+        records: hasMore ? pageRecords.slice(0, request.pageSize) : pageRecords,
+        page: request.page,
+        pageSize: request.pageSize,
+        hasMore,
+        hasAnyRecords: sourceProbe.length > 0,
+      });
+    }
+
     switch (body.action) {
       case 'listDrafts': {
-        const drafts = await base44.asServiceRole.entities.FormDraft.list();
-        return json({ success: true, drafts });
+        return json({
+          success: false,
+          error: 'Unpaginated draft listing has been retired. Use action=list and recordType=draft.',
+        }, 410);
       }
 
       case 'listIntakes': {
-        const intakes = await base44.asServiceRole.entities.FormSubmissionIntake.list();
-        return json({ success: true, intakes });
+        return json({
+          success: false,
+          error: 'Unpaginated intake listing has been retired. Use action=list and recordType=intake.',
+        }, 410);
       }
 
       case 'listPdfVersions': {

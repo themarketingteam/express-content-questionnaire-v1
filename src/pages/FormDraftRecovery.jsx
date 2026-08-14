@@ -21,6 +21,12 @@ import AdminFloatingMenu from "@/components/admin/AdminFloatingMenu";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
+import { useAdminRecoveryPagination } from "@/hooks/useAdminRecoveryPagination";
+import {
+  getPaginationControls,
+  getVisibleRecordRange,
+  requestRecoveryRecord,
+} from "@/lib/adminRecoveryPagination";
 import "./FormDraftRecovery.css";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -232,11 +238,37 @@ const SOURCE_LABEL = {
   empty_schema: "empty schema — no data available",
 };
 
-function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
+function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, recoveryGrant }) {
   const [expanded, setExpanded] = useState(false);
+  const [fullDraft, setFullDraft] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [payloadEditorOpen, setPayloadEditorOpen] = useState(false);
+  const draft = fullDraft || draftSummary;
   const payloadEditorId = `payload-editor-${draft.id}`;
+
+  const loadDetails = useCallback(async () => {
+    setDetailLoading(true);
+    setDetailError("");
+    try {
+      const record = await onLoadDetail(draftSummary.id);
+      setFullDraft(record);
+    } catch (error) {
+      setDetailError(getBackendErrorMessage(error, "Failed to load the complete draft."));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [draftSummary.id, onLoadDetail]);
+
+  const toggleExpanded = () => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    if (!fullDraft && !detailLoading) loadDetails();
+  };
 
   const metadata = safeJsonParse(draft.metadata_json, {});
   const responses = safeJsonParse(draft.responses_json, {});
@@ -350,7 +382,7 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
     <article className={`brand-record-card ${expanded ? "brand-record-card--expanded" : ""}`}>
       <button
         type="button"
-        onClick={() => setExpanded(v => !v)}
+        onClick={toggleExpanded}
         className="brand-record-trigger"
         aria-expanded={expanded}
       >
@@ -394,6 +426,17 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
 
       {expanded && (
         <div className="brand-expanded-panel">
+          {detailLoading ? (
+            <div className="draft-recovery-brand__loading" role="status">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading complete draft…
+            </div>
+          ) : detailError ? (
+            <div className="draft-recovery-brand__detail-error" role="alert">
+              <span><AlertTriangle className="w-4 h-4" /> {detailError}</span>
+              <Button type="button" size="sm" variant="outline" onClick={loadDetails}>Retry</Button>
+            </div>
+          ) : fullDraft ? (
+            <>
           <div className="brand-detail-grid">
             <Detail label="Business name" value={draft.business_name} />
             <Detail label="Domain" value={draft.domain} />
@@ -542,6 +585,8 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
           </div>
 
           <RawDraftDataSection draft={draft} />
+            </>
+          ) : null}
         </div>
       )}
     </article>
@@ -549,59 +594,6 @@ function DraftRow({ draft, isDuplicate, onRefresh, recoveryGrant }) {
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
-
-/**
- * Fields that are auto-filled/pre-generated and do NOT count as user input.
- * A draft containing only these values is considered "empty".
- */
-const AUTO_FILLED_RESPONSE_FIELDS = new Set([
-  "clientSize",        // "1-50 employees" default
-  "geographicAreaMeta", // { source: "google" } default
-  "serviceType",       // "express" default
-]);
-
-/**
- * Returns true if the draft has at least one meaningful user-entered answer.
- * Auto-filled fields (submission_datetime, questionnaire_session_id,
- * geographic_area_meta stub, client_size default) are excluded from this check.
- */
-function hasMeaningfulAnswers(draft) {
-  // Always show submitted or non-draft statuses
-  if (
-    draft.status === "submitted" || draft.status === "submit_attempted" ||
-    draft.status === "submit_failed" || draft.status === "auto_repair_pending" ||
-    draft.status === "auto_repair_failed" || draft.final_submission_id
-  ) {
-    return true;
-  }
-
-  // Check touched_questions_json — only questions beyond the default numeric range (Q9)
-  // Q9 (clientSize) is auto-filled, so we ignore it when checking touched questions
-  try {
-    const touched = JSON.parse(draft.touched_questions_json || "{}");
-    const meaningfulTouched = Object.keys(touched).filter(qId => qId !== "9");
-    if (meaningfulTouched.length > 0) return true;
-  } catch { /* ignore */ }
-
-  // Check responses_json, skipping auto-filled fields
-  try {
-    const responses = JSON.parse(draft.responses_json || "{}");
-    if (responses && typeof responses === "object") {
-      for (const [key, val] of Object.entries(responses)) {
-        if (AUTO_FILLED_RESPONSE_FIELDS.has(key)) continue;
-        if (Array.isArray(val) && val.length > 0) return true;
-        if (typeof val === "string" && val.trim().length > 0) return true;
-        // geographicAreaMeta with only { source: "google" } is auto-filled — skip
-        if (val && typeof val === "object" && !Array.isArray(val)) {
-          const keys = Object.keys(val).filter(k => k !== "source");
-          if (keys.length > 0) return true;
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  return false;
-}
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -615,55 +607,26 @@ const STATUS_OPTIONS = [
 
 export default function FormDraftRecovery() {
   const { recoveryGrant } = useDraftRecoveryAccess();
-  const [drafts, setDrafts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [hideEmpty, setHideEmpty] = useState(true);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
+  const [archiveState, setArchiveState] = useState("active");
+  const [intakeAvailable, setIntakeAvailable] = useState(null);
+  const pagination = useAdminRecoveryPagination({
+    recordType: "draft",
+    recoveryGrant,
+    status: statusFilter,
+    archiveState,
+    search,
+  });
+  const drafts = pagination.records;
 
-  const loadDrafts = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
-    try {
-      const response = await base44.functions.invoke("draftRecoveryData", {
-        action: "listDrafts",
-        recoveryGrant,
-      });
-      const data = response?.data || response || {};
-      if (!data.success) throw { response: { data } };
-      const sorted = [...(data.drafts || [])].sort((a, b) => {
-        const ta = new Date(a.last_saved_at || a.created_date || 0).getTime();
-        const tb = new Date(b.last_saved_at || b.created_date || 0).getTime();
-        return tb - ta;
-      });
-      // Merge updates: preserve existing array identity for unchanged records
-      // so expanded rows are not collapsed and scroll position is not lost.
-      setDrafts(prev => {
-        const prevMap = new Map(prev.map(d => [d.id, d]));
-        const merged = sorted.map(d => {
-          const existing = prevMap.get(d.id);
-          if (!existing) return d;
-          // Only swap in the new object if something actually changed
-          return existing.updated_date === d.updated_date ? existing : d;
-        });
-        return merged;
-      });
-      setLoadError("");
-      setLastRefreshedAt(new Date());
-    } catch (err) {
-      if (!silent) setLoadError(getBackendErrorMessage(err, "Failed to load drafts."));
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [recoveryGrant]);
-
-  // Load on mount; auto-refresh silently every 30 seconds (no state thrash, no scroll jump)
-  useEffect(() => {
-    loadDrafts();
-    const interval = setInterval(() => loadDrafts({ silent: true }), 30000);
-    return () => clearInterval(interval);
-  }, [loadDrafts]);
+  const loadDraftDetail = useCallback((recordId) => requestRecoveryRecord({
+    invoke: (functionName, payload) => base44.functions.invoke(functionName, payload),
+    recordType: "draft",
+    recordId,
+    archiveState,
+    recoveryGrant,
+  }), [archiveState, recoveryGrant]);
 
   const duplicateSessionIds = useMemo(() => {
     const counts = {};
@@ -671,17 +634,16 @@ export default function FormDraftRecovery() {
     return new Set(Object.keys(counts).filter(k => counts[k] > 1));
   }, [drafts]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return drafts.filter(d => {
-      const matchStatus = statusFilter === "all" || d.status === statusFilter;
-      const matchSearch = !q || (d.business_name || "").toLowerCase().includes(q) || (d.domain || "").toLowerCase().includes(q) || (d.user_email || "").toLowerCase().includes(q) || (d.session_id || "").toLowerCase().includes(q);
-      const matchEmpty = !hideEmpty || hasMeaningfulAnswers(d);
-      return matchStatus && matchSearch && matchEmpty;
-    });
-  }, [drafts, search, statusFilter, hideEmpty]);
-
-  const emptyDraftCount = useMemo(() => drafts.filter(d => !hasMeaningfulAnswers(d)).length, [drafts]);
+  const visibleRange = getVisibleRecordRange({
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    recordCount: drafts.length,
+  });
+  const paginationControls = getPaginationControls({
+    page: pagination.page,
+    hasMore: pagination.hasMore,
+    loading: pagination.loading,
+  });
 
   return (
     <main className="draft-recovery-brand draft-recovery-brand-page">
@@ -719,11 +681,12 @@ export default function FormDraftRecovery() {
                   {STATUS_OPTIONS.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={hideEmpty ? "active" : "all"} onValueChange={value => setHideEmpty(value === "active")}>
-                <SelectTrigger aria-label="Filter empty drafts"><SelectValue /></SelectTrigger>
+              <Select value={archiveState} onValueChange={setArchiveState}>
+                <SelectTrigger aria-label="Filter by archive state"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="active">Active Records</SelectItem>
-                  <SelectItem value="all">All Records{emptyDraftCount > 0 ? ` (${emptyDraftCount} empty)` : ""}</SelectItem>
+                  <SelectItem value="archived">Archived Records</SelectItem>
+                  <SelectItem value="all">All Records</SelectItem>
                 </SelectContent>
               </Select>
               <Input
@@ -736,64 +699,96 @@ export default function FormDraftRecovery() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => loadDrafts({ silent: true })}
-                disabled={loading}
+                onClick={pagination.refresh}
+                disabled={pagination.loading}
                 className="brand-button-secondary draft-recovery-brand__refresh"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${pagination.loading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
             </div>
 
-            {lastRefreshedAt && (
+            {pagination.lastRefreshedAt && (
               <p className="draft-recovery-brand__refresh-meta">
-                Auto-refreshes every 30 seconds · Last updated {lastRefreshedAt.toLocaleTimeString()}
+                {pagination.isSearchDebouncing ? "Waiting for search input… · " : ""}
+                Last updated {pagination.lastRefreshedAt.toLocaleTimeString()}
               </p>
             )}
           </section>
 
-          {loadError && (
+          {pagination.error && (
             <div className="brand-panel draft-recovery-brand__error" role="alert">
-              <AlertTriangle className="w-4 h-4" /> {loadError}
+              <span><AlertTriangle className="w-4 h-4" /> {pagination.error}</span>
+              <Button type="button" size="sm" variant="outline" onClick={pagination.retry}>Retry</Button>
             </div>
           )}
 
           <section className="draft-recovery-brand__list" aria-labelledby="questionnaire-drafts-heading">
             <div className="draft-recovery-brand__list-heading">
               <h2 id="questionnaire-drafts-heading">Questionnaire Drafts</h2>
-              <p>{filtered.length} matching record{filtered.length === 1 ? "" : "s"}</p>
+              <p>
+                {drafts.length === 0
+                  ? `Page ${pagination.page} · no visible records`
+                  : `Showing ${visibleRange.start}–${visibleRange.end} · Page ${pagination.page}`}
+              </p>
             </div>
 
-            {loading ? (
+            {pagination.loading ? (
               <div className="brand-panel draft-recovery-brand__loading" role="status">
                 <Loader2 className="w-4 h-4 animate-spin" /> Loading drafts…
               </div>
-            ) : filtered.length === 0 ? (
+            ) : !pagination.error && drafts.length === 0 ? (
               <div className="brand-panel draft-recovery-brand__loading">No matching drafts found.</div>
-            ) : (
-              filtered.map(draft => (
+            ) : !pagination.error ? (
+              drafts.map(draft => (
                 <DraftRow
-                  key={draft.id}
+                  key={`${draft.id}:${pagination.refreshVersion}`}
                   draft={draft}
                   isDuplicate={duplicateSessionIds.has(draft.session_id)}
-                  onRefresh={loadDrafts}
+                  onRefresh={pagination.refresh}
+                  onLoadDetail={loadDraftDetail}
                   recoveryGrant={recoveryGrant}
                 />
               ))
-            )}
+            ) : null}
+
+            <div className="draft-recovery-brand__pagination" aria-label="Draft pagination">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={pagination.goToPreviousPage}
+                disabled={paginationControls.previousDisabled}
+              >
+                Previous
+              </Button>
+              <span>Page {pagination.page}</span>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={pagination.goToNextPage}
+                disabled={paginationControls.nextDisabled}
+              >
+                Next
+              </Button>
+            </div>
           </section>
 
-          <section className="brand-secondary-section" aria-labelledby="intake-recovery-heading">
-            <div className="draft-recovery-brand__list-heading">
-              <div>
-                <h2 id="intake-recovery-heading">Submission Intake Recovery</h2>
-                <p>Retry, diagnose, and repair failed Express questionnaire submissions.</p>
+          {intakeAvailable !== false && (
+            <section className="brand-secondary-section" aria-labelledby="intake-recovery-heading">
+              <div className="draft-recovery-brand__list-heading">
+                <div>
+                  <h2 id="intake-recovery-heading">Submission Intake Recovery</h2>
+                  <p>Retry, diagnose, and repair failed Express questionnaire submissions.</p>
+                </div>
               </div>
-            </div>
-            <div className="brand-panel brand-secondary-body">
-              <QuestionnaireIntakeRecovery recoveryGrant={recoveryGrant} />
-            </div>
-          </section>
+              <div className="brand-panel brand-secondary-body">
+                <QuestionnaireIntakeRecovery
+                  recoveryGrant={recoveryGrant}
+                  onAvailabilityChange={setIntakeAvailable}
+                />
+              </div>
+            </section>
+          )}
 
           <section className="brand-secondary-section" aria-labelledby="local-backups-heading">
             <div className="draft-recovery-brand__list-heading">

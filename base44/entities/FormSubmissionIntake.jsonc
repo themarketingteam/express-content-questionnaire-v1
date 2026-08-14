@@ -156,6 +156,31 @@
     "ai_repair_source": {
       "type": "string",
       "description": "How the repair was performed: deterministic, ai, deterministic_plus_ai, or manual."
+    },
+    "archived": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this intake has moved out of the active recovery set"
+    },
+    "archived_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the intake was archived"
+    },
+    "active_investigation": {
+      "type": "boolean",
+      "default": false,
+      "description": "Prevents automated archival or deletion while support is investigating"
+    },
+    "legal_hold": {
+      "type": "boolean",
+      "default": false,
+      "description": "Prevents automated archival or deletion for a legal hold"
+    },
+    "retention_hold": {
+      "type": "boolean",
+      "default": false,
+      "description": "Prevents automated archival or deletion for an explicit retention request"
     }
   },
   "rls": {
