@@ -157,6 +157,46 @@
       "type": "string",
       "description": "How the repair was performed: deterministic, ai, deterministic_plus_ai, or manual."
     },
+    "identity_latest_attempt_id": {
+      "type": "string",
+      "description": "Latest Express identity-resolution audit attempt ID"
+    },
+    "identity_recovery_status": {
+      "type": "string",
+      "description": "Latest identity recovery outcome"
+    },
+    "identity_input_fingerprint": {
+      "type": "string",
+      "description": "SHA-256 fingerprint of the identity-relevant payload after the latest applied recovery"
+    },
+    "identity_recovery_version": {
+      "type": "string",
+      "description": "Version of the identity resolver used for the latest attempt"
+    },
+    "last_identity_recovery_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "identity_recovery_attempt_count": {
+      "type": "number",
+      "default": 0
+    },
+    "identity_business_name_candidate": {
+      "type": "string"
+    },
+    "identity_business_name_confidence": {
+      "type": "number"
+    },
+    "identity_domain_candidate": {
+      "type": "string"
+    },
+    "identity_domain_confidence": {
+      "type": "number"
+    },
+    "identity_evidence_json": {
+      "type": "string",
+      "description": "Sanitized evidence summary for the latest applied identity recovery"
+    },
     "archived": {
       "type": "boolean",
       "default": false,

@@ -18,6 +18,7 @@ import { buildExpressDraftSubmissionPreview } from "@/lib/expressDraftSubmission
 import PayloadEditor from "@/components/admin/PayloadEditor";
 import DraftPdfManager from "@/components/admin/DraftPdfManager";
 import AdminFloatingMenu from "@/components/admin/AdminFloatingMenu";
+import IdentityResolutionPanel from "@/components/admin/IdentityResolutionPanel";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
@@ -79,12 +80,17 @@ function Detail({ label, value, mono = false }) {
 
 // ─── DraftAiRepairSection ─────────────────────────────────────────────────────
 
-function DraftAiRepairSection({ draft }) {
+function DraftAiRepairSection({ draft, liveResolution = null, recoveryGrant = "", onReviewed = null }) {
   const [open, setOpen] = useState(false);
   const report = safeJsonParse(draft.ai_repair_report_json, null);
   const repairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
+  const identityResolution = liveResolution || report?.identityResolution || null;
 
-  if (!draft.ai_repair_status) return null;
+  useEffect(() => {
+    if (liveResolution) setOpen(true);
+  }, [liveResolution]);
+
+  if (!draft.ai_repair_status && !identityResolution) return null;
 
   return (
     <div className="brand-ai-panel border border-violet-200 rounded-lg overflow-hidden">
@@ -116,6 +122,14 @@ function DraftAiRepairSection({ draft }) {
           </div>
 
           {report?.summary && <div className="bg-slate-50 rounded p-2 text-slate-700">{report.summary}</div>}
+
+          {identityResolution && (
+            <IdentityResolutionPanel
+              resolution={identityResolution}
+              recoveryGrant={recoveryGrant}
+              onReviewed={onReviewed}
+            />
+          )}
 
           {report?.changedPaths?.length > 0 && (
             <div>
@@ -245,6 +259,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const [detailError, setDetailError] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [payloadEditorOpen, setPayloadEditorOpen] = useState(false);
+  const [liveIdentityResolution, setLiveIdentityResolution] = useState(null);
   const draft = fullDraft || draftSummary;
   const payloadEditorId = `payload-editor-${draft.id}`;
 
@@ -285,10 +300,13 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   // Build canonical endpoint payload preview
   const preview = buildExpressDraftSubmissionPreview(draft);
 
-  const handleAction = async (actionKey, fn) => {
+  const handleAction = async (actionKey, fn, { refresh = true } = {}) => {
     setActionLoading(actionKey);
     try { await fn(); }
-    finally { setActionLoading(null); await onRefresh?.(); }
+    finally {
+      setActionLoading(null);
+      if (refresh) await onRefresh?.();
+    }
   };
 
   const handleRetry = () => handleAction("retry", async () => {
@@ -345,6 +363,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
       });
       const data = res?.data || res;
     if (data?.ok) {
+      setLiveIdentityResolution(data.repairReport?.identityResolution || null);
       const labels = { diagnose_only: "Diagnosis complete", repair_only: "Repair complete", repair_and_retry: "Repair + retry complete" };
       const detail = data.createdSubmissionId ? ` — Submission: ${data.createdSubmissionId}` : "";
       toast.success((labels[mode] || "Done") + detail);
@@ -374,7 +393,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
       const msg = getBackendErrorMessage(err, "AI action failed");
       toast.error(msg);
     }
-  });
+  }, { refresh: mode !== "diagnose_only" });
 
   const isLoading = !!actionLoading;
 
@@ -566,7 +585,15 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             </div>
           </div>
 
-          <DraftAiRepairSection draft={draft} />
+          <DraftAiRepairSection
+            draft={draft}
+            liveResolution={liveIdentityResolution}
+            recoveryGrant={recoveryGrant}
+            onReviewed={() => {
+              onRefresh?.();
+              loadDetails();
+            }}
+          />
 
           <div className="brand-json-panel">
             <div className="brand-json-panel__header">

@@ -1,0 +1,23 @@
+{
+  "name": "ExpressIdentityRecoveryRun",
+  "type": "object",
+  "required": ["run_date"],
+  "properties": {
+    "run_date": { "type": "string", "description": "America/Chicago calendar date" },
+    "status": { "type": "string", "enum": ["running", "completed", "failed", "duplicate"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "auto_apply_enabled": { "type": "boolean", "default": false },
+    "metrics_json": { "type": "string" },
+    "error_json": { "type": "string" },
+    "idempotency_lock_token": { "type": "string" },
+    "idempotency_lock_key": { "type": "string" },
+    "idempotency_lock_expires_at": { "type": "string", "format": "date-time" }
+  },
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

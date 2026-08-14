@@ -1,0 +1,52 @@
+{
+  "name": "ExpressIdentityResolutionAttempt",
+  "type": "object",
+  "required": ["event_type", "record_type", "record_id", "resolver_version"],
+  "properties": {
+    "event_type": { "type": "string", "enum": ["resolution", "review"] },
+    "parent_attempt_id": { "type": "string" },
+    "record_type": { "type": "string", "enum": ["draft", "intake"] },
+    "record_id": { "type": "string" },
+    "questionnaire_session_id": { "type": "string" },
+    "trigger": { "type": "string" },
+    "resolver_version": { "type": "string" },
+    "payload_fingerprint": { "type": "string" },
+    "post_review_fingerprint": { "type": "string" },
+    "status": { "type": "string" },
+    "primary_location": { "type": "string" },
+    "business_name_candidate": { "type": "string" },
+    "business_name_confidence": { "type": "number" },
+    "business_name_decision": { "type": "string" },
+    "domain_candidate": { "type": "string" },
+    "domain_confidence": { "type": "number" },
+    "domain_decision": { "type": "string" },
+    "search_query": { "type": "string" },
+    "search_results_json": {
+      "type": "string",
+      "description": "Sanitized organic search result titles, URLs, and snippets used for this decision"
+    },
+    "identity_resolution_json": {
+      "type": "string",
+      "description": "Sanitized resolver result without the questionnaire payload"
+    },
+    "evidence_json": {
+      "type": "string",
+      "description": "Short client-written excerpts and deterministic decision evidence"
+    },
+    "source_urls_json": { "type": "string" },
+    "applied_fields_json": { "type": "string" },
+    "errors_json": { "type": "string" },
+    "duration_ms": { "type": "number" },
+    "field_name": { "type": "string" },
+    "review_decision": { "type": "string", "enum": ["apply", "reject"] },
+    "candidate_value": { "type": "string" },
+    "reviewer_id": { "type": "string" },
+    "reviewed_at": { "type": "string", "format": "date-time" }
+  },
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

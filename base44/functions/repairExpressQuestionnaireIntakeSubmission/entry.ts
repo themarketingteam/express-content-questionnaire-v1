@@ -2,6 +2,10 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
+import {
+  createIdentityFingerprint,
+  resolveSubmissionIdentity,
+} from '../../shared/submissionIdentityRecovery.js';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -41,6 +45,20 @@ function isPlainObject(v) {
 
 function incrementCount(v) {
   return typeof v === 'number' && !isNaN(v) ? v + 1 : 1;
+}
+
+function readBooleanSecret(name, fallback) {
+  try {
+    const value = String(secrets.get(name) || '').trim().toLowerCase();
+    if (!value) return fallback;
+    return !['0', 'false', 'no', 'off', 'disabled'].includes(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function readSecret(name) {
+  try { return secrets.get(name) || ''; } catch { return ''; }
 }
 
 const ARRAY_FIELDS = ['it_company_type', 'service_offerings', 'target_industries', 'client_challenges', 'client_outcomes'];
@@ -160,14 +178,22 @@ function deterministicRepair(payload, context = {}) {
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-function validatePayload(payload) {
+function cleanDomain(domain) {
+  if (!domain) return '';
+  return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].trim().toLowerCase();
+}
+
+function validatePayload(payload, { requireBusinessName = true, requireDomain = false } = {}) {
   const errors = [];
   const warnings = [];
 
   if (!isPlainObject(payload)) { errors.push('payload must be a plain object'); return { ok: false, errors, warnings }; }
   if (!isPlainObject(payload.metadata)) { errors.push('metadata must be a plain object'); }
   else {
-    if (!payload.metadata.business_name) errors.push('metadata.business_name is required');
+    if (requireBusinessName && !payload.metadata.business_name) errors.push('metadata.business_name is required');
+    if (requireDomain && !cleanDomain(payload.metadata.businessDomain || payload.metadata.business_domain)) {
+      errors.push('metadata.businessDomain is required');
+    }
     if (payload.metadata.service_type !== 'express') errors.push('metadata.service_type must be "express"');
     if (!payload.metadata.questionnaire_session_id) warnings.push('metadata.questionnaire_session_id is missing');
   }
@@ -195,6 +221,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
 
   const record = {
     business_name: meta.business_name || '',
+    business_domain: cleanDomain(meta.businessDomain || meta.business_domain || ''),
     submission_datetime: meta.submission_datetime || nowIso(),
     service_type: 'express',
     it_company_type: Array.isArray(ud.it_company_type) ? ud.it_company_type : [],
@@ -239,10 +266,6 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
 function buildZapierPayload(payload) {
   const meta = payload?.metadata || {};
   const ud = payload?.userdata || {};
-  const cleanDomain = (domain) => {
-    if (!domain) return "";
-    return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
-  };
   return {
     metadata: {
       business_name: meta.business_name || "",
@@ -428,40 +451,72 @@ Deno.serve(async (req) => {
 
     const now = nowIso();
 
+    const identityTrigger = mode === 'diagnose_only'
+      ? 'admin_diagnose'
+      : (mode === 'repair_and_retry' ? 'admin_repair_retry' : 'admin_repair');
+    let identityResult;
+    try {
+      identityResult = await resolveSubmissionIdentity({
+        base44,
+        recordType: sourceType,
+        record: source.record,
+        trigger: identityTrigger,
+        apply: mode !== 'diagnose_only',
+        serpApiKey: readSecret('SERPAPI_API_KEY'),
+        recoveryEnabled: readBooleanSecret('IDENTITY_RECOVERY_ENABLED', true),
+        webSearchEnabled: readBooleanSecret('IDENTITY_WEB_SEARCH_ENABLED', true),
+        withSessionLease: withSubmissionSessionLease,
+      });
+    } catch (identityError) {
+      identityResult = {
+        payload: rawPayload,
+        resolution: {
+          status: 'provider_error',
+          trigger: identityTrigger,
+          recordType: sourceType,
+          recordId: sourceId,
+          payloadFingerprint: '',
+          currentPayloadFingerprint: '',
+          attemptId: null,
+          primaryLocation: '',
+          businessName: { existing: repairContext.businessName || '', candidate: '', confidence: 0, decision: 'provider_error', autoEligible: false, evidence: [], reasons: [] },
+          domain: { existing: sourceType === 'draft' ? source.record.domain || '' : source.record.business_domain || '', candidate: '', confidence: 0, decision: 'provider_error', autoEligible: false, inspected: [], reasons: [] },
+          appliedFields: [],
+          errors: [identityError?.message || 'Identity resolution failed.'],
+        },
+      };
+    }
+    const identityResolution = identityResult.resolution;
+    const identityPayload = mode === 'diagnose_only' ? rawPayload : (identityResult.payload || rawPayload);
+
     // ── DIAGNOSE ONLY ──────────────────────────────────────────────────────────
     if (mode === 'diagnose_only') {
       const deterministicResult = rawPayload
         ? deterministicRepair(rawPayload, repairContext)
         : { payload: null, changedPaths: [], warnings: ['No payload found to diagnose'], repaired: false };
 
-      const validation = deterministicResult.payload
-        ? validatePayload(deterministicResult.payload)
+      const structuralValidation = deterministicResult.payload
+        ? validatePayload(deterministicResult.payload, { requireBusinessName: false, requireDomain: false })
         : { ok: false, errors: ['No payload available'], warnings: [] };
+      const identityReviewReasons = [];
+      if (!identityResolution.businessName?.existing && !identityResolution.businessName?.autoEligible) {
+        identityReviewReasons.push('Business Name is unresolved or below the 90% automatic threshold.');
+      }
+      if (!identityResolution.domain?.existing && !identityResolution.domain?.autoEligible) {
+        identityReviewReasons.push('Domain is unresolved or below the 92% automatic threshold.');
+      }
 
       const report = {
-        summary: validation.ok
-          ? 'Payload appears structurally valid after deterministic repair.'
-          : `Deterministic repair found ${deterministicResult.changedPaths.length} issue(s); validation ${validation.ok ? 'passed' : 'failed'}.`,
+        summary: structuralValidation.ok
+          ? 'Diagnosis completed. Structural checks passed; identity evidence is shown separately.'
+          : `Diagnosis found ${deterministicResult.changedPaths.length} structural issue(s).`,
         changedPaths: deterministicResult.changedPaths,
-        warnings: [...deterministicResult.warnings, ...validation.warnings],
-        manualReviewReasons: validation.ok ? [] : validation.errors,
-        validationOk: validation.ok,
-        validationErrors: validation.errors,
+        warnings: [...deterministicResult.warnings, ...structuralValidation.warnings, ...(identityResolution.errors || [])],
+        manualReviewReasons: [...structuralValidation.errors, ...identityReviewReasons],
+        validationOk: structuralValidation.ok && identityReviewReasons.length === 0,
+        validationErrors: [...structuralValidation.errors, ...identityReviewReasons],
+        identityResolution,
       };
-
-      const aiRepairFields = {
-        ai_repair_status: 'diagnosed',
-        ai_repair_attempt_count: incrementCount(source.record.ai_repair_attempt_count),
-        last_ai_repair_at: now,
-        ai_repair_report_json: JSON.stringify(report),
-        ai_repair_source: 'deterministic',
-      };
-
-      if (sourceType === 'intake') {
-        await base44.asServiceRole.entities.FormSubmissionIntake.update(sourceId, aiRepairFields);
-      } else {
-        await base44.asServiceRole.entities.FormDraft.update(sourceId, aiRepairFields);
-      }
 
       return Response.json({
         ok: true,
@@ -476,27 +531,27 @@ Deno.serve(async (req) => {
     // ── REPAIR ONLY / REPAIR AND RETRY ────────────────────────────────────────
 
     // Step 1: Deterministic repair
-    let deterministicResult = rawPayload
-      ? deterministicRepair(rawPayload, repairContext)
+    let deterministicResult = identityPayload
+      ? deterministicRepair(identityPayload, repairContext)
       : { payload: null, changedPaths: [], warnings: ['No payload found'], repaired: false };
 
-    let validation = deterministicResult.payload
-      ? validatePayload(deterministicResult.payload)
+    let structuralValidation = deterministicResult.payload
+      ? validatePayload(deterministicResult.payload, { requireBusinessName: false, requireDomain: false })
       : { ok: false, errors: ['No payload available'], warnings: [] };
 
     let finalPayload = deterministicResult.payload;
     let allChangedPaths = [...deterministicResult.changedPaths];
-    let allWarnings = [...deterministicResult.warnings, ...validation.warnings];
+    let allWarnings = [...deterministicResult.warnings, ...structuralValidation.warnings, ...(identityResolution.errors || [])];
     let repairSource = deterministicResult.repaired ? 'deterministic' : 'deterministic';
     let aiReport = null;
 
     // Step 2: Call AI agent if deterministic repair couldn't produce a valid payload
-    if (!validation.ok) {
+    if (!structuralValidation.ok) {
       try {
         aiReport = await callRepairAgent(base44, {
           sourceRecord: source.record,
           sourceType,
-          rawPayload,
+          rawPayload: identityPayload,
           repairContext,
         });
 
@@ -507,14 +562,17 @@ Deno.serve(async (req) => {
           allChangedPaths = [...allChangedPaths, ...(aiReport.changed_paths || []), ...aiDeterministicPass.changedPaths];
           allWarnings = [...allWarnings, ...(aiReport.warnings || []), ...aiDeterministicPass.warnings];
           repairSource = deterministicResult.repaired ? 'deterministic_plus_ai' : 'ai';
-          validation = validatePayload(finalPayload);
+          structuralValidation = validatePayload(finalPayload, { requireBusinessName: false, requireDomain: false });
         }
       } catch (aiErr) {
         allWarnings.push(`AI repair call failed: ${aiErr?.message || 'unknown'}`);
       }
     }
 
-    const repairStatus = validation.ok ? 'repaired' : 'needs_manual_review';
+    const validation = finalPayload
+      ? validatePayload(finalPayload, { requireBusinessName: true, requireDomain: true })
+      : { ok: false, errors: ['No payload available'], warnings: [] };
+    const repairStatus = structuralValidation.ok && validation.ok ? 'repaired' : 'needs_manual_review';
 
     const report = {
       summary: aiReport?.summary || (validation.ok
@@ -526,6 +584,9 @@ Deno.serve(async (req) => {
       validationOk: validation.ok,
       validationErrors: validation.errors,
       aiStatus: aiReport?.status || null,
+      structuralValidationOk: structuralValidation.ok,
+      structuralValidationErrors: structuralValidation.errors,
+      identityResolution,
     };
 
     const repairedPayloadJson = finalPayload ? JSON.stringify(finalPayload) : null;
@@ -578,7 +639,7 @@ Deno.serve(async (req) => {
         sourceType,
         sourceId,
         status: 'needs_manual_review',
-        error: 'Repaired payload still fails validation; cannot create FormSubmission without manual review.',
+        error: 'Repaired payload still fails validation; a confirmed Business Name and Domain are required before retry.',
         details: { validationErrors: validation.errors, mode: 'repair_and_retry', sourceType },
       }, { status: 422, headers: corsHeaders });
     }
@@ -592,6 +653,27 @@ Deno.serve(async (req) => {
       sessionId: sessionId || `repair:${submitAttemptId || sourceId}`,
       purpose: `submission-repair:${sessionId || submitAttemptId || sourceId}`,
       operation: async () => {
+
+    // The client or another administrator may have edited the questionnaire
+    // while AI/search providers were running. Never submit a stale snapshot.
+    const sourceEntity = sourceType === 'intake'
+      ? base44.asServiceRole.entities.FormSubmissionIntake
+      : base44.asServiceRole.entities.FormDraft;
+    const latestSource = await sourceEntity.get(sourceId);
+    const latestFingerprint = await createIdentityFingerprint(sourceType, latestSource);
+    if (
+      identityResolution.currentPayloadFingerprint &&
+      latestFingerprint !== identityResolution.currentPayloadFingerprint
+    ) {
+      return Response.json({
+        ok: false,
+        mode: 'repair_and_retry',
+        sourceType,
+        sourceId,
+        status: 'stale',
+        error: 'The questionnaire changed while repair was running. Run Repair + Retry again with the current values.',
+      }, { status: 409, headers: corsHeaders });
+    }
 
     // A force retry may re-deliver an existing submission, but it must never
     // create a second FormSubmission for the same session or submit attempt.

@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { normalizeExpressSubmitIntakePayload } from "@/lib/adminExpressIntakePayload";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
+import IdentityResolutionPanel from "@/components/admin/IdentityResolutionPanel";
 import { useAdminRecoveryPagination } from "@/hooks/useAdminRecoveryPagination";
 import {
   getPaginationControls,
@@ -87,10 +88,14 @@ function isRetryable(record) {
 
 // ─── AI Repair Summary ────────────────────────────────────────────────────────
 
-function AiRepairSummary({ record }) {
+function AiRepairSummary({ record, liveResolution = null, recoveryGrant = "", onReviewed = null }) {
   const [expanded, setExpanded] = useState(false);
   const report = parseJson(record.ai_repair_report_json);
-  if (!report && !record.ai_repair_status) return null;
+  const identityResolution = liveResolution || report?.identityResolution || null;
+  useEffect(() => {
+    if (liveResolution) setExpanded(true);
+  }, [liveResolution]);
+  if (!report && !record.ai_repair_status && !identityResolution) return null;
 
   return (
     <div className="mt-3 border border-purple-200 rounded-lg overflow-hidden bg-purple-50">
@@ -123,6 +128,13 @@ function AiRepairSummary({ record }) {
           )}
           {report?.summary && (
             <p className="text-slate-700">{report.summary}</p>
+          )}
+          {identityResolution && (
+            <IdentityResolutionPanel
+              resolution={identityResolution}
+              recoveryGrant={recoveryGrant}
+              onReviewed={onReviewed}
+            />
           )}
           {report?.changedPaths?.length > 0 && (
             <div>
@@ -193,6 +205,7 @@ function IntakeRecordRow({ record: recordSummary, onRefresh, onLoadDetail, recov
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [actionLoading, setActionLoading] = useState(null); // null | 'retry' | 'force_retry' | 'diagnose' | 'repair_only' | 'repair_and_retry'
+  const [liveIdentityResolution, setLiveIdentityResolution] = useState(null);
   const record = fullRecord || recordSummary;
 
   const loadDetails = useCallback(async () => {
@@ -228,6 +241,7 @@ function IntakeRecordRow({ record: recordSummary, onRefresh, onLoadDetail, recov
       });
       const data = response?.data || response;
       if (data?.ok) {
+        setLiveIdentityResolution(data.repairReport?.identityResolution || null);
         const labels = { diagnose_only: "Diagnosis", repair_only: "Repair", repair_and_retry: "Repair + Retry" };
         toast.success(`${labels[mode] || mode} completed`);
         if (mode === "repair_and_retry" && data.createdSubmissionId) {
@@ -259,7 +273,7 @@ function IntakeRecordRow({ record: recordSummary, onRefresh, onLoadDetail, recov
       toast.error(getBackendErrorMessage(err, `${mode} failed`));
     } finally {
       setActionLoading(null);
-      onRefresh?.();
+      if (mode !== "diagnose_only") onRefresh?.();
     }
   };
 
@@ -394,7 +408,15 @@ function IntakeRecordRow({ record: recordSummary, onRefresh, onLoadDetail, recov
           </div>
 
           {/* AI Repair section */}
-          <AiRepairSummary record={record} />
+          <AiRepairSummary
+            record={record}
+            liveResolution={liveIdentityResolution}
+            recoveryGrant={recoveryGrant}
+            onReviewed={() => {
+              onRefresh?.();
+              loadDetails();
+            }}
+          />
 
           {/* Action buttons */}
           <div className="space-y-2">

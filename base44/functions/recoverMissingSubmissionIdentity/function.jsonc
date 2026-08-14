@@ -1,0 +1,28 @@
+{
+  "name": "recoverMissingSubmissionIdentity",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "express_identity_recovery_09utc_weekdays",
+      "description": "DST-safe Express identity recovery candidate; only runs work when it is 4 AM America/Chicago.",
+      "function_args": { "trigger": "scheduled_identity_recovery" },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 9 * * 1-5",
+      "ends_type": "never"
+    },
+    {
+      "type": "scheduled",
+      "name": "express_identity_recovery_10utc_weekdays",
+      "description": "DST-safe Express identity recovery candidate; only runs work when it is 4 AM America/Chicago.",
+      "function_args": { "trigger": "scheduled_identity_recovery" },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 10 * * 1-5",
+      "ends_type": "never"
+    }
+  ]
+}
