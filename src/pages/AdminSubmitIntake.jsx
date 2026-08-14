@@ -171,7 +171,7 @@ export default function AdminSubmitIntake() {
           </div>
           <div>
             <p className="draft-recovery-brand__eyebrow">Admin support workspace</p>
-            <h1>Express Admin Intake Submission</h1>
+            <h1>Express | Admin Intake Submission</h1>
             <p className="draft-recovery-brand__hero-copy">
               Review, repair, and securely submit an Express questionnaire payload to FormSubmission and Zapier.
             </p>

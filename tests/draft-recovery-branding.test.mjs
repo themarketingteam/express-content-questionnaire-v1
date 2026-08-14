@@ -20,11 +20,12 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
 
   assert.match(page, /draft-recovery-brand draft-recovery-brand-page/);
   assert.match(page, /Admin support workspace/);
+  assert.match(page, /<h1>Express \| Form Draft Recovery<\/h1>/);
   assert.match(page, /Kaseya MSP Success Digital/);
   assert.match(page, /<AdminFloatingMenu currentPage="draft-recovery" \/>/);
   assert.match(intake, /draft-recovery-brand draft-recovery-brand-page admin-submit-intake-page/);
   assert.match(intake, /Admin support workspace/);
-  assert.match(intake, /<h1>Express Admin Intake Submission<\/h1>/);
+  assert.match(intake, /<h1>Express \| Admin Intake Submission<\/h1>/);
   assert.match(intake, /Kaseya MSP Success Digital/);
   assert.match(intake, /<AdminFloatingMenu currentPage="submit-intake" \/>/);
   assert.match(intake, /brand-section-header/);
