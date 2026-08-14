@@ -430,28 +430,38 @@
 
 .draft-recovery-brand .brand-detail-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem 1.25rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 3rem;
 }
 
-.draft-recovery-brand .brand-detail {
+.draft-recovery-brand .brand-detail-column {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
   min-width: 0;
 }
 
-.draft-recovery-brand .brand-detail__label {
+.draft-recovery-brand .brand-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: 0;
   margin: 0;
-  color: #85859f;
-  font-size: 0.7rem;
-  font-weight: 500;
+  color: #303052;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.draft-recovery-brand .brand-detail__label {
+  flex: none;
+  color: var(--msp-blue-900);
+  font-weight: 700;
 }
 
 .draft-recovery-brand .brand-detail__value {
-  overflow: hidden;
-  margin: 0.15rem 0 0;
+  min-width: 0;
   color: #303052;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .draft-recovery-brand .brand-data-flags {
@@ -932,9 +942,6 @@
     justify-self: start;
   }
 
-  .draft-recovery-brand .brand-detail-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 44rem) {

@@ -70,10 +70,10 @@ function StatusBadge({ status }) {
 
 function Detail({ label, value, mono = false }) {
   return (
-    <div className="brand-detail">
-      <p className="brand-detail__label">{label}</p>
-      <p className={`brand-detail__value ${mono ? "font-mono" : ""}`}>{value || "—"}</p>
-    </div>
+    <p className="brand-detail">
+      <span className="brand-detail__label">{label}:</span>
+      <span className={`brand-detail__value ${mono ? "font-mono" : ""}`}>{value || "—"}</span>
+    </p>
   );
 }
 
@@ -438,22 +438,28 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
           ) : fullDraft ? (
             <>
           <div className="brand-detail-grid">
-            <Detail label="Business name" value={draft.business_name} />
-            <Detail label="Domain" value={draft.domain} />
-            <Detail label="User name" value={draft.user_name} />
-            <Detail label="User email" value={draft.user_email} />
-            <Detail label="User ID" value={draft.user_id} mono />
-            <Detail label="Final submission ID" value={draft.final_submission_id} mono />
-            <Detail label="Submit attempt ID" value={metadata?.submit_attempt_id} mono />
-            <Detail label="Submit attempted" value={formatDate(draft.submit_attempted_at)} />
-            <Detail label="Submitted at" value={formatDate(draft.submitted_at)} />
-            <Detail label="Current question" value={draft.current_question_id} />
-            <Detail label="Last changed at" value={formatDate(draft.last_changed_at)} />
-            <Detail label="Last saved at" value={formatDate(draft.last_saved_at)} />
-            {mappedPayload && <>
-              <Detail label="Zapier status" value={mappedPayload.zapier_delivery_status} />
-              <Detail label="Zapier sent" value={mappedPayload.zapier_sent ? "Yes" : "No"} />
-            </>}
+            <div className="brand-detail-column">
+              <Detail label="Business Name" value={draft.business_name} />
+              <Detail label="Domain" value={draft.domain} />
+              <Detail label="User Name" value={draft.user_name} />
+              <Detail label="User Email" value={draft.user_email} />
+              <Detail label="User ID" value={draft.user_id} mono />
+              <Detail label="Final Submission ID" value={draft.final_submission_id} mono />
+              <Detail label="Submit Attempt ID" value={metadata?.submit_attempt_id} mono />
+            </div>
+            <div className="brand-detail-column">
+              <Detail label="Submit Attempted" value={formatDate(draft.submit_attempted_at)} />
+              <Detail label="Submitted At" value={formatDate(draft.submitted_at)} />
+              <Detail label="Current Question" value={draft.current_question_id} />
+              <Detail label="Last Changed At" value={formatDate(draft.last_changed_at)} />
+              <Detail label="Last Saved At" value={formatDate(draft.last_saved_at)} />
+              <Detail label="Save Error" value={draft.save_error} />
+              <Detail label="Submit Error" value={typeof draft.submit_error === "string" ? draft.submit_error : JSON.stringify(draft.submit_error)} />
+              {mappedPayload && <>
+                <Detail label="Zapier Status" value={mappedPayload.zapier_delivery_status} />
+                <Detail label="Zapier Sent" value={mappedPayload.zapier_sent ? "Yes" : "No"} />
+              </>}
+            </div>
           </div>
 
           <div className="brand-data-flags">

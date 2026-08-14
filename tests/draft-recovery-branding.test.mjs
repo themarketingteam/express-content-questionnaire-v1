@@ -55,6 +55,11 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(page, /submitted:\s*"brand-status-badge--submitted"/);
   assert.match(styles, /\.brand-status-badge--submitted\s*\{[\s\S]*?background:\s*rgba\(216,\s*201,\s*174,\s*0\.75\);[\s\S]*?color:\s*var\(--msp-blue-900\);/);
   assert.match(styles, /\.brand-status-badge\s*\{[\s\S]*?font-weight:\s*700;/);
+  assert.match(page, /<div className="brand-detail-grid">[\s\S]*?<div className="brand-detail-column">[\s\S]*?<div className="brand-detail-column">/);
+  assert.match(page, /<span className="brand-detail__label">\{label\}:<\/span>/);
+  assert.match(styles, /\.brand-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(styles, /\.brand-detail__label\s*\{[\s\S]*?font-weight:\s*700;/);
+  assert.match(styles, /@media \(max-width: 44rem\)[\s\S]*?\.draft-recovery-brand \.brand-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr;/);
   assert.match(styles, /"Figtree", Arial, sans-serif/);
   assert.match(styles, /"Plus Jakarta Sans", Arial, sans-serif/);
   assert.match(styles, /\.admin-floating-menu\s*\{[\s\S]*position:\s*fixed/);
