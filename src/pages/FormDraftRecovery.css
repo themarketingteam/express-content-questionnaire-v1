@@ -603,7 +603,7 @@
 
 .draft-recovery-brand .brand-status-badge--submitted {
   border-color: #c2af8e;
-  background: var(--msp-express-accent);
+  background: rgba(216, 201, 174, 0.75);
   color: var(--msp-blue-900);
 }
 
