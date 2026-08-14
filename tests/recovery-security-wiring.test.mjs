@@ -8,6 +8,7 @@ test("service-role recovery functions authorize before resolving protected recor
   for (const path of [
     "base44/functions/repairExpressQuestionnaireIntakeSubmission/entry.ts",
     "base44/functions/retryQuestionnaireIntakeSubmission/entry.ts",
+    "base44/functions/submitExpressAdminIntake/entry.ts",
   ]) {
     const source = await read(path);
     const handlerStart = source.indexOf("Deno.serve");

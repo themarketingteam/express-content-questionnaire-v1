@@ -102,6 +102,41 @@
   gap: 2rem;
 }
 
+.draft-recovery-brand__admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: -0.25rem 0 1.5rem;
+}
+
+.draft-recovery-brand__admin-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid rgba(215, 215, 255, 0.52);
+  border-radius: 0.5rem;
+  color: #e8e8ff;
+  background: rgba(12, 12, 51, 0.42);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.draft-recovery-brand__admin-nav a:hover,
+.draft-recovery-brand__admin-nav a:focus-visible {
+  border-color: var(--msp-teal-400);
+  color: #fff;
+  background: rgba(49, 49, 204, 0.55);
+}
+
+.draft-recovery-brand__admin-nav a.is-active {
+  border-color: var(--msp-teal-400);
+  color: var(--msp-blue-900);
+  background: var(--msp-teal-400);
+}
+
 .draft-recovery-brand .brand-panel,
 .draft-recovery-brand .brand-record-card {
   border: 1px solid rgba(61, 61, 255, 0.2);
@@ -745,6 +780,15 @@
 
   .draft-recovery-brand__logo-plate {
     width: 100%;
+  }
+
+  .draft-recovery-brand__admin-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .draft-recovery-brand__admin-nav a {
+    justify-content: center;
   }
 
   .draft-recovery-brand__filter-controls,

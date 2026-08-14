@@ -21,7 +21,7 @@ export default function DraftRecoveryAccessGate({ children }) {
       <main className="draft-recovery-brand draft-recovery-gate">
         <div className="draft-recovery-gate__checking" role="status">
           <Loader2 className="w-8 h-8 animate-spin" />
-          <p>Checking recovery access...</p>
+          <p>Checking admin access...</p>
         </div>
       </main>
     );
@@ -42,7 +42,7 @@ export default function DraftRecoveryAccessGate({ children }) {
 
   return (
     <main className="draft-recovery-brand draft-recovery-gate">
-      <form onSubmit={handleSubmit} className="draft-recovery-gate__card" aria-labelledby="draft-recovery-access-title">
+      <form onSubmit={handleSubmit} className="draft-recovery-gate__card" aria-labelledby="admin-workspace-access-title">
         <div className="draft-recovery-gate__logo-wrap">
           <img
             src={EXPRESS_TEMPLATE_LOGO_DATA_URI}
@@ -56,17 +56,17 @@ export default function DraftRecoveryAccessGate({ children }) {
             <LockKeyhole className="w-5 h-5" />
           </div>
           <p className="draft-recovery-brand__section-kicker">Admin support workspace</p>
-          <h1 id="draft-recovery-access-title">Draft Recovery Access</h1>
+          <h1 id="admin-workspace-access-title">Admin Workspace Access</h1>
           <p className="draft-recovery-gate__copy">
-            Enter the admin password to open draft recovery. Access remains available in this browser for seven days.
+            Enter the admin password to open the Express admin tools. Access remains available in this browser for seven days.
           </p>
 
-          <label htmlFor="draft-recovery-password" className="draft-recovery-gate__label">Password</label>
+          <label htmlFor="admin-workspace-password" className="draft-recovery-gate__label">Password</label>
           <Input
-            id="draft-recovery-password"
+            id="admin-workspace-password"
             type="password"
             autoComplete="current-password"
-            aria-label="Recovery password"
+            aria-label="Admin password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={isSubmitting}
@@ -75,7 +75,7 @@ export default function DraftRecoveryAccessGate({ children }) {
           {error && <p role="alert" className="draft-recovery-gate__error">{error}</p>}
           <Button type="submit" className="brand-button-primary w-full" disabled={isSubmitting || !password}>
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isSubmitting ? "Unlocking..." : "Unlock draft recovery"}
+            {isSubmitting ? "Unlocking..." : "Unlock admin workspace"}
           </Button>
         </div>
       </form>

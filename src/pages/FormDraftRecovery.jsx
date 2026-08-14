@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Input } from "@/components/ui/input";
 import {
@@ -701,6 +702,11 @@ export default function FormDraftRecovery() {
             </p>
           </div>
         </header>
+
+        <nav className="draft-recovery-brand__admin-nav" aria-label="Admin workspace">
+          <Link to="/admin/draft-recovery" className="is-active" aria-current="page">Draft Recovery</Link>
+          <Link to="/admin/submit-intake">Submit Intake</Link>
+        </nav>
 
         <div className="draft-recovery-brand__content">
           <section className="brand-panel" aria-labelledby="draft-filters-heading">

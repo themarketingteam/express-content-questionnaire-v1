@@ -1,16 +1,20 @@
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
-import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileJson2, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import {
   initialExpressAdminIntakePayload,
   repairExpressAdminIntakePayload,
   validateExpressAdminIntakePayload,
 } from "@/lib/adminExpressIntakePayload";
-import { mapExpressPayloadToFormSubmissionRecord, cleanExpressDomain } from "@/lib/expressQuestionnairePayload";
+import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
+import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
+import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
+import "./FormDraftRecovery.css";
+import "./AdminSubmitIntake.css";
 
 // Auto-fix common JSON formatting issues
 function autoFixJson(raw) {
@@ -48,7 +52,7 @@ function autoFixJson(raw) {
 }
 
 export default function AdminSubmitIntake() {
-  const { user } = useAuth();
+  const { recoveryGrant, lock } = useDraftRecoveryAccess();
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState(null);
   const [payload, setPayload] = useState(initialExpressAdminIntakePayload());
@@ -112,10 +116,6 @@ export default function AdminSubmitIntake() {
 
       const repairedPayload = repairResult.payload;
 
-      // Enforce Express-only safety on domain and service_type
-      repairedPayload.metadata.service_type = "express";
-      repairedPayload.metadata.businessDomain = cleanExpressDomain(repairedPayload.metadata.businessDomain);
-
       const validation = validateExpressAdminIntakePayload(repairedPayload);
       if (!validation.ok) {
         setSaveError("Validation failed:\n" + validation.errors.join("\n"));
@@ -123,63 +123,31 @@ export default function AdminSubmitIntake() {
         return;
       }
 
-      // Map to DB record — _rawFormData is never included
-      const record = mapExpressPayloadToFormSubmissionRecord(repairedPayload);
-
-      // Wrap FormSubmission.create in try/catch/finally
       try {
-        const res = await base44.entities.FormSubmission.create(record);
-        const id = res?.id || res?.data?.id || null;
+        const response = await base44.functions.invoke("submitExpressAdminIntake", {
+          payload: repairedPayload,
+          recoveryGrant,
+        });
+        const result = response?.data || response;
+        if (!result?.success || !result?.submissionId) {
+          throw new Error(result?.error || "The intake submission could not be saved.");
+        }
+        const id = result.submissionId;
+        const normalizedPayload = result.normalizedPayload || repairedPayload;
 
         setSubmittedId(id);
-        setPayload(repairedPayload);
-        setRawJson(JSON.stringify(repairedPayload, null, 2));
+        setPayload(normalizedPayload);
+        setRawJson(JSON.stringify(normalizedPayload, null, 2));
 
-        toast.success("Submission saved" + (id ? ` (id: ${id})` : "") + " — sending to Zapier…");
-
-        // Send to Zapier via the backend function
-        try {
-          const zapierPayload = { metadata: repairedPayload.metadata, userdata: repairedPayload.userdata };
-          const zapRes = await base44.functions.invoke("sendExpressToZapier", zapierPayload);
-          const zapData = zapRes?.data || zapRes;
-
-          if (zapData?.success) {
-            // Update FormSubmission zapier fields
-            if (id) {
-              await base44.entities.FormSubmission.update(id, {
-                zapier_sent: true,
-                zapier_delivery_status: "sent",
-                zapier_sent_at: new Date().toISOString(),
-                zapier_attempt_count: 1,
-              });
-            }
-            toast.success("Sent to Zapier successfully.");
-          } else {
-            const zapErrMsg = zapData?.error || "Zapier delivery failed";
-            if (id) {
-              await base44.entities.FormSubmission.update(id, {
-                zapier_sent: false,
-                zapier_delivery_status: "failed",
-                zapier_error_json: JSON.stringify({ message: zapErrMsg }),
-                zapier_attempt_count: 1,
-              });
-            }
-            toast.warning(`Submission saved but Zapier delivery failed: ${zapErrMsg}`);
-          }
-        } catch (zapErr) {
-          const zapErrMsg = zapErr?.message || "Unknown Zapier error";
-          if (id) {
-            await base44.entities.FormSubmission.update(id, {
-              zapier_sent: false,
-              zapier_delivery_status: "failed",
-              zapier_error_json: JSON.stringify({ message: zapErrMsg }),
-              zapier_attempt_count: 1,
-            });
-          }
-          toast.warning(`Submission saved but Zapier delivery failed: ${zapErrMsg}`);
+        if (result.zapierSent) {
+          toast.success(`Submission saved (id: ${id}) and sent to Zapier.`);
+        } else {
+          toast.warning(`Submission saved (id: ${id}), but Zapier delivery failed: ${result.zapierError || "Unknown Zapier error"}`);
         }
       } catch (createErr) {
-        const message = createErr?.message || createErr?.toString() || "Unknown error";
+        const status = createErr?.response?.status || createErr?.status;
+        if (status === 401 || status === 403) lock();
+        const message = getBackendErrorMessage(createErr, "Unknown submission error");
         setSaveError(`Submission failed: ${message}`);
         toast.error(`Failed to save submission: ${message}`);
       }
@@ -190,70 +158,106 @@ export default function AdminSubmitIntake() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-10">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800" style={{ fontFamily: "Raleway, sans-serif" }}>
-          Express Admin Intake Submission
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Paste or edit an Express questionnaire payload, validate it, and save it to FormSubmission.
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Saves a FormSubmission to the database and delivers it to Zapier via the sendExpressToZapier function.
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Signed in as <span className="font-medium">{user?.email}</span>
-        </p>
-      </div>
+    <main className="draft-recovery-brand draft-recovery-brand-page admin-submit-intake-page">
+      <div className="draft-recovery-brand__shell">
+        <header className="draft-recovery-brand__hero">
+          <div className="draft-recovery-brand__logo-plate">
+            <img
+              className="draft-recovery-brand__logo"
+              src={EXPRESS_TEMPLATE_LOGO_DATA_URI}
+              alt="Kaseya MSP Success Digital"
+            />
+          </div>
+          <div>
+            <p className="draft-recovery-brand__eyebrow">Admin support workspace</p>
+            <h1>Express Intake Submission</h1>
+            <p className="draft-recovery-brand__hero-copy">
+              Review, repair, and securely submit an Express questionnaire payload to FormSubmission and Zapier.
+            </p>
+          </div>
+        </header>
 
-      {submittedId && (
-        <div className="flex items-center gap-2 mb-6 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>Submitted — id: <span className="font-mono font-semibold">{submittedId}</span></span>
+        <nav className="draft-recovery-brand__admin-nav" aria-label="Admin workspace">
+          <Link to="/admin/draft-recovery">Draft Recovery</Link>
+          <Link to="/admin/submit-intake" className="is-active" aria-current="page">Submit Intake</Link>
+        </nav>
+
+        <div className="draft-recovery-brand__content">
+          {submittedId && (
+            <div className="brand-panel admin-submit-intake__notice admin-submit-intake__notice--success" role="status">
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
+              <span>Submitted successfully — ID: <span className="font-mono font-semibold">{submittedId}</span></span>
+            </div>
+          )}
+
+          {saveError && (
+            <div className="brand-panel admin-submit-intake__notice admin-submit-intake__notice--error" role="alert">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <span>{saveError}</span>
+            </div>
+          )}
+
+          <section className="brand-panel admin-submit-intake__panel" aria-labelledby="intake-payload-heading">
+            <div className="brand-section-header">
+              <p className="draft-recovery-brand__section-kicker">Create a questionnaire record</p>
+              <h2 id="intake-payload-heading" className="brand-section-title">Express Submission Payload</h2>
+              <p className="draft-recovery-brand__section-copy">
+                Edit the JSON as needed. The payload is repaired and validated again on the server before any record is created.
+              </p>
+            </div>
+
+            <div className="admin-submit-intake__body">
+              <div className="admin-submit-intake__security-note">
+                <FileJson2 className="w-5 h-5" aria-hidden="true" />
+                <div>
+                  <p>Password-protected admin session</p>
+                  <span>The same seven-day access grant is shared with Draft Recovery and revalidated by the backend.</span>
+                </div>
+              </div>
+
+              <div className="brand-action-group">
+                <p className="brand-action-label">Actions</p>
+                <div className="brand-action-buttons">
+                  {!editing ? (
+                    <>
+                      <Button onClick={handleSubmit} disabled={submitting} className="brand-button-primary">
+                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        {submitting ? "Submitting..." : "Submit Now"}
+                      </Button>
+                      <Button variant="outline" onClick={handleEdit} disabled={submitting} className="brand-button-secondary">
+                        Edit JSON
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button onClick={handleSaveJson} className="brand-button-primary">Save JSON</Button>
+                      <Button variant="outline" onClick={handleCancelEdit} className="brand-button-secondary">Cancel</Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="admin-submit-intake__json-shell">
+                <div className="admin-submit-intake__json-heading">
+                  <span>{editing ? "Editing payload" : "Payload preview"}</span>
+                  <span>JSON</span>
+                </div>
+                {editing ? (
+                  <Textarea
+                    aria-label="Express submission payload JSON"
+                    value={rawJson}
+                    onChange={(event) => setRawJson(event.target.value)}
+                    className="admin-submit-intake__editor"
+                    spellCheck={false}
+                  />
+                ) : (
+                  <pre className="admin-submit-intake__preview">{JSON.stringify(payload, null, 2)}</pre>
+                )}
+              </div>
+            </div>
+          </section>
         </div>
-      )}
-
-      {saveError && (
-        <div className="mb-6 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm whitespace-pre-wrap">
-          {saveError}
-        </div>
-      )}
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        {!editing ? (
-          <>
-            <Button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              {submitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              {submitting ? "Submitting..." : "Submit Now"}
-            </Button>
-            <Button variant="outline" onClick={handleEdit} disabled={submitting}>
-              Edit JSON
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button onClick={handleSaveJson}>Save JSON</Button>
-            <Button variant="outline" onClick={handleCancelEdit}>Cancel</Button>
-          </>
-        )}
       </div>
-
-      {editing ? (
-        <Textarea
-          value={rawJson}
-          onChange={(e) => setRawJson(e.target.value)}
-          className="font-mono text-xs min-h-[600px] resize-y border-slate-300"
-          spellCheck={false}
-        />
-      ) : (
-        <pre className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs font-mono overflow-auto max-h-[600px] whitespace-pre-wrap text-slate-700">
-          {JSON.stringify(payload, null, 2)}
-        </pre>
-      )}
-    </div>
+    </main>
   );
 }

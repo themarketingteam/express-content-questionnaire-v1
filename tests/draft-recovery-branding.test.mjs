@@ -8,17 +8,27 @@ async function readProjectFile(path) {
   return readFile(new URL(path, projectUrl), "utf8");
 }
 
-test("draft recovery and its access gate use the scoped MSP Success brand shell", async () => {
-  const [page, gate, styles] = await Promise.all([
+test("admin tools and their shared access gate use the scoped MSP Success brand shell", async () => {
+  const [page, intake, gate, styles, intakeStyles] = await Promise.all([
     readProjectFile("src/pages/FormDraftRecovery.jsx"),
+    readProjectFile("src/pages/AdminSubmitIntake.jsx"),
     readProjectFile("src/components/admin/DraftRecoveryAccessGate.jsx"),
     readProjectFile("src/pages/FormDraftRecovery.css"),
+    readProjectFile("src/pages/AdminSubmitIntake.css"),
   ]);
 
   assert.match(page, /draft-recovery-brand draft-recovery-brand-page/);
   assert.match(page, /Admin support workspace/);
   assert.match(page, /Kaseya MSP Success Digital/);
+  assert.match(page, /to="\/admin\/submit-intake"/);
+  assert.match(intake, /draft-recovery-brand draft-recovery-brand-page admin-submit-intake-page/);
+  assert.match(intake, /Admin support workspace/);
+  assert.match(intake, /Kaseya MSP Success Digital/);
+  assert.match(intake, /to="\/admin\/draft-recovery"/);
+  assert.match(intake, /brand-section-header/);
+  assert.match(intake, /brand-button-primary/);
   assert.match(gate, /draft-recovery-brand draft-recovery-gate/);
+  assert.match(gate, /Admin Workspace Access/);
   assert.match(gate, /Access remains available in this browser for seven days/);
 
   assert.match(styles, /--msp-blue-900:\s*#0c0c33/);
@@ -26,7 +36,10 @@ test("draft recovery and its access gate use the scoped MSP Success brand shell"
   assert.match(styles, /--msp-teal-400:\s*#11f6c8/);
   assert.match(styles, /"Figtree", Arial, sans-serif/);
   assert.match(styles, /"Plus Jakarta Sans", Arial, sans-serif/);
+  assert.match(styles, /draft-recovery-brand__admin-nav/);
   assert.match(styles, /@media \(max-width: 44rem\)/);
+  assert.match(intakeStyles, /admin-submit-intake__json-shell/);
+  assert.match(intakeStyles, /var\(--msp-blue-900\)/);
 });
 
 test("draft PDF and recovery actions remain inside each expanded record", async () => {

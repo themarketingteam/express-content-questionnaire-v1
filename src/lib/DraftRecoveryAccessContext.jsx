@@ -25,6 +25,8 @@ export function DraftRecoveryAccessProvider({ children }) {
   useEffect(() => {
     let active = true;
     (async () => {
+      // Retain the existing storage key so previously authorized draft-recovery
+      // sessions also authorize every password-protected admin route.
       const verified = await revalidateSavedRecoveryGrant({
         storage: window.localStorage,
         verifyGrant: verifySavedGrant,

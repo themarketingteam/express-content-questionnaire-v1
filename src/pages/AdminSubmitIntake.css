@@ -1,0 +1,133 @@
+.admin-submit-intake-page .draft-recovery-brand__content {
+  gap: 1rem;
+}
+
+.admin-submit-intake__panel {
+  overflow: hidden;
+}
+
+.admin-submit-intake__body {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.5rem;
+}
+
+.admin-submit-intake__security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--msp-blue-200);
+  border-radius: 0.6rem;
+  color: var(--msp-blue-600);
+  background: var(--msp-blue-050);
+}
+
+.admin-submit-intake__security-note svg {
+  margin-top: 0.05rem;
+  flex: 0 0 auto;
+}
+
+.admin-submit-intake__security-note p,
+.admin-submit-intake__security-note span {
+  margin: 0;
+}
+
+.admin-submit-intake__security-note p {
+  color: var(--msp-blue-900);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.admin-submit-intake__security-note span {
+  display: block;
+  margin-top: 0.2rem;
+  color: #64647f;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.admin-submit-intake__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.admin-submit-intake__notice--success {
+  border-color: #86efac !important;
+  color: #166534;
+  background: #f0fdf4 !important;
+}
+
+.admin-submit-intake__notice--error {
+  border-color: #fca5a5 !important;
+  color: #b91c1c;
+  background: #fef2f2 !important;
+}
+
+.admin-submit-intake__json-shell {
+  overflow: hidden;
+  border: 1px solid #2b2b77;
+  border-radius: 0.65rem;
+  background: var(--msp-blue-900);
+}
+
+.admin-submit-intake__json-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.95rem;
+  border-bottom: 1px solid #2b2b77;
+  color: #f4f4ff;
+  background: var(--msp-blue-850);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.admin-submit-intake__json-heading span:last-child {
+  color: var(--msp-teal-400);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+}
+
+.admin-submit-intake__preview,
+.admin-submit-intake__editor {
+  width: 100%;
+  min-height: 34rem;
+  max-height: 42rem;
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: #f4f4ff !important;
+  background: var(--msp-blue-900) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace !important;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.admin-submit-intake__editor {
+  resize: vertical;
+}
+
+@media (max-width: 44rem) {
+  .admin-submit-intake__body {
+    padding: 1rem;
+  }
+
+  .admin-submit-intake__body .brand-action-buttons > * {
+    flex: 1 1 100%;
+  }
+
+  .admin-submit-intake__preview,
+  .admin-submit-intake__editor {
+    min-height: 28rem;
+  }
+}

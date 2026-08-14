@@ -2,7 +2,7 @@ import React from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
-import { isPublicDraftRecoveryPath } from "@/lib/publicRoutes";
+import { isPasswordProtectedAdminPath } from "@/lib/publicRoutes";
 import {
   isExpressAdminUser,
   getAdminAccessDeniedMessage,
@@ -14,7 +14,7 @@ export default function AdminOnly({ children }) {
   const { user, isLoadingAuth, isLoadingPublicSettings, isAuthenticated, navigateToLogin } = useAuth();
 
   // Defensive fallback if Base44 regenerates this route inside an admin wrapper.
-  if (isPublicDraftRecoveryPath(location.pathname)) {
+  if (isPasswordProtectedAdminPath(location.pathname)) {
     return children;
   }
 

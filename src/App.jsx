@@ -15,7 +15,7 @@ import QuestionnaireIntakeRecoveryPage from './pages/QuestionnaireIntakeRecovery
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import QuestionnaireRouteBoundary from '@/components/questionnaire/QuestionnaireRouteBoundary';
-import { isPublicDraftRecoveryPath } from '@/lib/publicRoutes';
+import { isAdminSubmitIntakePath, isPasswordProtectedAdminPath } from '@/lib/publicRoutes';
 import { DraftRecoveryAccessProvider } from '@/lib/DraftRecoveryAccessContext';
 import DraftRecoveryAccessGate from '@/components/admin/DraftRecoveryAccessGate';
 
@@ -85,13 +85,6 @@ const AuthenticatedApp = () => {
           }
         />
       ))}
-      <Route path="/admin/submit-intake" element={
-        <AdminOnly>
-          <LayoutWrapper currentPageName={"admin/submit-intake"}>
-            <AdminSubmitIntake />
-          </LayoutWrapper>
-        </AdminOnly>
-      } />
       <Route path="/admin/questionnaire-intake-recovery" element={
         <AdminOnly>
           <LayoutWrapper currentPageName={"admin/questionnaire-intake-recovery"}>
@@ -114,14 +107,16 @@ const AuthenticatedApp = () => {
 const AppContent = () => {
   const location = useLocation();
 
-  // Keep the recovery route outside Base44 login redirects so password-grant
-  // access can work. The suffix match supports deployments below a base path.
-  if (isPublicDraftRecoveryPath(location.pathname)) {
+  // Keep password-protected admin tools outside Base44 account-login redirects.
+  // Both routes reuse the same signed seven-day browser grant, so unlocking
+  // either admin page unlocks the other without weakening backend authorization.
+  if (isPasswordProtectedAdminPath(location.pathname)) {
+    const isSubmitIntake = isAdminSubmitIntakePath(location.pathname);
     return (
       <DraftRecoveryAccessProvider>
         <DraftRecoveryAccessGate>
-          <LayoutWrapper currentPageName={"admin/draft-recovery"}>
-            <FormDraftRecovery />
+          <LayoutWrapper currentPageName={isSubmitIntake ? "admin/submit-intake" : "admin/draft-recovery"}>
+            {isSubmitIntake ? <AdminSubmitIntake /> : <FormDraftRecovery />}
           </LayoutWrapper>
         </DraftRecoveryAccessGate>
       </DraftRecoveryAccessProvider>
