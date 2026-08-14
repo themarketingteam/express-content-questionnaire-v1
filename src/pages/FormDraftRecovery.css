@@ -4,6 +4,7 @@
   --msp-blue-600: #3131cc;
   --msp-blue-500: #3d3dff;
   --msp-teal-400: #11f6c8;
+  --msp-express-accent: #d8c9ae;
   --msp-blue-050: #f6f6ff;
   --msp-blue-100: #ededff;
   --msp-blue-200: #d7d7ff;
@@ -78,7 +79,7 @@
 
 .draft-recovery-brand__eyebrow {
   margin: 0 0 0.45rem;
-  color: var(--msp-teal-400);
+  color: var(--msp-express-accent);
   font-size: 0.75rem;
 }
 
@@ -87,6 +88,10 @@
   color: #fff;
   font-size: clamp(2rem, 5vw, 3.25rem);
   line-height: 1.04;
+}
+
+.draft-recovery-brand__product-name {
+  color: var(--msp-express-accent);
 }
 
 .draft-recovery-brand__hero-copy {

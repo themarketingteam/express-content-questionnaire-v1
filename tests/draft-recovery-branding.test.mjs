@@ -20,12 +20,12 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
 
   assert.match(page, /draft-recovery-brand draft-recovery-brand-page/);
   assert.match(page, /Admin support workspace/);
-  assert.match(page, /<h1>Express \| Form Draft Recovery<\/h1>/);
+  assert.match(page, /<h1><span className="draft-recovery-brand__product-name">Express<\/span> \| Form Draft Recovery<\/h1>/);
   assert.match(page, /Kaseya MSP Success Digital/);
   assert.match(page, /<AdminFloatingMenu currentPage="draft-recovery" \/>/);
   assert.match(intake, /draft-recovery-brand draft-recovery-brand-page admin-submit-intake-page/);
   assert.match(intake, /Admin support workspace/);
-  assert.match(intake, /<h1>Express \| Admin Intake Submission<\/h1>/);
+  assert.match(intake, /<h1><span className="draft-recovery-brand__product-name">Express<\/span> \| Admin Intake Submission<\/h1>/);
   assert.match(intake, /Kaseya MSP Success Digital/);
   assert.match(intake, /<AdminFloatingMenu currentPage="submit-intake" \/>/);
   assert.match(intake, /brand-section-header/);
@@ -49,6 +49,9 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(styles, /--msp-blue-900:\s*#0c0c33/);
   assert.match(styles, /--msp-blue-500:\s*#3d3dff/);
   assert.match(styles, /--msp-teal-400:\s*#11f6c8/);
+  assert.match(styles, /--msp-express-accent:\s*#d8c9ae/);
+  assert.match(styles, /\.draft-recovery-brand__eyebrow\s*\{[\s\S]*?color:\s*var\(--msp-express-accent\)/);
+  assert.match(styles, /\.draft-recovery-brand__product-name\s*\{[\s\S]*?color:\s*var\(--msp-express-accent\)/);
   assert.match(styles, /"Figtree", Arial, sans-serif/);
   assert.match(styles, /"Plus Jakarta Sans", Arial, sans-serif/);
   assert.match(styles, /\.admin-floating-menu\s*\{[\s\S]*position:\s*fixed/);
