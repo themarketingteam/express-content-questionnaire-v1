@@ -3,12 +3,19 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { base44 } from '@/api/base44Client';
 import { pagesConfig } from '@/pages.config';
+import { getExpressPageTitle } from './pageTitles';
 
 export default function NavigationTracker() {
     const location = useLocation();
     const { isAuthenticated } = useAuth();
     const { Pages, mainPage } = pagesConfig;
     const mainPageKey = mainPage ?? Object.keys(Pages)[0];
+
+    // Keep every browser tab consistent across public, authenticated, admin,
+    // loading, and password-gated routes.
+    useEffect(() => {
+        document.title = getExpressPageTitle(location.pathname);
+    }, [location.pathname]);
 
     // Post navigation changes to parent window
     useEffect(() => {

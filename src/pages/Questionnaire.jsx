@@ -453,10 +453,9 @@ export default function Questionnaire() {
     }
   };
 
-  // Set favicon and page title
+  // Set the questionnaire favicon. Browser titles are managed centrally so
+  // every route follows the same "Express | Page Name" convention.
   useEffect(() => {
-    document.title = 'MSP Success - Express | Website Content Questionnaire';
-    
     const link = /** @type {HTMLLinkElement} */ (document.querySelector("link[rel*='icon']") || document.createElement('link'));
     link.type = 'image/png';
     link.rel = 'icon';
