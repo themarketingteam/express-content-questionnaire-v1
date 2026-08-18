@@ -6,6 +6,7 @@ const MAX_SEARCH_LENGTH = 160;
 export const RECOVERY_RECORD_CONFIG = {
   draft: {
     entityName: 'FormDraft',
+    statusField: 'status',
     statuses: new Set([
       'all',
       'draft',
@@ -36,6 +37,7 @@ export const RECOVERY_RECORD_CONFIG = {
   },
   intake: {
     entityName: 'FormSubmissionIntake',
+    statusField: 'status',
     statuses: new Set([
       'all',
       'received_intake',
@@ -67,6 +69,43 @@ export const RECOVERY_RECORD_CONFIG = {
       'ai_repair_status',
       'archived',
       'archived_at',
+      'created_date',
+      'updated_date',
+    ],
+  },
+  submission: {
+    entityName: 'FormSubmission',
+    statusField: 'zapier_delivery_status',
+    statuses: new Set([
+      'all',
+      'not_attempted',
+      'sent',
+      'failed',
+    ]),
+    searchFields: [
+      'business_name',
+      'business_domain',
+      'user_email',
+      'questionnaire_session_id',
+      'submit_attempt_id',
+      'id',
+    ],
+    listFields: [
+      'id',
+      'business_name',
+      'business_domain',
+      'user_email',
+      'submission_datetime',
+      'service_type',
+      'questionnaire_session_id',
+      'submit_attempt_id',
+      'zapier_delivery_status',
+      'zapier_sent',
+      'zapier_sent_at',
+      'linked_draft_id',
+      'archived',
+      'archived_at',
+      'retention_policy',
       'created_date',
       'updated_date',
     ],
@@ -124,7 +163,7 @@ export function normalizeRecoveryRequest(body: Record<string, unknown>): Normali
   }
 
   const recordType = body.recordType;
-  if (recordType !== 'draft' && recordType !== 'intake') {
+  if (recordType !== 'draft' && recordType !== 'intake' && recordType !== 'submission') {
     return { ok: false, error: 'Unsupported recordType.' };
   }
 
@@ -170,7 +209,7 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
   const config = RECOVERY_RECORD_CONFIG[request.recordType];
   const query: Record<string, unknown> = {};
 
-  if (request.status !== 'all') query.status = request.status;
+  if (request.status !== 'all') query[config.statusField] = request.status;
   if (request.archiveState === 'active') query.archived = { $ne: true };
   if (request.archiveState === 'archived') query.archived = true;
 
@@ -179,6 +218,27 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
     query.$or = config.searchFields.map((field) => ({
       [field]: { $regex: pattern, $options: 'i' },
     }));
+  }
+
+  // Connected submissions are nested beneath their draft. The submission
+  // collection on Draft Recovery normally shows only legacy or otherwise
+  // standalone final records so clients are not duplicated in the UI. During
+  // search, all submissions are eligible so connected records remain
+  // discoverable by submission ID, session ID, and available email.
+  if (request.recordType === 'submission' && !request.search) {
+    const standalone = {
+      $or: [
+        { linked_draft_id: { $exists: false } },
+        { linked_draft_id: '' },
+        { linked_draft_id: null },
+      ],
+    };
+    if (query.$or) {
+      query.$and = [{ $or: query.$or }, standalone];
+      delete query.$or;
+    } else {
+      Object.assign(query, standalone);
+    }
   }
 
   return query;

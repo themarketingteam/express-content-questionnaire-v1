@@ -1,77 +1,33 @@
-const DEFAULT_RETENTION_BATCH_SIZE = 25;
-export const MAX_RETENTION_BATCH_SIZE = 100;
+export const INDEFINITE_RETENTION_POLICY = 'indefinite_until_manual_deletion';
+export const RETENTION_POLICY_VERSION = '2026-08-18';
+export const AUTOMATED_RETENTION_DISABLED_ERROR =
+  'Automatic archival and deletion are disabled. Client recovery data is retained indefinitely until an authorized manual deletion.';
 
-export type RecoveryRetentionRequest = {
-  action: 'archive' | 'delete';
-  recordType: 'draft' | 'intake';
-  olderThan: string;
-  batchSize: number;
-  dryRun: boolean;
-};
+export type RecoveryRetentionRequest = never;
 
-type RetentionRequestResult =
-  | { ok: true; value: RecoveryRetentionRequest }
-  | { ok: false; error: string };
+type RetentionRequestResult = { ok: false; error: string };
 
-export function normalizeRetentionRequest(body: Record<string, unknown>): RetentionRequestResult {
-  const action = body.action === 'delete' ? 'delete' : body.action === 'archive' ? 'archive' : null;
-  if (!action) return { ok: false, error: 'action must be archive or delete.' };
+/**
+ * Reject every legacy age-based request. Keeping this surface prevents stale
+ * callers from failing open while making the indefinite policy irreversible
+ * through a feature flag or an arbitrary cutoff timestamp.
+ */
+export function normalizeRetentionRequest(_body: Record<string, unknown>): RetentionRequestResult {
+  return { ok: false, error: AUTOMATED_RETENTION_DISABLED_ERROR };
+}
 
-  const recordType = body.recordType;
-  if (recordType !== 'draft' && recordType !== 'intake') {
-    return { ok: false, error: 'Unsupported recordType.' };
-  }
+export function isRetentionCandidate(_record: Record<string, unknown>): false {
+  return false;
+}
 
-  const olderThan = typeof body.olderThan === 'string' ? body.olderThan.trim() : '';
-  const cutoffTime = Date.parse(olderThan);
-  if (!olderThan || !Number.isFinite(cutoffTime) || cutoffTime >= Date.now()) {
-    return { ok: false, error: 'olderThan must be a valid timestamp in the past.' };
-  }
+export function buildRetentionQuery(): Record<string, unknown> {
+  return { id: '__automatic_retention_is_disabled__' };
+}
 
-  const numericBatchSize = Number(body.batchSize);
-  const batchSize = Number.isFinite(numericBatchSize)
-    ? Math.min(MAX_RETENTION_BATCH_SIZE, Math.max(1, Math.trunc(numericBatchSize)))
-    : DEFAULT_RETENTION_BATCH_SIZE;
-
+export function retentionPolicyFields(now = new Date()): Record<string, string> {
   return {
-    ok: true,
-    value: {
-      action,
-      recordType,
-      olderThan: new Date(cutoffTime).toISOString(),
-      batchSize,
-      dryRun: body.dryRun !== false,
-    },
+    retention_policy: INDEFINITE_RETENTION_POLICY,
+    retention_policy_version: RETENTION_POLICY_VERSION,
+    retention_protected_at: now.toISOString(),
   };
-}
-
-export function isRetentionCandidate(
-  record: Record<string, unknown>,
-  request: RecoveryRetentionRequest,
-): boolean {
-  if (record.active_investigation === true || record.legal_hold === true || record.retention_hold === true) {
-    return false;
-  }
-
-  if (request.action === 'archive') {
-    if (record.archived === true) return false;
-    const updatedAt = Date.parse(String(record.updated_date || record.last_saved_at || ''));
-    return Number.isFinite(updatedAt) && updatedAt < Date.parse(request.olderThan);
-  }
-
-  if (record.archived !== true) return false;
-  const archivedAt = Date.parse(String(record.archived_at || ''));
-  return Number.isFinite(archivedAt) && archivedAt < Date.parse(request.olderThan);
-}
-
-export function buildRetentionQuery(request: RecoveryRetentionRequest): Record<string, unknown> {
-  const holds = {
-    active_investigation: { $ne: true },
-    legal_hold: { $ne: true },
-    retention_hold: { $ne: true },
-  };
-
-  return request.action === 'archive'
-    ? { ...holds, archived: { $ne: true }, updated_date: { $lt: request.olderThan } }
-    : { ...holds, archived: true, archived_at: { $lt: request.olderThan } };
 }

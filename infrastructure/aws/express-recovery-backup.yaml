@@ -1,0 +1,289 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private, versioned, KMS-encrypted independent backup for Express recovery data.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Optional email address for backup-overdue alarms. The subscription must be confirmed.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+
+Resources:
+  BackupKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Express recovery backup encryption key
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action: 'kms:*'
+            Resource: '*'
+
+  BackupKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/express-recovery-backup
+      TargetKeyId: !Ref BackupKey
+
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      VersioningConfiguration: { Status: Enabled }
+
+  AuditBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AuditBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RequireTls
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!Sub '${AuditBucket.Arn}', !Sub '${AuditBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': false } }
+          - Sid: CloudTrailAclCheck
+            Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditBucket.Arn
+            Condition: { StringEquals: { 'AWS:SourceArn': !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/express-recovery-backup' } }
+          - Sid: CloudTrailWrite
+            Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/cloudtrail/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+                'AWS:SourceArn': !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/express-recovery-backup'
+          - Sid: ServerAccessLogWrite
+            Effect: Allow
+            Principal: { Service: logging.s3.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/access-logs/*'
+            Condition:
+              ArnLike: { 'aws:SourceArn': !GetAtt BackupBucket.Arn }
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt BackupKey.Arn
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AuditBucket
+        LogFilePrefix: access-logs/
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      VersioningConfiguration: { Status: Enabled }
+
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RequireTls
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt BackupBucket.Arn, !Sub '${BackupBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': false } }
+          - Sid: RequireKmsEncryption
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${BackupBucket.Arn}/*'
+            Condition: { StringNotEquals: { 's3:x-amz-server-side-encryption': aws:kms } }
+
+  BackupWriter:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: express-recovery-backup-writer
+      Policies:
+        - PolicyName: UploadVerifyWithoutDelete
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetBucketLocation, s3:ListBucket, s3:ListBucketVersions]
+                Resource: !GetAtt BackupBucket.Arn
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:GetObjectVersion]
+                Resource: !Sub '${BackupBucket.Arn}/*'
+              - Effect: Deny
+                Action: [s3:DeleteObject, s3:DeleteObjectVersion]
+                Resource: !Sub '${BackupBucket.Arn}/*'
+              - Effect: Allow
+                Action: [kms:Encrypt, kms:Decrypt, kms:GenerateDataKey, kms:DescribeKey]
+                Resource: !GetAtt BackupKey.Arn
+
+  ManualPurgeRole:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: express-recovery-manual-purge
+      Policies:
+        - PolicyName: DeleteVersionsWithoutRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetBucketLocation, s3:ListBucketVersions]
+                Resource: !GetAtt BackupBucket.Arn
+              - Effect: Allow
+                Action: [s3:DeleteObject, s3:DeleteObjectVersion]
+                Resource: !Sub '${BackupBucket.Arn}/*'
+              - Effect: Deny
+                Action: [s3:GetObject, s3:GetObjectVersion]
+                Resource: !Sub '${BackupBucket.Arn}/*'
+
+  BackupTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: AuditBucketPolicy
+    Properties:
+      TrailName: express-recovery-backup
+      IsLogging: true
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      IncludeGlobalServiceEvents: true
+      S3BucketName: !Ref AuditBucket
+      S3KeyPrefix: cloudtrail
+      EventSelectors:
+        - IncludeManagementEvents: true
+          ReadWriteType: All
+          DataResources:
+            - Type: AWS::S3::Object
+              Values: [!Sub '${BackupBucket.Arn}/']
+
+  BackupAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: express-recovery-backup-alerts
+
+  BackupAlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+      TopicArn: !Ref BackupAlertTopic
+
+  BackupHealthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ManifestAgeMetric
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt BackupBucket.Arn
+                Condition: { StringLike: { 's3:prefix': 'manifests/*' } }
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: '*'
+                Condition: { StringEquals: { 'cloudwatch:namespace': ExpressRecovery } }
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: '*'
+
+  BackupHealthFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: express-recovery-backup-health
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt BackupHealthRole.Arn
+      Timeout: 30
+      Environment:
+        Variables: { BACKUP_BUCKET: !Ref BackupBucket }
+      Code:
+        ZipFile: |
+          import boto3, datetime, os
+          s3 = boto3.client('s3')
+          cloudwatch = boto3.client('cloudwatch')
+          def handler(event, context):
+              response = s3.list_objects_v2(Bucket=os.environ['BACKUP_BUCKET'], Prefix='manifests/v1/')
+              objects = response.get('Contents', [])
+              newest = max((item['LastModified'] for item in objects), default=None)
+              now = datetime.datetime.now(datetime.timezone.utc)
+              age_hours = 9999 if newest is None else (now - newest).total_seconds() / 3600
+              cloudwatch.put_metric_data(Namespace='ExpressRecovery', MetricData=[{
+                  'MetricName': 'BackupAgeHours', 'Value': age_hours, 'Unit': 'Count'
+              }])
+              return {'backupAgeHours': age_hours}
+
+  BackupHealthSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(1 hour)
+      State: ENABLED
+      Targets: [{ Arn: !GetAtt BackupHealthFunction.Arn, Id: BackupHealth }]
+
+  BackupHealthPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BackupHealthFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt BackupHealthSchedule.Arn
+
+  BackupOverdueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: express-recovery-backup-overdue-36-hours
+      Namespace: ExpressRecovery
+      MetricName: BackupAgeHours
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 36
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref BackupAlertTopic]
+
+Outputs:
+  BackupBucketName: { Value: !Ref BackupBucket }
+  BackupKmsKeyArn: { Value: !GetAtt BackupKey.Arn }
+  BackupWriterArn: { Value: !GetAtt BackupWriter.Arn }
+  ManualPurgeArn: { Value: !GetAtt ManualPurgeRole.Arn }
+  BackupAlertTopicArn: { Value: !Ref BackupAlertTopic }

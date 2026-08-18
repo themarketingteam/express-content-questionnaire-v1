@@ -33,6 +33,9 @@ export async function ensureSubmissionCoordinator({
   await base44.asServiceRole.entities.FormDraft.create({
     session_id: sessionId,
     status: 'submitting',
+    retention_policy: 'indefinite_until_manual_deletion',
+    retention_policy_version: '2026-08-18',
+    retention_protected_at: new Date().toISOString(),
     ...initialSnapshot,
   });
 

@@ -1185,3 +1185,200 @@
     transition: none;
   }
 }
+
+.draft-recovery-brand .brand-connected-submission {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.2fr) repeat(3, minmax(9rem, 1fr));
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid rgba(72, 70, 255, 0.25);
+  border-radius: 0.7rem;
+  background: #f7f7ff;
+  color: #151442;
+}
+
+.draft-recovery-brand .brand-connected-submission > div {
+  min-width: 0;
+}
+
+.draft-recovery-brand .brand-connected-submission span {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: #73738c;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.draft-recovery-brand .brand-connected-submission code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.draft-recovery-brand .brand-button-danger {
+  border-color: #d9a7a7;
+  color: #9f2222;
+}
+
+.draft-recovery-brand .brand-button-danger:hover {
+  border-color: #b91c1c;
+  background: #fff1f1;
+  color: #7f1d1d;
+}
+
+.brand-button-danger-solid {
+  background: #a51d1d !important;
+  color: #fff !important;
+}
+
+.brand-lifecycle-dialog {
+  max-width: 40rem !important;
+  border-color: #d8c9ae !important;
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+.brand-lifecycle-warning,
+.draft-recovery-brand .brand-legacy-warning {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #e7c479;
+  border-radius: 0.55rem;
+  background: #fff8e7;
+  color: #754c05;
+  font-size: 0.83rem;
+}
+
+.brand-lifecycle-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: #27265c;
+  font-size: 0.8rem;
+}
+
+.brand-lifecycle-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 1rem;
+  font-size: 0.78rem;
+}
+
+.brand-lifecycle-counts span {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #ece9f8;
+}
+
+.draft-recovery-brand .brand-retention-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.draft-recovery-brand .brand-retention-panel__heading,
+.draft-recovery-brand .brand-backup-health,
+.draft-recovery-brand .brand-restore-panel__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.draft-recovery-brand .brand-retention-panel__heading h3 {
+  margin: 0.2rem 0;
+  color: #151442;
+  font-size: 1rem;
+}
+
+.draft-recovery-brand .brand-retention-panel__heading p,
+.draft-recovery-brand .brand-restore-panel p {
+  margin: 0;
+  color: #77768e;
+  font-size: 0.8rem;
+}
+
+.draft-recovery-brand .brand-backup-health {
+  padding: 0.9rem;
+  border: 1px solid;
+  border-radius: 0.65rem;
+}
+
+.draft-recovery-brand .brand-backup-health > div {
+  display: grid;
+  flex: 1;
+}
+
+.draft-recovery-brand .brand-backup-health span {
+  color: #6f6e84;
+  font-size: 0.76rem;
+}
+
+.draft-recovery-brand .brand-backup-health--healthy {
+  border-color: #98d4af;
+  background: #effbf3;
+  color: #176838;
+}
+
+.draft-recovery-brand .brand-backup-health--warning {
+  border-color: #e7c479;
+  background: #fff8e7;
+  color: #754c05;
+}
+
+.draft-recovery-brand .brand-restore-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid #dedcf2;
+}
+
+.draft-recovery-brand .brand-restore-panel__controls .draft-recovery-brand__filter-search,
+.draft-recovery-brand .brand-restore-panel__controls input {
+  flex: 1;
+}
+
+.draft-recovery-brand .brand-restore-confirmation {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid #c9c6f6;
+  border-radius: 0.6rem;
+  background: #f8f8ff;
+}
+
+.draft-recovery-brand .brand-record-trigger--submission {
+  grid-template-columns: minmax(12rem, 1.2fr) minmax(9rem, 1fr) auto minmax(10rem, 1fr) minmax(12rem, 1fr) minmax(12rem, 1fr) auto;
+}
+
+.draft-recovery-brand .brand-detail-grid--submission {
+  margin-bottom: 0;
+}
+
+@media (max-width: 70rem) {
+  .draft-recovery-brand .brand-connected-submission {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .draft-recovery-brand .brand-record-trigger--submission {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  }
+}
+
+@media (max-width: 44rem) {
+  .draft-recovery-brand .brand-connected-submission,
+  .brand-lifecycle-counts {
+    grid-template-columns: 1fr;
+  }
+
+  .draft-recovery-brand .brand-retention-panel__heading,
+  .draft-recovery-brand .brand-backup-health,
+  .draft-recovery-brand .brand-restore-panel__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

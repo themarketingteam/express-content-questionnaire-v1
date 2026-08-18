@@ -94,6 +94,32 @@
       "type": "string",
       "format": "date-time",
       "description": "When this PDF version was generated and saved"
+    },
+    "s3_object_key": {
+      "type": "string",
+      "description": "Private AWS S3 object key used after independent storage migration"
+    },
+    "s3_object_version_id": {
+      "type": "string",
+      "description": "AWS S3 object version identifier"
+    },
+    "s3_object_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 checksum of the encrypted private PDF object plaintext"
+    },
+    "retention_policy": {
+      "type": "string",
+      "enum": ["indefinite_until_manual_deletion"],
+      "default": "indefinite_until_manual_deletion"
+    },
+    "retention_policy_version": {
+      "type": "string",
+      "default": "2026-08-18"
+    },
+    "retention_protected_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "rls": {

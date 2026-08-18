@@ -1,0 +1,24 @@
+{
+  "name": "ExpressBackupObject",
+  "type": "object",
+  "required": ["entity_name", "source_record_id", "record_id_hash", "s3_object_key", "payload_hash"],
+  "properties": {
+    "entity_name": { "type": "string" },
+    "source_record_id": { "type": "string" },
+    "record_id_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "session_id_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "s3_object_key": { "type": "string" },
+    "s3_object_version_id": { "type": "string" },
+    "payload_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source_updated_at": { "type": "string", "format": "date-time" },
+    "backed_up_at": { "type": "string", "format": "date-time" },
+    "run_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["available", "purged", "failed"] }
+  },
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

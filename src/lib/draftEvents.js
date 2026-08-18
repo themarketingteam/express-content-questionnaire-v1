@@ -88,6 +88,9 @@ export function buildDraftEventRecord({
     domain: domain || "",
     user_id: userId || "",
     submit_attempt_id: submitAttemptId || "",
-    created_at_iso: new Date().toISOString()
+    created_at_iso: new Date().toISOString(),
+    retention_policy: "indefinite_until_manual_deletion",
+    retention_policy_version: "2026-08-18",
+    retention_protected_at: new Date().toISOString()
   };
 }

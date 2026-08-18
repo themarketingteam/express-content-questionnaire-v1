@@ -41,7 +41,14 @@
     "review_decision": { "type": "string", "enum": ["apply", "reject"] },
     "candidate_value": { "type": "string" },
     "reviewer_id": { "type": "string" },
-    "reviewed_at": { "type": "string", "format": "date-time" }
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "retention_policy": {
+      "type": "string",
+      "enum": ["indefinite_until_manual_deletion"],
+      "default": "indefinite_until_manual_deletion"
+    },
+    "retention_policy_version": { "type": "string", "default": "2026-08-18" },
+    "retention_protected_at": { "type": "string", "format": "date-time" }
   },
   "rls": {
     "create": { "user_condition": { "role": "admin" } },

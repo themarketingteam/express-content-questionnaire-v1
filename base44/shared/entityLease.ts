@@ -2,7 +2,7 @@ type EntityClient = {
   get: (id: string) => Promise<Record<string, unknown>>;
   updateMany: (
     query: Record<string, unknown>,
-    update: Record<string, unknown>,
+    update: Record<string, Record<string, any>>,
   ) => Promise<unknown>;
 };
 

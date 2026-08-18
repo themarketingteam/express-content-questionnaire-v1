@@ -1,0 +1,29 @@
+{
+  "name": "ExpressBackupRun",
+  "type": "object",
+  "required": ["run_id", "status", "schema_version"],
+  "properties": {
+    "run_id": { "type": "string", "description": "Idempotent identifier for one backup run" },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "completed", "failed", "skipped", "setup_required"]
+    },
+    "trigger": { "type": "string" },
+    "schema_version": { "type": "string" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "last_success_at": { "type": "string", "format": "date-time" },
+    "cursor_json": { "type": "string", "description": "Non-PII resumable entity cursors" },
+    "metrics_json": { "type": "string", "description": "Aggregate record and byte counts only" },
+    "manifest_key": { "type": "string" },
+    "manifest_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "error_code": { "type": "string" },
+    "configuration_status": { "type": "string" }
+  },
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

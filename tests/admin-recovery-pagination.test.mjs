@@ -9,8 +9,8 @@ import {
   recordMatchesArchiveState,
 } from "../base44/shared/recoveryPagination.ts";
 import {
+  AUTOMATED_RETENTION_DISABLED_ERROR,
   isRetentionCandidate,
-  MAX_RETENTION_BATCH_SIZE,
   normalizeRetentionRequest,
 } from "../base44/shared/recoveryRetention.ts";
 import {
@@ -72,6 +72,24 @@ test("unsupported filters and invalid detail IDs are rejected", () => {
   );
   assert.equal(recordMatchesArchiveState({ archived: true }, "active"), false);
   assert.equal(recordMatchesArchiveState({ archived: true }, "archived"), true);
+});
+
+test("standalone submissions are the default while submission searches include connected records", () => {
+  const standalone = normalizeRecoveryRequest({
+    action: "list", recordType: "submission", status: "all", archiveState: "active", search: "",
+  });
+  assert.equal(standalone.ok, true);
+  assert.equal(buildRecoveryListQuery(standalone.value).$or.length, 3);
+
+  const searched = normalizeRecoveryRequest({
+    action: "list", recordType: "submission", status: "all", archiveState: "active", search: "submission-123",
+  });
+  assert.equal(searched.ok, true);
+  const query = buildRecoveryListQuery(searched.value);
+  assert.equal(query.$or.length, RECOVERY_RECORD_CONFIG.submission.searchFields.length);
+  assert.equal(query.$and, undefined);
+  assert.ok(RECOVERY_RECORD_CONFIG.submission.searchFields.includes("user_email"));
+  assert.ok(RECOVERY_RECORD_CONFIG.submission.searchFields.includes("id"));
 });
 
 test("the browser requests one page with server filters and fetches detail by ID", async () => {
@@ -183,27 +201,20 @@ test("frontend uses protected pagination, resets filters to page one, lazy-loads
   assert.match(intake, /repairExpressQuestionnaireIntakeSubmission/);
 });
 
-test("retention is bounded, hold-aware, dry-run-first, and archive-idempotent", async () => {
-  const cutoff = "2025-01-01T00:00:00.000Z";
+test("age-based retention and every scheduled mutation are permanently disabled", async () => {
   const normalized = normalizeRetentionRequest({
-    action: "archive",
+    action: "delete",
     recordType: "draft",
-    olderThan: cutoff,
-    batchSize: 5000,
   });
-  assert.equal(normalized.ok, true);
-  assert.equal(normalized.value.batchSize, MAX_RETENTION_BATCH_SIZE);
-  assert.equal(normalized.value.dryRun, true);
+  assert.equal(normalized.ok, false);
+  assert.equal(normalized.error, AUTOMATED_RETENTION_DISABLED_ERROR);
 
   const oldActive = { updated_date: "2024-01-01T00:00:00.000Z", archived: false };
-  assert.equal(isRetentionCandidate(oldActive, normalized.value), true);
-  assert.equal(isRetentionCandidate({ ...oldActive, archived: true }, normalized.value), false);
-  assert.equal(isRetentionCandidate({ ...oldActive, legal_hold: true }, normalized.value), false);
+  assert.equal(isRetentionCandidate(oldActive, {}), false);
+  assert.equal(isRetentionCandidate({ ...oldActive, legal_hold: false }, {}), false);
 
   const retention = await read("base44/functions/draftRecoveryRetention/entry.ts");
-  assert.match(retention, /request\.batchSize/);
-  assert.match(retention, /DRAFT_RECOVERY_PERMANENT_DELETION_ENABLED/);
-  assert.match(retention, /Permanent deletion is disabled until retention periods are approved/);
-  assert.match(retention, /safeRecoveryLog/);
-  assert.doesNotMatch(retention, /console\.(?:log|info|error)\([^)]*(?:payload|responses|diagnostics)/i);
+  assert.match(retention, /},\s*410\);/);
+  assert.match(retention, /indefinite_until_manual_deletion/);
+  assert.doesNotMatch(retention, /createClientFromRequest|\.delete\(|\.update\(|updateMany|DRAFT_RECOVERY_PERMANENT_DELETION_ENABLED/);
 });

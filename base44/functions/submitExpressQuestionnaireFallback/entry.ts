@@ -95,6 +95,7 @@ function mapExpressPayloadToFormSubmissionRecord(
   const record = {
     business_name:            ud.business_name        ?? meta.business_name        ?? null,
     business_domain:          ud.business_domain      ?? meta.businessDomain       ?? meta.business_domain ?? null,
+    user_email:               meta.user_email         ?? ud.user_email             ?? null,
     submission_datetime:      meta.submission_datetime                              ?? nowIso(),
     service_type:             'express',
     it_company_type:          ud.it_company_type       ?? meta.it_company_type      ?? [],
@@ -126,6 +127,9 @@ function mapExpressPayloadToFormSubmissionRecord(
     zapier_sent_at:           '',
     zapier_error_json:        '',
     zapier_attempt_count:     0,
+    retention_policy:         'indefinite_until_manual_deletion',
+    retention_policy_version: '2026-08-18',
+    retention_protected_at:   nowIso(),
   };
 
   if (geoMeta) record.geographic_area_meta = geoMeta;
@@ -149,6 +153,9 @@ async function upsertIntake(base44, questionnaireSessionId, nextData) {
   }
   return await base44.asServiceRole.entities.FormSubmissionIntake.create({
     questionnaire_session_id: questionnaireSessionId,
+    retention_policy: 'indefinite_until_manual_deletion',
+    retention_policy_version: '2026-08-18',
+    retention_protected_at: nowIso(),
     ...nextData,
   });
 }
@@ -393,6 +400,12 @@ Deno.serve(async (req) => {
     }
 
     if (existingSubmissionId) {
+      await base44.asServiceRole.entities.FormSubmission.update(existingSubmissionId, {
+        linked_draft_id: coordinatorDraft.id,
+        retention_policy: 'indefinite_until_manual_deletion',
+        retention_policy_version: '2026-08-18',
+        retention_protected_at: nowIso(),
+      }).catch(() => null);
       // Already submitted - upsert intake and return idempotent success
       const intakeData = buildIntakePayload({
         status: 'submitted',
@@ -426,12 +439,16 @@ Deno.serve(async (req) => {
       submitAttemptId,
       rawResponseSnapshot,
     );
+    if (!record.user_email && userEmail) record.user_email = truncate(userEmail) || '';
 
     let submission = null;
     let submissionError = null;
 
     try {
-      submission = await base44.asServiceRole.entities.FormSubmission.create(record);
+      submission = await base44.asServiceRole.entities.FormSubmission.create({
+        ...record,
+        linked_draft_id: coordinatorDraft.id,
+      });
     } catch (err) {
       submissionError = err;
     }

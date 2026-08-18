@@ -14,12 +14,13 @@
     "test:p0": "npm run test:submission && npm run test:deployment-source && node --test tests/recovery-security-wiring.test.mjs",
     "test:data-integrity": "node --test tests/entity-lease.test.mjs tests/data-integrity-security.test.mjs",
     "test": "node --test tests/*.test.mjs",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run lint && npm run typecheck && npm run typecheck:retention-backend && npm test && npm run build",
     "verify:deploy-source": "node scripts/verify-deploy-source.mjs --identity-only",
     "deploy:base44": "node scripts/verify-deploy-source.mjs && npx base44 deploy -y",
     "deploy:base44:site": "node scripts/verify-deploy-source.mjs && npx base44 site deploy -y",
     "deploy:base44:functions": "node scripts/verify-deploy-source.mjs && npx base44 functions deploy",
     "typecheck": "tsc -p ./jsconfig.json",
+    "typecheck:retention-backend": "deno check --no-config base44/functions/backupExpressRecoveryData/entry.ts base44/functions/manageExpressRecoveryData/entry.ts base44/functions/draftPdfStorage/entry.ts base44/functions/adminRecoveryPagination/entry.ts base44/functions/draftRecoveryRetention/entry.ts",
     "preview": "vite preview"
   },
   "dependencies": {

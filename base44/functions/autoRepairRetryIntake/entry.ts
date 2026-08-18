@@ -129,6 +129,8 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta);
   const record = {
     business_name: meta.business_name || '',
+    business_domain: meta.businessDomain || meta.business_domain || ud.business_domain || '',
+    user_email: meta.user_email || ud.user_email || '',
     submission_datetime: meta.submission_datetime || nowIso(),
     service_type: 'express',
     it_company_type: Array.isArray(ud.it_company_type) ? ud.it_company_type : [],
@@ -232,6 +234,13 @@ async function processIntake(base44, intake) {
 
   // Create FormSubmission
   const record = mapToFormSubmissionRecord(repairResult.payload, intake.raw_responses_json);
+  const linkedDrafts = sessionId
+    ? await base44.asServiceRole.entities.FormDraft.filter({ session_id: sessionId }, '-last_saved_at', 2).catch(() => [])
+    : [];
+  if (linkedDrafts.length === 1) record.linked_draft_id = linkedDrafts[0].id;
+  record.retention_policy = 'indefinite_until_manual_deletion';
+  record.retention_policy_version = '2026-08-18';
+  record.retention_protected_at = now;
   let created;
   try {
     created = await base44.asServiceRole.entities.FormSubmission.create(record);

@@ -222,6 +222,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
   const record = {
     business_name: meta.business_name || '',
     business_domain: cleanDomain(meta.businessDomain || meta.business_domain || ''),
+    user_email: meta.user_email || ud.user_email || '',
     submission_datetime: meta.submission_datetime || nowIso(),
     service_type: 'express',
     it_company_type: Array.isArray(ud.it_company_type) ? ud.it_company_type : [],
@@ -736,6 +737,10 @@ Deno.serve(async (req) => {
       ? source.record.raw_responses_json
       : source.record.responses_json;
     const submissionRecord = mapToFormSubmissionRecord(finalPayload, rawResponsesSnapshot);
+    if (sourceType === 'draft') submissionRecord.linked_draft_id = sourceId;
+    submissionRecord.retention_policy = 'indefinite_until_manual_deletion';
+    submissionRecord.retention_policy_version = '2026-08-18';
+    submissionRecord.retention_protected_at = now;
     let createdSubmission;
 
     try {

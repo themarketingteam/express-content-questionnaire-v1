@@ -19,6 +19,9 @@ import PayloadEditor from "@/components/admin/PayloadEditor";
 import DraftPdfManager from "@/components/admin/DraftPdfManager";
 import AdminFloatingMenu from "@/components/admin/AdminFloatingMenu";
 import IdentityResolutionPanel from "@/components/admin/IdentityResolutionPanel";
+import ClientDataDeletionDialog from "@/components/admin/ClientDataDeletionDialog";
+import RetentionRecoveryPanel from "@/components/admin/RetentionRecoveryPanel";
+import StandaloneSubmissionRow from "@/components/admin/StandaloneSubmissionRow";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
@@ -291,6 +294,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
   const aiRepairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
   const aiRepairReport = safeJsonParse(draft.ai_repair_report_json, null);
+  const linkedSubmission = fullDraft?.linked_submission || null;
   const responsesParseOk = canParseJson(draft.responses_json);
   const mappedParseOk = canParseJson(draft.mapped_payload_json);
   const hasResponses = Object.keys(responses).length > 0;
@@ -499,6 +503,18 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             </div>
           )}
 
+          {linkedSubmission && (
+            <div className="brand-connected-submission">
+              <div>
+                <p className="brand-action-label">Connected Final Submission</p>
+                <strong>{linkedSubmission.business_name || draft.business_name || "Unnamed business"}</strong>
+              </div>
+              <div><span>Submission ID</span><code>{linkedSubmission.id}</code></div>
+              <div><span>Session ID</span><code>{linkedSubmission.questionnaire_session_id || "—"}</code></div>
+              <div><span>Zapier</span><strong>{linkedSubmission.zapier_delivery_status || "not attempted"}</strong></div>
+            </div>
+          )}
+
           <DraftPdfManager draft={draft} recoveryGrant={recoveryGrant} />
 
           <div className="brand-action-group">
@@ -519,6 +535,12 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 Retry Submission
               </Button>
+              <ClientDataDeletionDialog
+                recordType="draft"
+                record={draft}
+                recoveryGrant={recoveryGrant}
+                onDeleted={onRefresh}
+              />
             </div>
             <PayloadEditor
               draft={draft}
@@ -651,11 +673,27 @@ export default function FormDraftRecovery() {
     archiveState,
     search,
   });
+  const submissionPagination = useAdminRecoveryPagination({
+    recordType: "submission",
+    recoveryGrant,
+    status: "all",
+    archiveState,
+    search,
+  });
   const drafts = pagination.records;
+  const submissions = submissionPagination.records;
 
   const loadDraftDetail = useCallback((recordId) => requestRecoveryRecord({
     invoke: (functionName, payload) => base44.functions.invoke(functionName, payload),
     recordType: "draft",
+    recordId,
+    archiveState,
+    recoveryGrant,
+  }), [archiveState, recoveryGrant]);
+
+  const loadSubmissionDetail = useCallback((recordId) => requestRecoveryRecord({
+    invoke: (functionName, payload) => base44.functions.invoke(functionName, payload),
+    recordType: "submission",
     recordId,
     archiveState,
     recoveryGrant,
@@ -677,6 +715,20 @@ export default function FormDraftRecovery() {
     hasMore: pagination.hasMore,
     loading: pagination.loading,
   });
+  const submissionRange = getVisibleRecordRange({
+    page: submissionPagination.page,
+    pageSize: submissionPagination.pageSize,
+    recordCount: submissions.length,
+  });
+  const submissionControls = getPaginationControls({
+    page: submissionPagination.page,
+    hasMore: submissionPagination.hasMore,
+    loading: submissionPagination.loading,
+  });
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([pagination.refresh(), submissionPagination.refresh()]);
+  }, [pagination.refresh, submissionPagination.refresh]);
 
   return (
     <main className="draft-recovery-brand draft-recovery-brand-page">
@@ -723,7 +775,7 @@ export default function FormDraftRecovery() {
                 </SelectContent>
               </Select>
               <Input
-                placeholder="Search by business name, domain, user email, or session ID"
+                placeholder="Search by business, domain, email, session ID, or submission ID"
                 value={search}
                 onChange={event => setSearch(event.target.value)}
                 className="draft-recovery-brand__filter-search"
@@ -732,11 +784,11 @@ export default function FormDraftRecovery() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={pagination.refresh}
-                disabled={pagination.loading}
+                onClick={refreshAll}
+                disabled={pagination.loading || submissionPagination.loading}
                 className="brand-button-secondary draft-recovery-brand__refresh"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${pagination.loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${pagination.loading || submissionPagination.loading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
             </div>
@@ -747,6 +799,18 @@ export default function FormDraftRecovery() {
                 Last updated {pagination.lastRefreshedAt.toLocaleTimeString()}
               </p>
             )}
+          </section>
+
+          <section className="brand-secondary-section" aria-labelledby="retention-protection-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <div>
+                <h2 id="retention-protection-heading">Retention & Recovery Protection</h2>
+                <p>Indefinite retention, independent backup health, and checksum-safe restore.</p>
+              </div>
+            </div>
+            <div className="brand-panel brand-secondary-body">
+              <RetentionRecoveryPanel recoveryGrant={recoveryGrant} />
+            </div>
           </section>
 
           {pagination.error && (
@@ -778,7 +842,7 @@ export default function FormDraftRecovery() {
                   key={`${draft.id}:${pagination.refreshVersion}`}
                   draft={draft}
                   isDuplicate={duplicateSessionIds.has(draft.session_id)}
-                  onRefresh={pagination.refresh}
+                  onRefresh={refreshAll}
                   onLoadDetail={loadDraftDetail}
                   recoveryGrant={recoveryGrant}
                 />
@@ -803,6 +867,42 @@ export default function FormDraftRecovery() {
               >
                 Next
               </Button>
+            </div>
+          </section>
+
+          <section className="draft-recovery-brand__list" aria-labelledby="standalone-submissions-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <div>
+                <h2 id="standalone-submissions-heading">{search ? "Final Submission Search Results" : "Standalone Final Submissions"}</h2>
+                <p>{search ? "Searches every submission, including records nested beneath drafts." : "Legacy and other final submissions that have no proven draft link."}</p>
+              </div>
+              <p>{submissions.length ? `Showing ${submissionRange.start}–${submissionRange.end} · Page ${submissionPagination.page}` : `Page ${submissionPagination.page} · no visible records`}</p>
+            </div>
+
+            {submissionPagination.error && (
+              <div className="brand-panel draft-recovery-brand__error" role="alert">
+                <span><AlertTriangle className="w-4 h-4" /> {submissionPagination.error}</span>
+                <Button size="sm" variant="outline" onClick={submissionPagination.retry}>Retry</Button>
+              </div>
+            )}
+            {submissionPagination.loading ? (
+              <div className="brand-panel draft-recovery-brand__loading"><Loader2 className="w-4 h-4 animate-spin" /> Loading submissions…</div>
+            ) : !submissionPagination.error && submissions.length === 0 ? (
+              <div className="brand-panel draft-recovery-brand__loading">No matching final submissions found.</div>
+            ) : !submissionPagination.error ? submissions.map(submission => (
+              <StandaloneSubmissionRow
+                key={`${submission.id}:${submissionPagination.refreshVersion}`}
+                submission={submission}
+                onLoadDetail={loadSubmissionDetail}
+                recoveryGrant={recoveryGrant}
+                onRefresh={refreshAll}
+              />
+            )) : null}
+
+            <div className="draft-recovery-brand__pagination" aria-label="Submission pagination">
+              <Button type="button" variant="outline" onClick={submissionPagination.goToPreviousPage} disabled={submissionControls.previousDisabled}>Previous</Button>
+              <span>Page {submissionPagination.page}</span>
+              <Button type="button" variant="outline" onClick={submissionPagination.goToNextPage} disabled={submissionControls.nextDisabled}>Next</Button>
             </div>
           </section>
 

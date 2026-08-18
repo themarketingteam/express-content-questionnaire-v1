@@ -1,0 +1,39 @@
+{
+  "name": "backupExpressRecoveryData",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "express_recovery_backup_09utc_daily",
+      "description": "DST-safe nightly backup starter; work begins only at 3 AM America/Chicago.",
+      "function_args": { "trigger": "scheduled_backup_start" },
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 9 * * *",
+      "ends_type": "never"
+    },
+    {
+      "type": "scheduled",
+      "name": "express_recovery_backup_10utc_daily",
+      "description": "DST-safe nightly backup starter; work begins only at 3 AM America/Chicago.",
+      "function_args": { "trigger": "scheduled_backup_start" },
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 10 * * *",
+      "ends_type": "never"
+    },
+    {
+      "type": "scheduled",
+      "name": "express_recovery_backup_resumable_worker",
+      "description": "Continues an existing resumable backup in bounded chunks; never starts a run.",
+      "function_args": { "trigger": "scheduled_backup_worker" },
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "*/15 * * * *",
+      "ends_type": "never"
+    }
+  ]
+}

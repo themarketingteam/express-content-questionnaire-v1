@@ -140,6 +140,7 @@ function mapSubmissionRecord(payload: any) {
   const record: Record<string, unknown> = {
     business_name: metadata.business_name,
     business_domain: metadata.businessDomain,
+    user_email: asString(metadata.user_email || userdata.user_email),
     submission_datetime: metadata.submission_datetime,
     service_type: 'express',
     it_company_type: userdata.it_company_type,
@@ -172,6 +173,9 @@ function mapSubmissionRecord(payload: any) {
     zapier_error_json: '',
     zapier_attempt_count: 0,
     resubmit_count: 0,
+    retention_policy: 'indefinite_until_manual_deletion',
+    retention_policy_version: '2026-08-18',
+    retention_protected_at: new Date().toISOString(),
   };
   if (userdata.geographic_area_meta) record.geographic_area_meta = userdata.geographic_area_meta;
   return record;

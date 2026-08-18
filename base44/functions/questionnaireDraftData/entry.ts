@@ -182,6 +182,9 @@ Deno.serve(async (req) => {
       ...draft,
       draft_access_key_hash: accessKeyHash,
       last_saved_at: draft.last_saved_at || new Date().toISOString(),
+      retention_policy: 'indefinite_until_manual_deletion',
+      retention_policy_version: '2026-08-18',
+      retention_protected_at: existing?.retention_protected_at || new Date().toISOString(),
     };
     const saved = existing
       ? await base44.asServiceRole.entities.FormDraft.update(existing.id, nextDraft)

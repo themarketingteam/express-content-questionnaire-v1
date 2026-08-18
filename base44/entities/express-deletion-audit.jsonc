@@ -1,0 +1,27 @@
+{
+  "name": "ExpressDeletionAudit",
+  "type": "object",
+  "required": ["deletion_job_id", "root_record_type", "root_record_id_hash", "reason_code", "deleted_at"],
+  "properties": {
+    "deletion_job_id": { "type": "string" },
+    "root_record_type": { "type": "string", "enum": ["draft", "submission", "intake"] },
+    "root_record_id_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "session_id_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "reason_code": {
+      "type": "string",
+      "enum": ["client_request", "privacy_request", "duplicate_or_test", "contract_request", "other_authorized"]
+    },
+    "authorized_by": { "type": "string" },
+    "authorization_mode": { "type": "string" },
+    "record_counts_json": { "type": "string", "description": "Aggregate counts only; never questionnaire content" },
+    "backup_purge_count": { "type": "number" },
+    "deleted_at": { "type": "string", "format": "date-time" },
+    "status": { "type": "string", "enum": ["completed", "partial", "failed"] }
+  },
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

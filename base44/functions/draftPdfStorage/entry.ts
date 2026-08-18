@@ -3,6 +3,8 @@ import { secrets } from 'base44:runtime';
 import { withEntityLease } from '../../shared/entityLease.ts';
 import { sanitizePdfVersion } from '../../shared/pdfVersionPrivacy.ts';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
+import { presignPrivateObjectGet, putPrivateObject, sha256Hex } from '../../shared/privateS3.ts';
+import { loadPrivateS3Config } from '../../shared/privateS3Config.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -191,12 +193,32 @@ Deno.serve(async (req) => {
             '-version_number',
             10,
           );
-          const privateMatch = matches?.find((version: Record<string, unknown>) => version.pdf_file_uri);
+          const privateMatch = matches?.find((version: Record<string, unknown>) => version.s3_object_key || version.pdf_file_uri);
           if (privateMatch) {
             return { version: sanitizePdfVersion(privateMatch), reused: true };
           }
 
-          const fileUri = await uploadPrivatePdf(base44, file as File);
+          const writer = loadPrivateS3Config('writer');
+          let fileUri = '';
+          let s3ObjectKey = '';
+          let s3ObjectVersionId = '';
+          let s3ObjectSha256 = '';
+          if (writer.configured) {
+            const objectHash = await sha256Hex(`pdf:${draftId}:${body.payloadHash}:${templateVersion}`);
+            s3ObjectKey = `pdf/v1/${objectHash.slice(0, 2)}/${objectHash}.pdf`;
+            const pdfBytes = new Uint8Array(await (file as File).arrayBuffer());
+            const upload = await putPrivateObject({
+              config: writer.config,
+              key: s3ObjectKey,
+              body: pdfBytes,
+              contentType: 'application/pdf',
+              metadata: { kind: 'submission-pdf', template: await sha256Hex(templateVersion) },
+            });
+            s3ObjectVersionId = upload.versionId;
+            s3ObjectSha256 = await sha256Hex(pdfBytes);
+          } else {
+            fileUri = await uploadPrivatePdf(base44, file as File);
+          }
           const latest = await base44.asServiceRole.entities.SubmissionPdfVersion.filter(
             { draft_id: draftId },
             '-version_number',
@@ -213,7 +235,12 @@ Deno.serve(async (req) => {
             payload_hash: body.payloadHash,
             payload_source: stringField(body.payloadSource, 100) || 'unknown',
             source_updated_at: stringField(body.sourceUpdatedAt, 100) || generatedAt,
-            pdf_file_uri: fileUri,
+            ...(fileUri ? { pdf_file_uri: fileUri } : {}),
+            ...(s3ObjectKey ? {
+              s3_object_key: s3ObjectKey,
+              s3_object_version_id: s3ObjectVersionId,
+              s3_object_sha256: s3ObjectSha256,
+            } : {}),
             storage_visibility: 'private',
             idempotency_key: `${draftId}:${body.payloadHash}:${templateVersion}`.slice(0, 1_000),
             pdf_filename: pdfFilename,
@@ -225,6 +252,9 @@ Deno.serve(async (req) => {
             business_name: stringField(body.businessName || draft.business_name, 500),
             business_domain: stringField(body.businessDomain || draft.domain, 500),
             generated_at: generatedAt,
+            retention_policy: 'indefinite_until_manual_deletion',
+            retention_policy_version: '2026-08-18',
+            retention_protected_at: generatedAt,
           });
           return { version: sanitizePdfVersion(created), reused: false };
         },
@@ -247,12 +277,26 @@ Deno.serve(async (req) => {
         async () => {
           let version = await base44.asServiceRole.entities.SubmissionPdfVersion.get(versionId);
           if (!version || version.draft_id !== draftId) throw new Error('PDF version not found for this draft.');
+          if (version.s3_object_key) {
+            const writer = loadPrivateS3Config('writer');
+            if (!writer.configured) throw new Error('Private S3 PDF access is not configured.');
+            return {
+              signedUrl: await presignPrivateObjectGet(
+                writer.config,
+                version.s3_object_key,
+                SIGNED_URL_TTL_SECONDS,
+                stringField(version.s3_object_version_id, 500),
+              ),
+              expiresIn: SIGNED_URL_TTL_SECONDS,
+              version: sanitizePdfVersion(version),
+            };
+          }
           version = await migrateLegacyVersion(base44, version);
           const signedResult = await base44.asServiceRole.integrations.Core.CreateFileSignedUrl({
             file_uri: version.pdf_file_uri,
             expires_in: SIGNED_URL_TTL_SECONDS,
           });
-          const signedUrl = signedFileUrl(signedResult);
+          const signedUrl = signedFileUrl(signedResult as unknown as Record<string, unknown>);
           if (!isHttpsUrl(signedUrl)) throw new Error('Private PDF download could not be authorized.');
           return {
             signedUrl,

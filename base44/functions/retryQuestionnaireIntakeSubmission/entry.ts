@@ -67,6 +67,7 @@ const mapExpressPayloadToFormSubmissionRecord = (payload, rawResponses) => {
   const record = {
     business_name: normalizedMetadata.business_name || '',
     business_domain: cleanDomain(normalizedMetadata.businessDomain || normalizedMetadata.business_domain || userdata.business_domain || ''),
+    user_email: normalizedMetadata.user_email || userdata.user_email || '',
     submission_datetime: normalizedMetadata.submission_datetime || new Date().toISOString(),
     service_type: 'express',
     it_company_type: Array.isArray(userdata.it_company_type) ? userdata.it_company_type : [],
@@ -427,6 +428,13 @@ Deno.serve(async (req) => {
         intakeRecord?.raw_responses_json || providedPayload,
       );
       submissionRecord.resubmit_count = 1;
+      const linkedDrafts = sessionId
+        ? await base44.asServiceRole.entities.FormDraft.filter({ session_id: sessionId }, '-last_saved_at', 2).catch(() => [])
+        : [];
+      if (linkedDrafts.length === 1) submissionRecord.linked_draft_id = linkedDrafts[0].id;
+      submissionRecord.retention_policy = 'indefinite_until_manual_deletion';
+      submissionRecord.retention_policy_version = '2026-08-18';
+      submissionRecord.retention_protected_at = nowIso();
 
       try {
         const created = await base44.asServiceRole.entities.FormSubmission.create(submissionRecord);

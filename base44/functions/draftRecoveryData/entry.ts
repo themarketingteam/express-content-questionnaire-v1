@@ -80,7 +80,9 @@ Deno.serve(async (req) => {
       const config = RECOVERY_RECORD_CONFIG[request.recordType];
       const entity = request.recordType === 'draft'
         ? base44.asServiceRole.entities.FormDraft
-        : base44.asServiceRole.entities.FormSubmissionIntake;
+        : request.recordType === 'intake'
+          ? base44.asServiceRole.entities.FormSubmissionIntake
+          : base44.asServiceRole.entities.FormSubmission;
 
       if (request.action === 'get') {
         let record: Record<string, unknown> | null = null;

@@ -23,6 +23,12 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
+function ownedBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function importHmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
@@ -116,8 +122,8 @@ export async function validateRecoveryGrant(
     const signatureValid = await crypto.subtle.verify(
       'HMAC',
       key,
-      base64UrlToBytes(encodedSignature),
-      encoder.encode(encodedPayload),
+      ownedBuffer(base64UrlToBytes(encodedSignature)),
+      ownedBuffer(encoder.encode(encodedPayload)),
     );
     if (!signatureValid) return { valid: false, error: 'Invalid recovery grant signature.' };
 

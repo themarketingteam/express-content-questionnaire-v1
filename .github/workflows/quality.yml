@@ -18,6 +18,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=moderate
       - run: npm run verify

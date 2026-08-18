@@ -635,7 +635,12 @@ function safeEvidenceForAudit(resolution) {
 
 async function createResolutionAudit(base44, details) {
   try {
-    return await base44.asServiceRole.entities.ExpressIdentityResolutionAttempt.create(details);
+    return await base44.asServiceRole.entities.ExpressIdentityResolutionAttempt.create({
+      ...details,
+      retention_policy: 'indefinite_until_manual_deletion',
+      retention_policy_version: '2026-08-18',
+      retention_protected_at: new Date().toISOString(),
+    });
   } catch (error) {
     console.error('Identity resolution audit creation failed.', error);
     return null;

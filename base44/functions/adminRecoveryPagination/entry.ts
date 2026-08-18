@@ -51,7 +51,9 @@ Deno.serve(async (req) => {
   const config = RECOVERY_RECORD_CONFIG[request.recordType];
   const entity = request.recordType === 'draft'
     ? base44.asServiceRole.entities.FormDraft
-    : base44.asServiceRole.entities.FormSubmissionIntake;
+    : request.recordType === 'intake'
+      ? base44.asServiceRole.entities.FormSubmissionIntake
+      : base44.asServiceRole.entities.FormSubmission;
 
   safeRecoveryLog({
     functionName: 'adminRecoveryPagination',
@@ -70,6 +72,26 @@ Deno.serve(async (req) => {
       }
       if (!record || !recordMatchesArchiveState(record, request.archiveState)) {
         return json({ success: false, error: 'Record not found.' }, 404);
+      }
+
+      if (request.recordType === 'draft') {
+        let linkedSubmission: Record<string, unknown> | null = null;
+        if (record.final_submission_id) {
+          try {
+            linkedSubmission = await base44.asServiceRole.entities.FormSubmission.get(String(record.final_submission_id));
+          } catch {
+            linkedSubmission = null;
+          }
+        }
+        if (!linkedSubmission && record.session_id) {
+          const matches = await base44.asServiceRole.entities.FormSubmission.filter(
+            { questionnaire_session_id: record.session_id },
+            '-created_date',
+            1,
+          );
+          linkedSubmission = matches?.[0] || null;
+        }
+        record = { ...record, linked_submission: linkedSubmission };
       }
       return json({ success: true, record });
     }

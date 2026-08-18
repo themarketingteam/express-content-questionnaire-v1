@@ -237,6 +237,21 @@
       "type": "boolean",
       "default": false,
       "description": "Prevents automated archival or deletion for an explicit retention request"
+    },
+    "retention_policy": {
+      "type": "string",
+      "enum": ["indefinite_until_manual_deletion"],
+      "default": "indefinite_until_manual_deletion",
+      "description": "Client data is retained indefinitely unless an authorized administrator manually deletes it"
+    },
+    "retention_policy_version": {
+      "type": "string",
+      "default": "2026-08-18"
+    },
+    "retention_protected_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the indefinite-retention policy was applied to this record"
     }
   },
   "rls": {

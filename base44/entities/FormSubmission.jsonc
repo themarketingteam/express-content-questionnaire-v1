@@ -10,6 +10,10 @@
       "type": "string",
       "description": "Business domain from the submission"
     },
+    "user_email": {
+      "type": "string",
+      "description": "Submitting user email when captured"
+    },
     "submission_datetime": {
       "type": "string",
       "description": "DateTime of submission in ET"
@@ -184,6 +188,43 @@
       "type": "number",
       "default": 0,
       "description": "Number of times this submission has been resubmitted to Zapier via admin retry"
+    },
+    "linked_draft_id": {
+      "type": "string",
+      "description": "FormDraft record that owns this submission when a deterministic relationship exists"
+    },
+    "archived": {
+      "type": "boolean",
+      "default": false
+    },
+    "archived_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "active_investigation": {
+      "type": "boolean",
+      "default": false
+    },
+    "legal_hold": {
+      "type": "boolean",
+      "default": false
+    },
+    "retention_hold": {
+      "type": "boolean",
+      "default": false
+    },
+    "retention_policy": {
+      "type": "string",
+      "enum": ["indefinite_until_manual_deletion"],
+      "default": "indefinite_until_manual_deletion"
+    },
+    "retention_policy_version": {
+      "type": "string",
+      "default": "2026-08-18"
+    },
+    "retention_protected_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "required": [],
@@ -218,16 +259,9 @@
       ]
     },
     "delete": {
-      "$or": [
-        {
-          "created_by": "{{user.email}}"
-        },
-        {
-          "user_condition": {
-            "role": "admin"
-          }
-        }
-      ]
+      "user_condition": {
+        "role": "admin"
+      }
     }
   }
 }

@@ -26,8 +26,8 @@ export function sanitizePdfVersion(
   for (const field of SAFE_PDF_VERSION_FIELDS) {
     if (field in version) safe[field] = version[field];
   }
-  safe.storage_available = Boolean(version.pdf_file_uri || version.pdf_file_url);
-  safe.storage_visibility = version.pdf_file_uri ? 'private' : 'legacy_public';
+  safe.storage_available = Boolean(version.s3_object_key || version.pdf_file_uri || version.pdf_file_url);
+  safe.storage_visibility = version.s3_object_key || version.pdf_file_uri ? 'private' : 'legacy_public';
   return safe;
 }
 
