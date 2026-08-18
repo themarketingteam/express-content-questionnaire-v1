@@ -61,16 +61,33 @@ for (const entityName of ENTITY_NAMES) {
 const planned = { retentionBackfills: {}, submissionLinks: 0, draftLinkRepairs: 0, emailBackfills: 0, skippedAmbiguousSessions: 0 };
 const protectedAt = new Date().toISOString();
 
+async function updateAllMatching(entityName, query, values) {
+  for (;;) {
+    const result = await base44.entities[entityName].updateMany(query, { $set: values });
+    if (!result.has_more) return;
+  }
+}
+
 for (const entityName of ENTITY_NAMES) {
   planned.retentionBackfills[entityName] = 0;
   for (const record of before[entityName]) {
     if (record.retention_policy === POLICY && record.retention_policy_version === POLICY_VERSION && record.retention_protected_at) continue;
     planned.retentionBackfills[entityName] += 1;
-    if (APPLY) await base44.entities[entityName].update(record.id, {
+  }
+  if (APPLY && planned.retentionBackfills[entityName] > 0) {
+    await updateAllMatching(entityName, { retention_policy: { $ne: POLICY } }, {
       retention_policy: POLICY,
       retention_policy_version: POLICY_VERSION,
-      retention_protected_at: record.retention_protected_at || protectedAt,
+      retention_protected_at: protectedAt,
     });
+    await updateAllMatching(entityName, {
+      retention_policy: POLICY,
+      retention_policy_version: { $ne: POLICY_VERSION },
+    }, { retention_policy_version: POLICY_VERSION });
+    await updateAllMatching(entityName, {
+      retention_policy: POLICY,
+      retention_protected_at: { $exists: false },
+    }, { retention_protected_at: protectedAt });
   }
 }
 
@@ -149,6 +166,13 @@ for (const entityName of ENTITY_NAMES) {
   for (const record of after[entityName]) {
     if ((record.created_date || '') !== originalCreatedDates.get(`${entityName}:${record.id}`)) {
       throw new Error(`${entityName}:${record.id} original created timestamp changed.`);
+    }
+    if (APPLY && (
+      record.retention_policy !== POLICY
+      || record.retention_policy_version !== POLICY_VERSION
+      || !record.retention_protected_at
+    )) {
+      throw new Error(`${entityName}:${record.id} retention metadata was not fully backfilled.`);
     }
   }
 }
