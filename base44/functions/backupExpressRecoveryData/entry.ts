@@ -5,10 +5,10 @@ import {
   BACKUP_SCHEMA_VERSION,
   buildRecordBackup,
   buildSignedManifest,
-} from '../../shared/backupPolicy.ts';
-import { putPrivateObject, sha256Hex } from '../../shared/privateS3.ts';
-import { loadManifestSigningKey, loadPrivateS3Config } from '../../shared/privateS3Config.ts';
-import { authorizeRecoveryRequest } from '../../shared/recoveryAuthorization.ts';
+} from './backupPolicy.ts';
+import { putPrivateObject, sha256Hex } from './privateS3.ts';
+import { loadManifestSigningKey, loadPrivateS3Config } from './privateS3Config.ts';
+import { authorizeRecoveryRequest } from './recoveryAuthorization.ts';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',

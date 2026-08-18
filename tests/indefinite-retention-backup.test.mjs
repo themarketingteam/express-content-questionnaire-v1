@@ -138,3 +138,13 @@ test("production migration is non-destructive and never links by business name",
   assert.match(migration, /questionnaire_session_id/);
   assert.doesNotMatch(migration, /draftsByBusiness|submissionsByBusiness|business_name\s*===/);
 });
+
+test("the scheduled backup bundles exact copies of its reviewed shared dependencies", async () => {
+  for (const name of ["backupPolicy.ts", "privateS3.ts", "privateS3Config.ts", "recoveryAuthorization.ts", "recoveryGrant.ts"]) {
+    const [canonical, bundled] = await Promise.all([
+      read(`base44/shared/${name}`),
+      read(`base44/functions/backupExpressRecoveryData/${name}`),
+    ]);
+    assert.equal(bundled.trimEnd(), canonical.trimEnd(), `${name} must be synchronized before deployment`);
+  }
+});
