@@ -3,7 +3,9 @@ import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
 import {
   buildRecoveryListQuery,
+  isExactSubmissionIdSearch,
   normalizeRecoveryRequest,
+  projectRecoveryListRecord,
   RECOVERY_RECORD_CONFIG,
   recordMatchesArchiveState,
 } from '../../shared/recoveryPagination.ts';
@@ -94,6 +96,31 @@ Deno.serve(async (req) => {
         record = { ...record, linked_submission: linkedSubmission };
       }
       return json({ success: true, record });
+    }
+
+    if (isExactSubmissionIdSearch(request)) {
+      let exactRecord: Record<string, unknown> | null = null;
+      try {
+        exactRecord = await entity.get(request.search);
+      } catch {
+        exactRecord = null;
+      }
+
+      if (exactRecord) {
+        const statusMatches = request.status === 'all'
+          || exactRecord[config.statusField] === request.status;
+        const records = statusMatches && recordMatchesArchiveState(exactRecord, request.archiveState)
+          ? [projectRecoveryListRecord(exactRecord, config.listFields)]
+          : [];
+        return json({
+          success: true,
+          records,
+          page: request.page,
+          pageSize: request.pageSize,
+          hasMore: false,
+          hasAnyRecords: true,
+        });
+      }
     }
 
     const skip = (request.page - 1) * request.pageSize;

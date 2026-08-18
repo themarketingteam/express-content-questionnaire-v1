@@ -4,7 +4,9 @@ import test from "node:test";
 
 import {
   buildRecoveryListQuery,
+  isExactSubmissionIdSearch,
   normalizeRecoveryRequest,
+  projectRecoveryListRecord,
   RECOVERY_RECORD_CONFIG,
   recordMatchesArchiveState,
 } from "../base44/shared/recoveryPagination.ts";
@@ -86,11 +88,24 @@ test("standalone submissions are the default while submission searches include c
   });
   assert.equal(searched.ok, true);
   const query = buildRecoveryListQuery(searched.value);
-  assert.equal(query.$or.length, RECOVERY_RECORD_CONFIG.submission.searchFields.length);
+  assert.equal(query.$or.length, RECOVERY_RECORD_CONFIG.submission.searchFields.length - 1);
   assert.equal(query.$and, undefined);
-  assert.deepEqual(query.$or.at(-1), { id: "submission-123" });
+  assert.equal(query.$or.some((clause) => Object.hasOwn(clause, "id")), false);
   assert.ok(RECOVERY_RECORD_CONFIG.submission.searchFields.includes("user_email"));
   assert.ok(RECOVERY_RECORD_CONFIG.submission.searchFields.includes("id"));
+
+  const exact = normalizeRecoveryRequest({
+    action: "list", recordType: "submission", status: "all", archiveState: "active",
+    search: "6a729e1a824959283d5c8955",
+  });
+  assert.equal(exact.ok, true);
+  assert.equal(isExactSubmissionIdSearch(exact.value), true);
+  assert.equal(isExactSubmissionIdSearch(searched.value), false);
+
+  assert.deepEqual(
+    projectRecoveryListRecord({ id: "safe", business_name: "Client", mapped_payload_json: "secret" }, ["id", "business_name"]),
+    { id: "safe", business_name: "Client" },
+  );
 });
 
 test("the browser requests one page with server filters and fetches detail by ID", async () => {
@@ -188,6 +203,9 @@ test("frontend uses protected pagination, resets filters to page one, lazy-loads
   assert.ok(authorization >= 0 && protectedRead > authorization, "authorization must precede service-role detail reads");
   assert.match(backend, /request\.pageSize \+ 1/);
   assert.match(backend, /\[\.\.\.config\.listFields\]/);
+  assert.match(backend, /isExactSubmissionIdSearch\(request\)/);
+  assert.match(backend, /await entity\.get\(request\.search\)/);
+  assert.match(backend, /projectRecoveryListRecord\(exactRecord, config\.listFields\)/);
   assert.match(backend, /functionName: 'adminRecoveryPagination'/);
 
   for (const capability of [

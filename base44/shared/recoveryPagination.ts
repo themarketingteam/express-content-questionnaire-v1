@@ -215,9 +215,13 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
 
   if (request.search) {
     const pattern = escapeRegex(request.search);
-    query.$or = config.searchFields.map((field) => field === 'id'
-      ? { id: request.search }
-      : { [field]: { $regex: pattern, $options: 'i' } });
+    // Base44 entity IDs are not ordinary filterable fields. Exact submission-ID
+    // searches are handled with entity.get() after authorization; including id
+    // in this $or can cause otherwise-valid collection searches to return no
+    // records on the production entity service.
+    query.$or = config.searchFields
+      .filter((field) => field !== 'id')
+      .map((field) => ({ [field]: { $regex: pattern, $options: 'i' } }));
   }
 
   // Connected submissions are nested beneath their draft. The submission
@@ -242,6 +246,21 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
   }
 
   return query;
+}
+
+export function isExactSubmissionIdSearch(
+  request: NormalizedRecoveryListRequest,
+): boolean {
+  return request.recordType === 'submission' && /^[a-f0-9]{24}$/i.test(request.search);
+}
+
+export function projectRecoveryListRecord(
+  record: Record<string, unknown>,
+  fields: readonly string[],
+): Record<string, unknown> {
+  return Object.fromEntries(fields
+    .filter((field) => Object.prototype.hasOwnProperty.call(record, field))
+    .map((field) => [field, record[field]]));
 }
 
 export function recordMatchesArchiveState(
