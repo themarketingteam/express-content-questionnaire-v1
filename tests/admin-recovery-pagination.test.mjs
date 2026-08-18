@@ -88,6 +88,7 @@ test("standalone submissions are the default while submission searches include c
   const query = buildRecoveryListQuery(searched.value);
   assert.equal(query.$or.length, RECOVERY_RECORD_CONFIG.submission.searchFields.length);
   assert.equal(query.$and, undefined);
+  assert.deepEqual(query.$or.at(-1), { id: "submission-123" });
   assert.ok(RECOVERY_RECORD_CONFIG.submission.searchFields.includes("user_email"));
   assert.ok(RECOVERY_RECORD_CONFIG.submission.searchFields.includes("id"));
 });

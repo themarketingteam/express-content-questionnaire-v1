@@ -215,9 +215,9 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
 
   if (request.search) {
     const pattern = escapeRegex(request.search);
-    query.$or = config.searchFields.map((field) => ({
-      [field]: { $regex: pattern, $options: 'i' },
-    }));
+    query.$or = config.searchFields.map((field) => field === 'id'
+      ? { id: request.search }
+      : { [field]: { $regex: pattern, $options: 'i' } });
   }
 
   // Connected submissions are nested beneath their draft. The submission
