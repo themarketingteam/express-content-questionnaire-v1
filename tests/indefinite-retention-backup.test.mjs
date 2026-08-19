@@ -201,6 +201,9 @@ test("the resumable backup batches Base44 writes and can recover a failed cursor
   assert.match(source, /entity\.bulkCreate\(pending\)/);
   assert.match(source, /entity\.bulkUpdate\(updates\.slice/);
   assert.match(source, /loadBackupIndexMap/);
+  assert.match(source, /TRUSTED_PDF_SOURCE_HOSTS = new Set\(\['base44\.app', 'media\.base44\.com'\]\)/);
+  assert.match(source, /fetch\(current, \{ redirect: 'manual' \}\)/);
+  assert.doesNotMatch(source, /fetch\(sourceUrl, \{ redirect: 'follow' \}\)/);
   assert.match(source, /recoverableFailedRun/);
   assert.match(source, /resumeFailedRun/);
   assert.match(source, /entity\.list\('created_date'/);

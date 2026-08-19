@@ -25,6 +25,8 @@ const CONCURRENCY = 8;
 const DEADLINE_MS = 130_000;
 const BASE44_RETRY_ATTEMPTS = 7;
 const BULK_WRITE_SIZE = 100;
+const TRUSTED_PDF_SOURCE_HOSTS = new Set(['base44.app', 'media.base44.com']);
+const MAX_PDF_REDIRECTS = 3;
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, { status, headers });
@@ -40,6 +42,26 @@ function enabled(name: string): boolean {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function trustedPdfSourceUrl(value: string): URL {
+  const url = new URL(value);
+  if (url.protocol !== 'https:' || url.username || url.password || !TRUSTED_PDF_SOURCE_HOSTS.has(url.hostname)) {
+    throw new Error('PDF source host is not approved for migration.');
+  }
+  return url;
+}
+
+async function fetchTrustedPdfSource(sourceUrl: string): Promise<Response> {
+  let current = trustedPdfSourceUrl(sourceUrl);
+  for (let redirect = 0; redirect <= MAX_PDF_REDIRECTS; redirect += 1) {
+    const response = await fetch(current, { redirect: 'manual' });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get('location');
+    if (!location || redirect === MAX_PDF_REDIRECTS) throw new Error('PDF source redirect could not be resolved safely.');
+    current = trustedPdfSourceUrl(new URL(location, current).toString());
+  }
+  throw new Error('PDF source exceeded the approved redirect limit.');
 }
 
 function isRetryableBase44Error(error: unknown): boolean {
@@ -114,7 +136,7 @@ async function backupPdfIfNeeded(base44: any, config: any, record: Record<string
     sourceUrl = record.pdf_file_url;
   }
   if (!sourceUrl) return record;
-  const response = await fetch(sourceUrl, { redirect: 'error' });
+  const response = await fetchTrustedPdfSource(sourceUrl);
   if (!response.ok) throw new Error(`PDF source read failed with HTTP ${response.status}.`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.length < 5 || new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') {
