@@ -7,6 +7,8 @@ import {
   backupIsStale,
   buildRecordBackup,
   buildSignedManifest,
+  isUsableCompletedBackupRun,
+  recordFallsWithinBackupWindow,
 } from "../base44/shared/backupPolicy.ts";
 import {
   confirmationHash,
@@ -73,6 +75,27 @@ test("backup configuration fails closed and health becomes stale after 36 hours"
   assert.deepEqual(validatePrivateS3Config(null), ["bucket", "region", "kmsKeyId", "accessKeyId", "secretAccessKey"]);
   assert.equal(backupIsStale("2026-08-17T00:00:00.000Z", Date.parse("2026-08-18T13:00:01.000Z")), true);
   assert.equal(backupIsStale("2026-08-18T00:00:00.000Z", Date.parse("2026-08-18T13:00:00.000Z")), false);
+});
+
+test("backup selection scans stable pages and rejects false zero-record baselines", () => {
+  const record = {
+    id: "draft-1",
+    created_date: "2026-08-18T09:00:00.000Z",
+    updated_date: "2026-08-18T10:00:00.000Z",
+  };
+  assert.equal(recordFallsWithinBackupWindow(record, "", "2026-08-18T11:00:00.000Z"), true);
+  assert.equal(recordFallsWithinBackupWindow(record, "2026-08-18T10:00:00.000Z", "2026-08-18T11:00:00.000Z"), false);
+  assert.equal(recordFallsWithinBackupWindow(record, "2026-08-18T09:59:59.000Z", "2026-08-18T10:00:00.000Z"), true);
+  assert.equal(recordFallsWithinBackupWindow(record, "", "2026-08-18T09:59:59.000Z"), false);
+  assert.equal(isUsableCompletedBackupRun({
+    status: "completed", completed_at: "2026-08-18T11:00:00.000Z", metrics_json: JSON.stringify({ records: 0 }),
+  }), false);
+  assert.equal(isUsableCompletedBackupRun({
+    status: "completed", completed_at: "2026-08-18T11:00:00.000Z", metrics_json: JSON.stringify({ records: 1, fullSnapshot: true }),
+  }), true);
+  assert.equal(isUsableCompletedBackupRun({
+    status: "completed", completed_at: "2026-08-18T11:00:00.000Z", metrics_json: JSON.stringify({ records: 0, fullSnapshot: false }),
+  }), true);
 });
 
 test("prepare/execute lifecycle authorization expires and binds typed confirmation", async () => {

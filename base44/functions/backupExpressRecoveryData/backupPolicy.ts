@@ -12,6 +12,27 @@ export const BACKUP_ENTITY_NAMES = [
 
 export type BackupEntityName = typeof BACKUP_ENTITY_NAMES[number];
 
+export function recordFallsWithinBackupWindow(
+  record: Record<string, unknown>,
+  since: string,
+  cutoff: string,
+): boolean {
+  const sourceTimestamp = Date.parse(String(record.updated_date || record.created_date || ''));
+  const sinceTimestamp = Date.parse(since || '');
+  const cutoffTimestamp = Date.parse(cutoff || '');
+  if (!Number.isFinite(sourceTimestamp)) return !since;
+  if (Number.isFinite(sinceTimestamp) && sourceTimestamp <= sinceTimestamp) return false;
+  return !Number.isFinite(cutoffTimestamp) || sourceTimestamp <= cutoffTimestamp;
+}
+
+export function isUsableCompletedBackupRun(run: Record<string, unknown>): boolean {
+  if (run.status !== 'completed' || !run.completed_at) return false;
+  let metrics: Record<string, unknown> = {};
+  try { metrics = JSON.parse(String(run.metrics_json || '{}')); } catch { return false; }
+  const records = Number(metrics.records || 0);
+  return records > 0 || metrics.fullSnapshot === false;
+}
+
 function sortValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortValue);
   if (!value || typeof value !== 'object') return value;
@@ -107,4 +128,3 @@ export function backupIsStale(lastSuccessAt: string | null | undefined, now = Da
   const timestamp = Date.parse(lastSuccessAt || '');
   return !Number.isFinite(timestamp) || now - timestamp > 36 * 60 * 60 * 1_000;
 }
-

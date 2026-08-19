@@ -5,6 +5,8 @@ import {
   BACKUP_SCHEMA_VERSION,
   buildRecordBackup,
   buildSignedManifest,
+  isUsableCompletedBackupRun,
+  recordFallsWithinBackupWindow,
 } from './backupPolicy.ts';
 import { putPrivateObject, sha256Hex } from './privateS3.ts';
 import { loadManifestSigningKey, loadPrivateS3Config } from './privateS3Config.ts';
@@ -16,8 +18,9 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Cache-Control': 'no-store',
 };
-const PAGE_SIZE = 150;
+const PAGE_SIZE = 5_000;
 const MAX_RECORDS_PER_INVOCATION = 300;
+const MAX_SCANNED_PER_INVOCATION = 40_000;
 const CONCURRENCY = 4;
 const DEADLINE_MS = 130_000;
 
@@ -151,8 +154,8 @@ async function processRecord(base44: any, config: any, run: any, entityName: any
 }
 
 async function newestCompletedRun(base44: any): Promise<any | null> {
-  const runs = await base44.asServiceRole.entities.ExpressBackupRun.filter({ status: 'completed' }, '-completed_at', 1);
-  return runs?.[0] || null;
+  const runs = await base44.asServiceRole.entities.ExpressBackupRun.filter({ status: 'completed' }, '-completed_at', 20);
+  return runs?.find((run: Record<string, unknown>) => isUsableCompletedBackupRun(run)) || null;
 }
 
 async function runningRun(base44: any): Promise<any | null> {
@@ -204,7 +207,11 @@ async function completeRun(base44: any, config: any, run: any, cursor: Record<st
     completed_at: completedAt,
     last_success_at: completedAt,
     cursor_json: JSON.stringify(cursor),
-    metrics_json: JSON.stringify({ counts: cursor.counts || {}, records: cursor.total || 0 }),
+    metrics_json: JSON.stringify({
+      counts: cursor.counts || {},
+      records: cursor.total || 0,
+      fullSnapshot: !cursor.since,
+    }),
     manifest_key: manifest.key,
     manifest_hash: manifest.hash,
     configuration_status: 'configured',
@@ -217,38 +224,64 @@ async function continueRun(base44: any, config: any, run: any): Promise<{ run: a
   const started = Date.now();
   const cursor = parseJson(run.cursor_json, { entityIndex: 0, offset: 0, since: '', cutoff: run.started_at, counts: {} });
   let processed = 0;
-  while (cursor.entityIndex < BACKUP_ENTITY_NAMES.length && processed < MAX_RECORDS_PER_INVOCATION && Date.now() - started < DEADLINE_MS) {
+  let scanned = 0;
+  while (
+    cursor.entityIndex < BACKUP_ENTITY_NAMES.length
+    && processed < MAX_RECORDS_PER_INVOCATION
+    && scanned < MAX_SCANNED_PER_INVOCATION
+    && Date.now() - started < DEADLINE_MS
+  ) {
     const entityName = BACKUP_ENTITY_NAMES[cursor.entityIndex];
     const entity = base44.asServiceRole.entities[entityName];
-    const query: Record<string, unknown> = {};
-    const dateConditions: Record<string, string> = { $lte: cursor.cutoff };
-    if (cursor.since) dateConditions.$gt = cursor.since;
-    query.updated_date = dateConditions;
-    const remaining = Math.min(PAGE_SIZE, MAX_RECORDS_PER_INVOCATION - processed);
-    const records = await entity.filter(query, 'updated_date', remaining, cursor.offset) as Array<Record<string, any>>;
-    const results = await mapWithConcurrency(records || [], (record) => processRecord(base44, config, run, entityName, record));
-    const count = records?.length || 0;
+    const scanLimit = Math.min(PAGE_SIZE, MAX_SCANNED_PER_INVOCATION - scanned);
+    const records = await entity.list('created_date', scanLimit, cursor.offset) as Array<Record<string, any>>;
+    const selected: Array<Record<string, any>> = [];
+    let consumed = 0;
+    const remainingRecords = MAX_RECORDS_PER_INVOCATION - processed;
+    for (const record of records || []) {
+      consumed += 1;
+      if (recordFallsWithinBackupWindow(record, String(cursor.since || ''), String(cursor.cutoff || ''))) {
+        selected.push(record);
+        if (selected.length >= remainingRecords) break;
+      }
+    }
+    const results = await mapWithConcurrency(selected, (record) => processRecord(base44, config, run, entityName, record));
+    const count = selected.length;
     cursor.counts[entityName] = Number(cursor.counts[entityName] || 0) + count;
     cursor.bytes = Number(cursor.bytes || 0) + results.reduce((sum, result) => sum + result.bytes, 0);
     cursor.checksums = cursor.checksums || {};
-    cursor.checksums[entityName] = await sha256Hex(
-      `${cursor.checksums[entityName] || ''}:${results.map((result) => result.hash).sort().join(':')}`,
-    );
+    if (count > 0) {
+      cursor.checksums[entityName] = await sha256Hex(
+        `${cursor.checksums[entityName] || ''}:${results.map((result) => result.hash).sort().join(':')}`,
+      );
+    }
     cursor.total = Number(cursor.total || 0) + count;
     processed += count;
-    if (count < remaining) {
+    scanned += consumed;
+    cursor.offset += consumed;
+    if ((records?.length || 0) < scanLimit && consumed === (records?.length || 0)) {
       cursor.entityIndex += 1;
       cursor.offset = 0;
-    } else {
-      cursor.offset += count;
     }
   }
   if (cursor.entityIndex >= BACKUP_ENTITY_NAMES.length) {
+    if (!cursor.since && Number(cursor.total || 0) === 0) {
+      const sourceHasRecords = (await Promise.all(BACKUP_ENTITY_NAMES.map(async (entityName) => {
+        const probe = await base44.asServiceRole.entities[entityName].list('created_date', 1, 0, ['id']);
+        return probe.length > 0;
+      }))).some(Boolean);
+      if (sourceHasRecords) throw new Error('Initial backup scanned source data but selected zero records.');
+    }
     return { run: await completeRun(base44, config, run, cursor), complete: true, processed };
   }
   await base44.asServiceRole.entities.ExpressBackupRun.update(run.id, {
     cursor_json: JSON.stringify(cursor),
-    metrics_json: JSON.stringify({ counts: cursor.counts, records: cursor.total || 0 }),
+    metrics_json: JSON.stringify({
+      counts: cursor.counts,
+      records: cursor.total || 0,
+      fullSnapshot: !cursor.since,
+      scanned,
+    }),
   });
   return { run: { ...run, cursor_json: JSON.stringify(cursor) }, complete: false, processed };
 }
