@@ -19,11 +19,12 @@ const headers = {
   'Cache-Control': 'no-store',
 };
 const PAGE_SIZE = 5_000;
-const MAX_RECORDS_PER_INVOCATION = 300;
+const MAX_RECORDS_PER_INVOCATION = 1_000;
 const MAX_SCANNED_PER_INVOCATION = 40_000;
-const CONCURRENCY = 2;
+const CONCURRENCY = 8;
 const DEADLINE_MS = 130_000;
 const BASE44_RETRY_ATTEMPTS = 7;
+const BULK_WRITE_SIZE = 100;
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, { status, headers });
@@ -144,32 +145,58 @@ async function backupPdfIfNeeded(base44: any, config: any, record: Record<string
   };
 }
 
-async function upsertBackupIndex(base44: any, values: Record<string, any>): Promise<void> {
-  const query = {
-    entity_name: values.entity_name,
-    source_record_id: values.source_record_id,
-  };
+async function loadBackupIndexMap(base44: any, entityName: string): Promise<Map<string, any>> {
   const entity = base44.asServiceRole.entities.ExpressBackupObject;
-  const matches = await withBase44Retry<any[]>(() => entity.filter(query, '-backed_up_at', 2));
-  if (matches?.[0]) await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupObject.update(matches[0].id, values));
-  else {
-    for (let attempt = 0; attempt < BASE44_RETRY_ATTEMPTS; attempt += 1) {
-      try { await entity.create(values); break; }
-      catch (error) {
-        if (!isRetryableBase44Error(error) || attempt === BASE44_RETRY_ATTEMPTS - 1) throw error;
-        await delay(Math.min(12_000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250));
-        const afterFailure = await withBase44Retry<any[]>(() => entity.filter(query, '-backed_up_at', 1));
-        if (afterFailure?.[0]) {
-          await withBase44Retry(() => entity.update(afterFailure[0].id, values));
-          break;
-        }
-      }
-    }
+  const map = new Map<string, any>();
+  for (let skip = 0; ; skip += PAGE_SIZE) {
+    const page = await withBase44Retry<any[]>(() => entity.filter(
+      { entity_name: entityName }, 'source_record_id', PAGE_SIZE, skip, ['id', 'source_record_id'],
+    ));
+    page.forEach((record) => map.set(String(record.source_record_id), record));
+    if (page.length < PAGE_SIZE) break;
   }
-  await delay(75);
+  return map;
 }
 
-async function processRecord(base44: any, config: any, run: any, entityName: any, source: Record<string, any>): Promise<{ hash: string; bytes: number }> {
+async function bulkCreateMissingIndexes(
+  base44: any,
+  entityName: string,
+  pendingValues: Array<Record<string, any>>,
+): Promise<void> {
+  const entity = base44.asServiceRole.entities.ExpressBackupObject;
+  let pending = pendingValues;
+  for (let attempt = 0; attempt < BASE44_RETRY_ATTEMPTS && pending.length > 0; attempt += 1) {
+    try { await entity.bulkCreate(pending); return; }
+    catch (error) {
+      if (!isRetryableBase44Error(error) || attempt === BASE44_RETRY_ATTEMPTS - 1) throw error;
+      await delay(Math.min(12_000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250));
+      const current = await loadBackupIndexMap(base44, entityName);
+      pending = pending.filter((values) => !current.has(String(values.source_record_id)));
+    }
+  }
+}
+
+async function upsertBackupIndexes(base44: any, entityName: string, values: Array<Record<string, any>>): Promise<void> {
+  if (values.length === 0) return;
+  const entity = base44.asServiceRole.entities.ExpressBackupObject;
+  const existing = await loadBackupIndexMap(base44, entityName);
+  const updates = values
+    .filter((item) => existing.has(String(item.source_record_id)))
+    .map((item) => ({ ...item, id: existing.get(String(item.source_record_id)).id }));
+  const creates = values.filter((item) => !existing.has(String(item.source_record_id)));
+  for (let index = 0; index < updates.length; index += BULK_WRITE_SIZE) {
+    await withBase44Retry(() => entity.bulkUpdate(updates.slice(index, index + BULK_WRITE_SIZE)));
+  }
+  for (let index = 0; index < creates.length; index += BULK_WRITE_SIZE) {
+    await bulkCreateMissingIndexes(base44, entityName, creates.slice(index, index + BULK_WRITE_SIZE));
+  }
+}
+
+async function processRecord(base44: any, config: any, run: any, entityName: any, source: Record<string, any>): Promise<{
+  hash: string;
+  bytes: number;
+  index: Record<string, any>;
+}> {
   const now = new Date().toISOString();
   const record = entityName === 'SubmissionPdfVersion'
     ? await backupPdfIfNeeded(base44, config, source)
@@ -181,7 +208,7 @@ async function processRecord(base44: any, config: any, run: any, entityName: any
     body: new TextEncoder().encode(backup.body),
     metadata: { schema: BACKUP_SCHEMA_VERSION, entity: await sha256Hex(entityName) },
   });
-  await upsertBackupIndex(base44, {
+  const index = {
     entity_name: entityName,
     source_record_id: String(record.id),
     record_id_hash: backup.recordIdHash,
@@ -193,8 +220,8 @@ async function processRecord(base44: any, config: any, run: any, entityName: any
     backed_up_at: now,
     run_id: run.run_id,
     status: 'available',
-  });
-  return { hash: backup.payloadHash, bytes: new TextEncoder().encode(backup.body).byteLength };
+  };
+  return { hash: backup.payloadHash, bytes: new TextEncoder().encode(backup.body).byteLength, index };
 }
 
 async function newestCompletedRun(base44: any): Promise<any | null> {
@@ -306,6 +333,7 @@ async function continueRun(base44: any, config: any, run: any): Promise<{ run: a
       }
     }
     const results = await mapWithConcurrency(selected, (record) => processRecord(base44, config, run, entityName, record));
+    await upsertBackupIndexes(base44, entityName, results.map((result) => result.index));
     const count = selected.length;
     cursor.counts[entityName] = Number(cursor.counts[entityName] || 0) + count;
     cursor.bytes = Number(cursor.bytes || 0) + results.reduce((sum, result) => sum + result.bytes, 0);

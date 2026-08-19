@@ -190,12 +190,17 @@ test("the scheduled backup bundles exact copies of its reviewed shared dependenc
   }
 });
 
-test("the resumable backup throttles Base44 writes and can recover a failed cursor", async () => {
+test("the resumable backup batches Base44 writes and can recover a failed cursor", async () => {
   const source = await read("base44/functions/backupExpressRecoveryData/entry.ts");
-  assert.match(source, /const CONCURRENCY = 2/);
+  assert.match(source, /MAX_RECORDS_PER_INVOCATION = 1_000/);
+  assert.match(source, /const CONCURRENCY = 8/);
+  assert.match(source, /BULK_WRITE_SIZE = 100/);
   assert.match(source, /BASE44_RETRY_ATTEMPTS = 7/);
   assert.match(source, /isRetryableBase44Error/);
-  assert.match(source, /afterFailure[\s\S]*entity\.filter/);
+  assert.match(source, /bulkCreateMissingIndexes/);
+  assert.match(source, /entity\.bulkCreate\(pending\)/);
+  assert.match(source, /entity\.bulkUpdate\(updates\.slice/);
+  assert.match(source, /loadBackupIndexMap/);
   assert.match(source, /recoverableFailedRun/);
   assert.match(source, /resumeFailedRun/);
   assert.match(source, /entity\.list\('created_date'/);
