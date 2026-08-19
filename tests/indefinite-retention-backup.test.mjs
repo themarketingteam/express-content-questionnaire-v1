@@ -201,6 +201,8 @@ test("the resumable backup batches Base44 writes and can recover a failed cursor
   assert.match(source, /entity\.bulkCreate\(pending\)/);
   assert.match(source, /entity\.bulkUpdate\(updates\.slice/);
   assert.match(source, /loadBackupIndexMap/);
+  assert.match(source, /previousCursor\.cutoff \|\| previous\?\.started_at/);
+  assert.doesNotMatch(source, /since: previous\?\.completed_at/);
   assert.match(source, /TRUSTED_PDF_SOURCE_HOSTS = new Set\(\['base44\.app', 'media\.base44\.com'\]\)/);
   assert.match(source, /fetch\(current, \{ redirect: 'manual' \}\)/);
   assert.doesNotMatch(source, /fetch\(sourceUrl, \{ redirect: 'follow' \}\)/);
@@ -208,4 +210,14 @@ test("the resumable backup batches Base44 writes and can recover a failed cursor
   assert.match(source, /resumeFailedRun/);
   assert.match(source, /entity\.list\('created_date'/);
   assert.doesNotMatch(source, /query\.updated_date/);
+});
+
+test("the nightly backup automations are active only after the baseline is configured", async () => {
+  const definition = JSON.parse(await read("base44/functions/backupExpressRecoveryData/function.jsonc"));
+  assert.equal(definition.automations.length, 3);
+  assert.equal(definition.automations.every((automation) => automation.is_active), true);
+  assert.deepEqual(
+    definition.automations.map((automation) => automation.cron_expression),
+    ["0 9 * * *", "0 10 * * *", "*/15 * * * *"],
+  );
 });

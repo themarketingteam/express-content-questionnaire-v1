@@ -274,12 +274,14 @@ async function createRun(base44: any, trigger: string): Promise<any> {
   const existing = await runningRun(base44);
   if (existing) return existing;
   const previous = await newestCompletedRun(base44);
+  const previousCursor = parseJson(previous?.cursor_json, {});
+  const previousCutoff = String(previousCursor.cutoff || previous?.started_at || previous?.completed_at || '');
   const startedAt = new Date().toISOString();
   const values = {
     run_id: crypto.randomUUID(),
     status: 'running', trigger, schema_version: BACKUP_SCHEMA_VERSION, started_at: startedAt,
     cursor_json: JSON.stringify({
-      entityIndex: 0, offset: 0, since: previous?.completed_at || '', cutoff: startedAt, counts: {},
+      entityIndex: 0, offset: 0, since: previousCutoff, cutoff: startedAt, counts: {},
     }),
     metrics_json: '{}', configuration_status: 'configured',
   };
