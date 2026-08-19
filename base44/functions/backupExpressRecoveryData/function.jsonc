@@ -4,6 +4,17 @@
   "automations": [
     {
       "type": "scheduled",
+      "name": "express_recovery_backup_08utc_daily",
+      "description": "DST-safe nightly backup starter; work begins only at 3 AM America/Chicago.",
+      "function_args": { "trigger": "scheduled_backup_start" },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 8 * * *",
+      "ends_type": "never"
+    },
+    {
+      "type": "scheduled",
       "name": "express_recovery_backup_09utc_daily",
       "description": "DST-safe nightly backup starter; work begins only at 3 AM America/Chicago.",
       "function_args": { "trigger": "scheduled_backup_start" },
@@ -11,17 +22,6 @@
       "schedule_mode": "recurring",
       "schedule_type": "cron",
       "cron_expression": "0 9 * * *",
-      "ends_type": "never"
-    },
-    {
-      "type": "scheduled",
-      "name": "express_recovery_backup_10utc_daily",
-      "description": "DST-safe nightly backup starter; work begins only at 3 AM America/Chicago.",
-      "function_args": { "trigger": "scheduled_backup_start" },
-      "is_active": true,
-      "schedule_mode": "recurring",
-      "schedule_type": "cron",
-      "cron_expression": "0 10 * * *",
       "ends_type": "never"
     },
     {

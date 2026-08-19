@@ -218,6 +218,6 @@ test("the nightly backup automations are active only after the baseline is confi
   assert.equal(definition.automations.every((automation) => automation.is_active), true);
   assert.deepEqual(
     definition.automations.map((automation) => automation.cron_expression),
-    ["0 9 * * *", "0 10 * * *", "*/15 * * * *"],
+    ["0 8 * * *", "0 9 * * *", "*/15 * * * *"],
   );
 });
