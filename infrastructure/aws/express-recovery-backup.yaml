@@ -2,6 +2,15 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Private, versioned, KMS-encrypted independent backup for Express recovery data.
 
 Parameters:
+  BackupBucketName:
+    Type: String
+    Default: express-tier-bucket
+    Description: Existing private S3 bucket used for Express recovery objects.
+  BackupPrefix:
+    Type: String
+    Default: contentDraftEntry
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$'
+    Description: Dedicated prefix within the existing bucket. Do not include leading or trailing slashes.
   AlertEmail:
     Type: String
     Default: ''
@@ -82,51 +91,130 @@ Resources:
             Action: s3:PutObject
             Resource: !Sub '${AuditBucket.Arn}/access-logs/*'
             Condition:
-              ArnLike: { 'aws:SourceArn': !GetAtt BackupBucket.Arn }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}' }
               StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
 
-  BackupBucket:
-    Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+  BackupConfiguratorRole:
+    Type: AWS::IAM::Role
     Properties:
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - BucketKeyEnabled: true
-            ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-              KMSMasterKeyID: !GetAtt BackupKey.Arn
-      LoggingConfiguration:
-        DestinationBucketName: !Ref AuditBucket
-        LogFilePrefix: access-logs/
-      OwnershipControls:
-        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
-      VersioningConfiguration: { Status: Enabled }
-
-  BackupBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref BackupBucket
-      PolicyDocument:
+      AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: RequireTls
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:*'
-            Resource: [!GetAtt BackupBucket.Arn, !Sub '${BackupBucket.Arn}/*']
-            Condition: { Bool: { 'aws:SecureTransport': false } }
-          - Sid: RequireKmsEncryption
-            Effect: Deny
-            Principal: '*'
-            Action: s3:PutObject
-            Resource: !Sub '${BackupBucket.Arn}/*'
-            Condition: { StringNotEquals: { 's3:x-amz-server-side-encryption': aws:kms } }
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ConfigureExistingExpressBackupBucket
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketLogging
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketVersioning
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}'
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: '*'
+
+  BackupConfiguratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: express-recovery-backup-configurator
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt BackupConfiguratorRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3, json, urllib.request
+          from botocore.exceptions import ClientError
+          s3 = boto3.client('s3')
+
+          def respond(event, context, status, data):
+              body = json.dumps({
+                  'Status': status,
+                  'Reason': f'See CloudWatch Log Stream: {context.log_stream_name}',
+                  'PhysicalResourceId': event.get('PhysicalResourceId', 'express-recovery-existing-bucket-configuration'),
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'NoEcho': True,
+                  'Data': data,
+              }).encode()
+              request = urllib.request.Request(event['ResponseURL'], data=body, method='PUT', headers={
+                  'content-type': '', 'content-length': str(len(body)),
+              })
+              urllib.request.urlopen(request, timeout=10).read()
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      respond(event, context, 'SUCCESS', {'Preserved': True})
+                      return
+                  props = event['ResourceProperties']
+                  bucket = props['BucketName']
+                  prefix = props['Prefix'].strip('/')
+                  key_arn = props['KmsKeyArn']
+                  audit_bucket = props['AuditBucketName']
+                  try:
+                      policy = json.loads(s3.get_bucket_policy(Bucket=bucket)['Policy'])
+                  except ClientError as error:
+                      if error.response.get('Error', {}).get('Code') != 'NoSuchBucketPolicy':
+                          raise
+                      policy = {'Version': '2012-10-17', 'Statement': []}
+                  statements = [item for item in policy.get('Statement', []) if item.get('Sid') not in {
+                      'ExpressRecoveryRequireTls',
+                      'ExpressRecoveryRequireKms',
+                      'ExpressRecoveryRequireApprovedKmsKey',
+                  }]
+                  bucket_arn = f'arn:aws:s3:::{bucket}'
+                  object_arn = f'{bucket_arn}/{prefix}/*'
+                  statements.extend([
+                      {
+                          'Sid': 'ExpressRecoveryRequireTls', 'Effect': 'Deny', 'Principal': '*',
+                          'Action': 's3:*', 'Resource': [bucket_arn, f'{bucket_arn}/*'],
+                          'Condition': {'Bool': {'aws:SecureTransport': 'false'}},
+                      },
+                      {
+                          'Sid': 'ExpressRecoveryRequireKms', 'Effect': 'Deny', 'Principal': '*',
+                          'Action': 's3:PutObject', 'Resource': object_arn,
+                          'Condition': {'StringNotEquals': {'s3:x-amz-server-side-encryption': 'aws:kms'}},
+                      },
+                      {
+                          'Sid': 'ExpressRecoveryRequireApprovedKmsKey', 'Effect': 'Deny', 'Principal': '*',
+                          'Action': 's3:PutObject', 'Resource': object_arn,
+                          'Condition': {'StringNotEquals': {'s3:x-amz-server-side-encryption-aws-kms-key-id': key_arn}},
+                      },
+                  ])
+                  policy['Version'] = '2012-10-17'
+                  policy['Statement'] = statements
+                  s3.put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))
+                  s3.put_public_access_block(Bucket=bucket, PublicAccessBlockConfiguration={
+                      'BlockPublicAcls': True, 'IgnorePublicAcls': True,
+                      'BlockPublicPolicy': True, 'RestrictPublicBuckets': True,
+                  })
+                  s3.put_bucket_versioning(Bucket=bucket, VersioningConfiguration={'Status': 'Enabled'})
+                  s3.put_bucket_logging(Bucket=bucket, BucketLoggingStatus={'LoggingEnabled': {
+                      'TargetBucket': audit_bucket,
+                      'TargetPrefix': f'access-logs/{bucket}/',
+                  }})
+                  respond(event, context, 'SUCCESS', {'BucketName': bucket, 'Prefix': prefix})
+              except Exception as error:
+                  respond(event, context, 'FAILED', {'Error': str(error)[:500]})
+
+  ConfigureExistingBackupBucket:
+    Type: Custom::ExpressRecoveryExistingBucket
+    DependsOn: AuditBucketPolicy
+    Properties:
+      ServiceToken: !GetAtt BackupConfiguratorFunction.Arn
+      BucketName: !Ref BackupBucketName
+      Prefix: !Ref BackupPrefix
+      KmsKeyArn: !GetAtt BackupKey.Arn
+      AuditBucketName: !Ref AuditBucket
 
   BackupWriter:
     Type: AWS::IAM::User
@@ -139,13 +227,16 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: [s3:GetBucketLocation, s3:ListBucket, s3:ListBucketVersions]
-                Resource: !GetAtt BackupBucket.Arn
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}'
+                Condition:
+                  StringLike:
+                    's3:prefix': [!Ref BackupPrefix, !Sub '${BackupPrefix}/*']
               - Effect: Allow
                 Action: [s3:PutObject, s3:GetObject, s3:GetObjectVersion]
-                Resource: !Sub '${BackupBucket.Arn}/*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}/${BackupPrefix}/*'
               - Effect: Deny
                 Action: [s3:DeleteObject, s3:DeleteObjectVersion]
-                Resource: !Sub '${BackupBucket.Arn}/*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}/${BackupPrefix}/*'
               - Effect: Allow
                 Action: [kms:Encrypt, kms:Decrypt, kms:GenerateDataKey, kms:DescribeKey]
                 Resource: !GetAtt BackupKey.Arn
@@ -161,13 +252,16 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: [s3:GetBucketLocation, s3:ListBucketVersions]
-                Resource: !GetAtt BackupBucket.Arn
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}'
+                Condition:
+                  StringLike:
+                    's3:prefix': [!Ref BackupPrefix, !Sub '${BackupPrefix}/*']
               - Effect: Allow
                 Action: [s3:DeleteObject, s3:DeleteObjectVersion]
-                Resource: !Sub '${BackupBucket.Arn}/*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}/${BackupPrefix}/*'
               - Effect: Deny
                 Action: [s3:GetObject, s3:GetObjectVersion]
-                Resource: !Sub '${BackupBucket.Arn}/*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}/${BackupPrefix}/*'
 
   BackupTrail:
     Type: AWS::CloudTrail::Trail
@@ -185,7 +279,7 @@ Resources:
           ReadWriteType: All
           DataResources:
             - Type: AWS::S3::Object
-              Values: [!Sub '${BackupBucket.Arn}/']
+              Values: [!Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}/${BackupPrefix}/']
 
   BackupAlertTopic:
     Type: AWS::SNS::Topic
@@ -216,8 +310,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: s3:ListBucket
-                Resource: !GetAtt BackupBucket.Arn
-                Condition: { StringLike: { 's3:prefix': 'manifests/*' } }
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BackupBucketName}'
+                Condition: { StringLike: { 's3:prefix': !Sub '${BackupPrefix}/manifests/*' } }
               - Effect: Allow
                 Action: cloudwatch:PutMetricData
                 Resource: '*'
@@ -235,14 +329,17 @@ Resources:
       Role: !GetAtt BackupHealthRole.Arn
       Timeout: 30
       Environment:
-        Variables: { BACKUP_BUCKET: !Ref BackupBucket }
+        Variables:
+          BACKUP_BUCKET: !Ref BackupBucketName
+          BACKUP_PREFIX: !Ref BackupPrefix
       Code:
         ZipFile: |
           import boto3, datetime, os
           s3 = boto3.client('s3')
           cloudwatch = boto3.client('cloudwatch')
           def handler(event, context):
-              response = s3.list_objects_v2(Bucket=os.environ['BACKUP_BUCKET'], Prefix='manifests/v1/')
+              prefix = os.environ['BACKUP_PREFIX'].strip('/')
+              response = s3.list_objects_v2(Bucket=os.environ['BACKUP_BUCKET'], Prefix=f'{prefix}/manifests/v1/')
               objects = response.get('Contents', [])
               newest = max((item['LastModified'] for item in objects), default=None)
               now = datetime.datetime.now(datetime.timezone.utc)
@@ -282,7 +379,8 @@ Resources:
       AlarmActions: [!Ref BackupAlertTopic]
 
 Outputs:
-  BackupBucketName: { Value: !Ref BackupBucket }
+  BackupBucketName: { Value: !Ref BackupBucketName }
+  BackupPrefix: { Value: !Ref BackupPrefix }
   BackupKmsKeyArn: { Value: !GetAtt BackupKey.Arn }
   BackupWriterArn: { Value: !GetAtt BackupWriter.Arn }
   ManualPurgeArn: { Value: !GetAtt ManualPurgeRole.Arn }

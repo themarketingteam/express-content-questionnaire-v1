@@ -10,22 +10,30 @@ Base44's platform-level recently-deleted window is 30 days. It is not an indepen
 
 ## AWS provisioning
 
-Deploy `infrastructure/aws/express-recovery-backup.yaml` in the approved AWS account and region (`us-east-1` by default):
+Deploy `infrastructure/aws/express-recovery-backup.yaml` in the same region as the existing backup bucket. The current production target is `s3://express-tier-bucket/contentDraftEntry/` in `us-east-2`:
 
 ```bash
 aws cloudformation deploy \
-  --region us-east-1 \
+  --region us-east-2 \
   --stack-name express-recovery-backup \
   --template-file infrastructure/aws/express-recovery-backup.yaml \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides AlertEmail=YOUR-ALERT-ADDRESS
+  --parameter-overrides \
+    BackupBucketName=express-tier-bucket \
+    BackupPrefix=contentDraftEntry \
+    AlertEmail=YOUR-ALERT-ADDRESS
 ```
+
+The stack preserves existing bucket-policy statements, including the CloudFront read grant for `assets/`. It enables versioning, public-access blocking, access logging, and TLS enforcement for the bucket, then requires the stack's KMS key for every upload beneath `contentDraftEntry/`. It does not change the bucket-wide default encryption because this is a shared bucket and doing so could unexpectedly KMS-encrypt unrelated website assets.
+
+Client names, domains, emails, and answers never appear in object paths or logs. Records are stored under opaque hashed identifiers. Business names and draft-start timestamps remain inside the KMS-encrypted record bodies so administrators can search and restore through the Base44 recovery indexes without exposing identity in S3 keys.
 
 The stack intentionally does not create IAM access keys. An AWS administrator must create one key for each named user and enter it directly into Base44 secrets. Never put credentials in Git, shell history, logs, or CloudFormation outputs.
 
 Required Base44 secrets:
 
 - `EXPRESS_BACKUP_S3_BUCKET`
+- `EXPRESS_BACKUP_S3_PREFIX` (`contentDraftEntry` in production)
 - `EXPRESS_BACKUP_AWS_REGION`
 - `EXPRESS_BACKUP_KMS_KEY_ID`
 - `EXPRESS_BACKUP_AWS_ACCESS_KEY_ID`

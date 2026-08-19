@@ -14,7 +14,11 @@ import {
   LIFECYCLE_TOKEN_TTL_MS,
   verifyLifecycleToken,
 } from "../base44/shared/manualDataLifecycle.ts";
-import { privacySafeObjectKey, validatePrivateS3Config } from "../base44/shared/privateS3.ts";
+import {
+  privacySafeObjectKey,
+  resolvePrivateS3ObjectKey,
+  validatePrivateS3Config,
+} from "../base44/shared/privateS3.ts";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -22,6 +26,16 @@ test("backup object paths are deterministic and contain no client identity", asy
   const key = await privacySafeObjectKey("FormDraft", "client@example.com/Nexus Consulting");
   assert.match(key, /^records\/v1\/[a-f0-9]{16}\/[a-f0-9]{2}\/[a-f0-9]{64}\.json$/);
   assert.doesNotMatch(key, /client|example|nexus|consulting|@/i);
+  assert.equal(
+    resolvePrivateS3ObjectKey({
+      bucket: "express-tier-bucket",
+      region: "us-east-2",
+      kmsKeyId: "kms-key",
+      prefix: "/contentDraftEntry/",
+      credentials: { accessKeyId: "key", secretAccessKey: "secret" },
+    }, key),
+    `contentDraftEntry/${key}`,
+  );
 
   const backup = await buildRecordBackup({
     entityName: "FormDraft",
@@ -75,8 +89,12 @@ test("prepare/execute lifecycle authorization expires and binds typed confirmati
 test("AWS infrastructure enforces private versioned KMS storage and split least privilege", async () => {
   const template = await read("infrastructure/aws/express-recovery-backup.yaml");
   assert.match(template, /BlockPublicAcls: true/);
-  assert.match(template, /VersioningConfiguration: \{ Status: Enabled \}/);
-  assert.match(template, /SSEAlgorithm: aws:kms/);
+  assert.match(template, /put_bucket_versioning[\s\S]*'Status': 'Enabled'/);
+  assert.match(template, /Default: express-tier-bucket/);
+  assert.match(template, /Default: contentDraftEntry/);
+  assert.match(template, /ExpressRecoveryRequireKms[\s\S]*s3:x-amz-server-side-encryption[\s\S]*aws:kms/);
+  assert.match(template, /ExpressRecoveryRequireApprovedKmsKey/);
+  assert.match(template, /get_bucket_policy[\s\S]*put_bucket_policy/, "existing CloudFront policy statements must be preserved");
   assert.match(template, /EnableLogFileValidation: true/);
   assert.match(template, /express-recovery-backup-overdue-36-hours/);
   assert.match(template, /UploadVerifyWithoutDelete[\s\S]*Effect: Deny[\s\S]*s3:DeleteObject/);

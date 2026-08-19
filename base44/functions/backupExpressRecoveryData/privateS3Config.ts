@@ -18,6 +18,7 @@ export function loadPrivateS3Config(role: PrivateS3Role): {
     bucket: secret('EXPRESS_BACKUP_S3_BUCKET'),
     region: secret('EXPRESS_BACKUP_AWS_REGION') || 'us-east-1',
     kmsKeyId: secret('EXPRESS_BACKUP_KMS_KEY_ID'),
+    prefix: secret('EXPRESS_BACKUP_S3_PREFIX') || 'contentDraftEntry',
     credentials: {
       accessKeyId: secret(`${prefix}_ACCESS_KEY_ID`),
       secretAccessKey: secret(`${prefix}_SECRET_ACCESS_KEY`),
@@ -31,4 +32,3 @@ export function loadPrivateS3Config(role: PrivateS3Role): {
 export function loadManifestSigningKey(): string {
   return secret('EXPRESS_BACKUP_MANIFEST_SIGNING_KEY');
 }
-

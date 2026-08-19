@@ -16,6 +16,7 @@ export type PrivateS3Config = {
   bucket: string;
   region: string;
   kmsKeyId: string;
+  prefix?: string;
   credentials: AwsCredentials;
 };
 
@@ -69,9 +70,27 @@ function canonicalQuery(params: URLSearchParams): string {
     .join('&');
 }
 
+export function normalizePrivateS3Prefix(value: string | undefined): string {
+  const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!normalized) return '';
+  if (normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error('The private S3 prefix is invalid.');
+  }
+  return normalized;
+}
+
+export function resolvePrivateS3ObjectKey(config: PrivateS3Config, key: string): string {
+  const normalizedKey = String(key || '').replace(/^\/+/, '');
+  if (!normalizedKey || normalizedKey.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error('The private S3 object key is invalid.');
+  }
+  const prefix = normalizePrivateS3Prefix(config.prefix);
+  return prefix ? `${prefix}/${normalizedKey}` : normalizedKey;
+}
+
 function endpoint(config: PrivateS3Config, key = ''): URL {
   const host = `${config.bucket}.s3.${config.region}.amazonaws.com`;
-  return new URL(`https://${host}${key ? canonicalPath(key) : '/'}`);
+  return new URL(`https://${host}${key ? canonicalPath(resolvePrivateS3ObjectKey(config, key)) : '/'}`);
 }
 
 async function signingKey(secret: string, shortDate: string, region: string): Promise<ArrayBuffer> {
