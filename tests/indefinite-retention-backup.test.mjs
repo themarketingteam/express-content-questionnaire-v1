@@ -189,3 +189,15 @@ test("the scheduled backup bundles exact copies of its reviewed shared dependenc
     assert.equal(bundled.trimEnd(), canonical.trimEnd(), `${name} must be synchronized before deployment`);
   }
 });
+
+test("the resumable backup throttles Base44 writes and can recover a failed cursor", async () => {
+  const source = await read("base44/functions/backupExpressRecoveryData/entry.ts");
+  assert.match(source, /const CONCURRENCY = 2/);
+  assert.match(source, /BASE44_RETRY_ATTEMPTS = 7/);
+  assert.match(source, /isRetryableBase44Error/);
+  assert.match(source, /afterFailure[\s\S]*entity\.filter/);
+  assert.match(source, /recoverableFailedRun/);
+  assert.match(source, /resumeFailedRun/);
+  assert.match(source, /entity\.list\('created_date'/);
+  assert.doesNotMatch(source, /query\.updated_date/);
+});

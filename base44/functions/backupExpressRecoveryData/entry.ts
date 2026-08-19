@@ -21,8 +21,9 @@ const headers = {
 const PAGE_SIZE = 5_000;
 const MAX_RECORDS_PER_INVOCATION = 300;
 const MAX_SCANNED_PER_INVOCATION = 40_000;
-const CONCURRENCY = 4;
+const CONCURRENCY = 2;
 const DEADLINE_MS = 130_000;
+const BASE44_RETRY_ATTEMPTS = 7;
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, { status, headers });
@@ -34,6 +35,32 @@ function readSecret(name: string): string {
 
 function enabled(name: string): boolean {
   return ['1', 'true', 'yes', 'enabled'].includes(readSecret(name).toLowerCase());
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isRetryableBase44Error(error: unknown): boolean {
+  const candidate = error as { message?: string; status?: number; response?: { status?: number } };
+  const message = String(candidate?.message || '').toLowerCase();
+  return candidate?.status === 429
+    || candidate?.response?.status === 429
+    || message.includes('rate limit')
+    || message.includes('too many requests');
+}
+
+async function withBase44Retry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < BASE44_RETRY_ATTEMPTS; attempt += 1) {
+    try { return await operation(); }
+    catch (error) {
+      lastError = error;
+      if (!isRetryableBase44Error(error) || attempt === BASE44_RETRY_ATTEMPTS - 1) throw error;
+      await delay(Math.min(12_000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250));
+    }
+  }
+  throw lastError;
 }
 
 function parseJson(value: unknown, fallback: Record<string, any>): Record<string, any> {
@@ -101,28 +128,45 @@ async function backupPdfIfNeeded(base44: any, config: any, record: Record<string
     contentType: 'application/pdf',
     metadata: { schema: BACKUP_SCHEMA_VERSION },
   });
-  await base44.asServiceRole.entities.SubmissionPdfVersion.update(record.id, {
+  const pdfSha256 = await sha256Hex(bytes);
+  await withBase44Retry(() => base44.asServiceRole.entities.SubmissionPdfVersion.update(record.id, {
     s3_object_key: key,
     s3_object_version_id: uploaded.versionId,
-    s3_object_sha256: await sha256Hex(bytes),
+    s3_object_sha256: pdfSha256,
     storage_visibility: 'private',
-  });
+  }));
   return {
     ...record,
     s3_object_key: key,
     s3_object_version_id: uploaded.versionId,
-    s3_object_sha256: await sha256Hex(bytes),
+    s3_object_sha256: pdfSha256,
     storage_visibility: 'private',
   };
 }
 
 async function upsertBackupIndex(base44: any, values: Record<string, any>): Promise<void> {
-  const matches = await base44.asServiceRole.entities.ExpressBackupObject.filter({
+  const query = {
     entity_name: values.entity_name,
     source_record_id: values.source_record_id,
-  }, '-backed_up_at', 2);
-  if (matches?.[0]) await base44.asServiceRole.entities.ExpressBackupObject.update(matches[0].id, values);
-  else await base44.asServiceRole.entities.ExpressBackupObject.create(values);
+  };
+  const entity = base44.asServiceRole.entities.ExpressBackupObject;
+  const matches = await withBase44Retry<any[]>(() => entity.filter(query, '-backed_up_at', 2));
+  if (matches?.[0]) await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupObject.update(matches[0].id, values));
+  else {
+    for (let attempt = 0; attempt < BASE44_RETRY_ATTEMPTS; attempt += 1) {
+      try { await entity.create(values); break; }
+      catch (error) {
+        if (!isRetryableBase44Error(error) || attempt === BASE44_RETRY_ATTEMPTS - 1) throw error;
+        await delay(Math.min(12_000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250));
+        const afterFailure = await withBase44Retry<any[]>(() => entity.filter(query, '-backed_up_at', 1));
+        if (afterFailure?.[0]) {
+          await withBase44Retry(() => entity.update(afterFailure[0].id, values));
+          break;
+        }
+      }
+    }
+  }
+  await delay(75);
 }
 
 async function processRecord(base44: any, config: any, run: any, entityName: any, source: Record<string, any>): Promise<{ hash: string; bytes: number }> {
@@ -154,13 +198,27 @@ async function processRecord(base44: any, config: any, run: any, entityName: any
 }
 
 async function newestCompletedRun(base44: any): Promise<any | null> {
-  const runs = await base44.asServiceRole.entities.ExpressBackupRun.filter({ status: 'completed' }, '-completed_at', 20);
+  const runs = await withBase44Retry<any[]>(() => base44.asServiceRole.entities.ExpressBackupRun.filter({ status: 'completed' }, '-completed_at', 20));
   return runs?.find((run: Record<string, unknown>) => isUsableCompletedBackupRun(run)) || null;
 }
 
 async function runningRun(base44: any): Promise<any | null> {
-  const runs = await base44.asServiceRole.entities.ExpressBackupRun.filter({ status: 'running' }, 'started_at', 5);
+  const runs = await withBase44Retry<any[]>(() => base44.asServiceRole.entities.ExpressBackupRun.filter({ status: 'running' }, 'started_at', 5));
   return runs?.[0] || null;
+}
+
+async function recoverableFailedRun(base44: any): Promise<any | null> {
+  const runs = await withBase44Retry<any[]>(() => base44.asServiceRole.entities.ExpressBackupRun.filter(
+    { status: 'failed' }, '-updated_date', 10,
+  ));
+  return runs?.find((run: Record<string, unknown>) =>
+    run.error_code === 'backup_failed' && Boolean(run.cursor_json)) || null;
+}
+
+async function resumeFailedRun(base44: any, run: any): Promise<any> {
+  const values = { status: 'running', error_code: '', configuration_status: 'configured' };
+  await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupRun.update(run.id, values));
+  return { ...run, ...values };
 }
 
 async function createRun(base44: any, trigger: string): Promise<any> {
@@ -168,22 +226,24 @@ async function createRun(base44: any, trigger: string): Promise<any> {
   if (existing) return existing;
   const previous = await newestCompletedRun(base44);
   const startedAt = new Date().toISOString();
-  return await base44.asServiceRole.entities.ExpressBackupRun.create({
+  const values = {
     run_id: crypto.randomUUID(),
-    status: 'running',
-    trigger,
-    schema_version: BACKUP_SCHEMA_VERSION,
-    started_at: startedAt,
+    status: 'running', trigger, schema_version: BACKUP_SCHEMA_VERSION, started_at: startedAt,
     cursor_json: JSON.stringify({
-      entityIndex: 0,
-      offset: 0,
-      since: previous?.completed_at || '',
-      cutoff: startedAt,
-      counts: {},
+      entityIndex: 0, offset: 0, since: previous?.completed_at || '', cutoff: startedAt, counts: {},
     }),
-    metrics_json: '{}',
-    configuration_status: 'configured',
-  });
+    metrics_json: '{}', configuration_status: 'configured',
+  };
+  for (let attempt = 0; attempt < BASE44_RETRY_ATTEMPTS; attempt += 1) {
+    try { return await base44.asServiceRole.entities.ExpressBackupRun.create(values); }
+    catch (error) {
+      if (!isRetryableBase44Error(error) || attempt === BASE44_RETRY_ATTEMPTS - 1) throw error;
+      await delay(Math.min(12_000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250));
+      const afterFailure = await runningRun(base44);
+      if (afterFailure) return afterFailure;
+    }
+  }
+  throw new Error('Unable to create a resumable backup run.');
 }
 
 async function completeRun(base44: any, config: any, run: any, cursor: Record<string, any>): Promise<any> {
@@ -216,7 +276,7 @@ async function completeRun(base44: any, config: any, run: any, cursor: Record<st
     manifest_hash: manifest.hash,
     configuration_status: 'configured',
   };
-  await base44.asServiceRole.entities.ExpressBackupRun.update(run.id, values);
+  await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupRun.update(run.id, values));
   return { ...run, ...values, manifestVersionId: uploaded.versionId };
 }
 
@@ -234,7 +294,7 @@ async function continueRun(base44: any, config: any, run: any): Promise<{ run: a
     const entityName = BACKUP_ENTITY_NAMES[cursor.entityIndex];
     const entity = base44.asServiceRole.entities[entityName];
     const scanLimit = Math.min(PAGE_SIZE, MAX_SCANNED_PER_INVOCATION - scanned);
-    const records = await entity.list('created_date', scanLimit, cursor.offset) as Array<Record<string, any>>;
+    const records = await withBase44Retry(() => entity.list('created_date', scanLimit, cursor.offset)) as Array<Record<string, any>>;
     const selected: Array<Record<string, any>> = [];
     let consumed = 0;
     const remainingRecords = MAX_RECORDS_PER_INVOCATION - processed;
@@ -267,14 +327,14 @@ async function continueRun(base44: any, config: any, run: any): Promise<{ run: a
   if (cursor.entityIndex >= BACKUP_ENTITY_NAMES.length) {
     if (!cursor.since && Number(cursor.total || 0) === 0) {
       const sourceHasRecords = (await Promise.all(BACKUP_ENTITY_NAMES.map(async (entityName) => {
-        const probe = await base44.asServiceRole.entities[entityName].list('created_date', 1, 0, ['id']);
+        const probe = await withBase44Retry<any[]>(() => base44.asServiceRole.entities[entityName].list('created_date', 1, 0, ['id']));
         return probe.length > 0;
       }))).some(Boolean);
       if (sourceHasRecords) throw new Error('Initial backup scanned source data but selected zero records.');
     }
     return { run: await completeRun(base44, config, run, cursor), complete: true, processed };
   }
-  await base44.asServiceRole.entities.ExpressBackupRun.update(run.id, {
+  await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupRun.update(run.id, {
     cursor_json: JSON.stringify(cursor),
     metrics_json: JSON.stringify({
       counts: cursor.counts,
@@ -282,7 +342,7 @@ async function continueRun(base44: any, config: any, run: any): Promise<{ run: a
       fullSnapshot: !cursor.since,
       scanned,
     }),
-  });
+  }));
   return { run: { ...run, cursor_json: JSON.stringify(cursor) }, complete: false, processed };
 }
 
@@ -313,11 +373,11 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
     const missing = [...writer.missing, ...(!signingKey ? ['manifestSigningKey'] : [])];
     if (user?.role === 'admin' && body.action === 'start') {
-      await base44.asServiceRole.entities.ExpressBackupRun.create({
+      await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupRun.create({
         run_id: crypto.randomUUID(), status: 'setup_required', trigger: 'manual',
         schema_version: BACKUP_SCHEMA_VERSION, started_at: now, completed_at: now,
         error_code: 'aws_setup_required', configuration_status: `missing:${missing.join(',')}`,
-      });
+      }));
     }
     return json({ ok: false, setupRequired: true, missing }, 503);
   }
@@ -328,15 +388,20 @@ Deno.serve(async (req) => {
     }
     let run = await runningRun(base44);
     const shouldStart = body.action === 'start' || trigger === 'scheduled_backup_start';
-    if (!run && shouldStart) run = await createRun(base44, scheduled ? 'scheduled' : 'manual');
+    if (!run && shouldStart) {
+      const recoverable = await recoverableFailedRun(base44);
+      run = recoverable
+        ? await resumeFailedRun(base44, recoverable)
+        : await createRun(base44, scheduled ? 'scheduled' : 'manual');
+    }
     if (!run) return json({ ok: true, skipped: true, reason: 'no_running_backup' });
     const result = await continueRun(base44, writer.config, run);
     return json({ ok: true, runId: result.run.run_id, complete: result.complete, processed: result.processed });
   } catch (error) {
     const run = await runningRun(base44);
-    if (run) await base44.asServiceRole.entities.ExpressBackupRun.update(run.id, {
+    if (run) await withBase44Retry(() => base44.asServiceRole.entities.ExpressBackupRun.update(run.id, {
       status: 'failed', completed_at: new Date().toISOString(), error_code: 'backup_failed',
-    }).catch(() => null);
+    })).catch(() => null);
     console.error('Express independent backup failed', error instanceof Error ? error.message : 'unknown');
     return json({ ok: false, error: 'The independent backup failed. Source records were not changed.' }, 500);
   }
