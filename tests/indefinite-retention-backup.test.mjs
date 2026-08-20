@@ -153,6 +153,10 @@ test("Draft Recovery exposes connected submissions, standalone legacy records, r
   assert.match(deletion, /executeDeletion/);
   assert.match(retention, /restorePreview/);
   assert.match(retention, /restoreApply/);
+  assert.ok(
+    page.indexOf('id="retention-protection-heading"') > page.indexOf('id="local-backups-heading"'),
+    "Retention & Recovery Protection must remain the final page section",
+  );
 });
 
 test("all retained client entities default to indefinite retention and admin-only deletion", async () => {

@@ -801,18 +801,6 @@ export default function FormDraftRecovery() {
             )}
           </section>
 
-          <section className="brand-secondary-section" aria-labelledby="retention-protection-heading">
-            <div className="draft-recovery-brand__list-heading">
-              <div>
-                <h2 id="retention-protection-heading">Retention & Recovery Protection</h2>
-                <p>Indefinite retention, independent backup health, and checksum-safe restore.</p>
-              </div>
-            </div>
-            <div className="brand-panel brand-secondary-body">
-              <RetentionRecoveryPanel recoveryGrant={recoveryGrant} />
-            </div>
-          </section>
-
           {pagination.error && (
             <div className="brand-panel draft-recovery-brand__error" role="alert">
               <span><AlertTriangle className="w-4 h-4" /> {pagination.error}</span>
@@ -929,6 +917,18 @@ export default function FormDraftRecovery() {
             </div>
             <div className="brand-panel brand-secondary-body">
               <LocalRecoveryBackupsPanel embedded />
+            </div>
+          </section>
+
+          <section className="brand-secondary-section" aria-labelledby="retention-protection-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <div>
+                <h2 id="retention-protection-heading">Retention & Recovery Protection</h2>
+                <p>Indefinite retention, independent backup health, and checksum-safe restore.</p>
+              </div>
+            </div>
+            <div className="brand-panel brand-secondary-body">
+              <RetentionRecoveryPanel recoveryGrant={recoveryGrant} />
             </div>
           </section>
         </div>
