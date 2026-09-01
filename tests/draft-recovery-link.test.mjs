@@ -48,4 +48,12 @@ test("admin action and questionnaire load are wired to the secondary recovery ke
   assert.match(draftSource, /draftAllowsAccess\(existing, accessKeyHash\)/);
   assert.match(pageSource, /Copy Draft Link/);
   assert.match(pageSource, /#?draftRecoveryData/);
+  const actionsMarkup = pageSource.slice(
+    pageSource.indexOf('<p className="brand-action-label">Actions</p>'),
+    pageSource.indexOf('<p className="brand-action-label">AI Actions</p>'),
+  );
+  assert.ok(
+    actionsMarkup.indexOf("Copy Draft Link") < actionsMarkup.indexOf("Edit Draft"),
+    "Copy Draft Link should be the first action, before Edit Draft",
+  );
 });

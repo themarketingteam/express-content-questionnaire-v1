@@ -571,6 +571,13 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             <div className="brand-action-buttons">
               <Button size="sm" variant="outline" className="brand-button-secondary"
                 disabled={isLoading}
+                onClick={handleCopyDraftLink}
+                title="Creates a secure link that restores this draft and keeps future saves attached to the same session.">
+                {actionLoading === "copyDraftLink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                Copy Draft Link
+              </Button>
+              <Button size="sm" variant="outline" className="brand-button-secondary"
+                disabled={isLoading}
                 onClick={() => setPayloadEditorOpen(value => !value)}
                 aria-expanded={payloadEditorOpen}
                 aria-controls={payloadEditorId}>
@@ -583,13 +590,6 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
                 title="Re-sends the payload to Zapier every time. The webhook handles de-duplication.">
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 Retry Submission
-              </Button>
-              <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading}
-                onClick={handleCopyDraftLink}
-                title="Creates a secure link that restores this draft and keeps future saves attached to the same session.">
-                {actionLoading === "copyDraftLink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
-                Copy Draft Link
               </Button>
               <ClientDataDeletionDialog
                 recordType="draft"
