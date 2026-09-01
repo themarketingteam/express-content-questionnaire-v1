@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
+import { base44, getBase44FunctionEndpoint } from "@/api/base44Client";
 import { getOrCreateQuestionnaireDraftIdentity, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
 import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions, saveStateToLocalStorage, loadStateFromLocalStorage, writeStateMarkerCookie, clearStateFromLocalStorage } from "@/lib/expressPersistedState";
 import { clearExpressQuestionnaireLocalState, createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
-import { createSaveDraftSnapshot, writeDraftFailureBackup } from "@/lib/draftPersistence";
+import { buildImmediateDraftRecord, createSaveDraftSnapshot, writeDraftFailureBackup } from "@/lib/draftPersistence";
 import { createQuestionnaireDraftApi, createSerialDraftSaveQueue } from "@/lib/questionnaireDraftApi";
+import {
+  attachDraftLifecycleFlush,
+  classifyDraftFailure,
+  createKeepaliveDraftSaver,
+  retryDraftOperation,
+} from "@/lib/draftSaveReliability";
 import {
   buildPersistedStateFromRemoteDraft,
   parseRemoteAnswerHistory,
@@ -110,7 +116,7 @@ export default function Questionnaire() {
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [isDraftHydrating, setIsDraftHydrating] = useState(true);
-  const [draftSaveStatus, setDraftSaveStatus] = useState(/** @type {{ state: string, lastServerSavedAt?: string, lastLocalSavedAt?: string, pendingLocalChanges?: boolean, lastError?: string }} */ ({ state: "initializing" }));
+  const [draftSaveStatus, setDraftSaveStatus] = useState(/** @type {{ state: string, lastServerSavedAt?: string, lastLocalSavedAt?: string, pendingLocalChanges?: boolean, lastError?: string, pendingRevision?: number, lastConfirmedRevision?: number }} */ ({ state: "initializing" }));
 
   // Last-failed submit context — drives the recovery card
   const [lastSubmitContext, setLastSubmitContext] = useState(null);
@@ -195,13 +201,18 @@ export default function Questionnaire() {
   const draftRequestVersionRef = useRef(0);
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
+  const draftBootstrapReadyRef = useRef(false);
+  const draftRevisionRef = useRef(0);
+  const lastConfirmedRevisionRef = useRef(0);
+  const latestPendingDraftRef = useRef(null);
+  const storageTelemetrySentRef = useRef(false);
 
   const [draftIdentity] = useState(() => getOrCreateQuestionnaireDraftIdentity());
   const questionnaireSessionId = draftIdentity.sessionId;
 
   const urlParams = new URLSearchParams(window.location.search);
   const businessNameParam = urlParams.get("businessName") || urlParams.get("business_name") || urlParams.get("name") || "";
-  const domainParam = "";
+  const domainParam = urlParams.get("domain") || urlParams.get("businessDomain") || urlParams.get("business_domain") || "";
   const urlCredentials = {
     businessName: businessNameParam,
     domain: domainParam,
@@ -209,26 +220,83 @@ export default function Questionnaire() {
     userEmail: urlParams.get("userEmail") || "",
     userName: urlParams.get("userName") || "",
   };
+  const [knownBusinessDetails, setKnownBusinessDetails] = useState({
+    businessName: businessNameParam,
+    domain: domainParam,
+  });
+  const businessDetailsRef = useRef({ businessName: businessNameParam, domain: domainParam });
 
   const draftApi = useMemo(() => createQuestionnaireDraftApi({
     invoke: (name, body) => base44.functions.invoke(name, body),
     sessionId: draftIdentity.sessionId,
     accessKey: draftIdentity.accessKey,
   }), [draftIdentity]);
+
+  const telemetryPayload = useCallback((extra = {}) => ({
+    pendingRevision: Number(latestPendingDraftRef.current?.client_revision || draftRevisionRef.current || 0),
+    lastConfirmedRevision: lastConfirmedRevisionRef.current,
+    online: typeof navigator === "undefined" || navigator.onLine !== false,
+    storageAvailable: draftIdentity.storageAvailable,
+    urlCredentialPersisted: draftIdentity.urlCredentialPersisted,
+    ...extra,
+  }), [draftIdentity]);
+
+  const reportPersistenceTelemetry = useCallback((eventType, extra = {}) => {
+    if (!draftBootstrapReadyRef.current) return Promise.resolve();
+    return draftApi.telemetry(eventType, telemetryPayload(extra)).catch(() => undefined);
+  }, [draftApi, telemetryPayload]);
+
   const enqueueDraftSave = useMemo(
-    () => createSerialDraftSaveQueue((draftRecord) => draftApi.save(draftRecord)),
-    [draftApi]
+    () => createSerialDraftSaveQueue((draftRecord) => retryDraftOperation(
+      () => draftApi.save(draftRecord),
+      {
+        onRetry: ({ attempt, code }) => {
+          setDraftSaveStatus((previous) => ({
+            ...previous,
+            state: "retrying_server",
+            pendingLocalChanges: true,
+            pendingRevision: draftRecord.client_revision,
+            lastConfirmedRevision: lastConfirmedRevisionRef.current,
+            lastError: code,
+          }));
+          void reportPersistenceTelemetry("save_retrying", { attempt, failureCode: code });
+        },
+        onExhausted: ({ attempt, code, retryable }) => {
+          const state = retryable ? "retry_exhausted" : "save_rejected";
+          setDraftSaveStatus((previous) => ({
+            ...previous,
+            state,
+            pendingLocalChanges: true,
+            pendingRevision: draftRecord.client_revision,
+            lastConfirmedRevision: lastConfirmedRevisionRef.current,
+            lastError: code,
+          }));
+          void reportPersistenceTelemetry(retryable ? "retry_exhausted" : "save_rejected", {
+            attempt,
+            failureCode: code,
+          });
+        },
+      },
+    )),
+    [draftApi, reportPersistenceTelemetry]
   );
 
   const findExistingDraftBySessionId = useCallback(async () => remoteDraftRef.current, []);
 
   const persistDraftRecord = useCallback(async (draftRecord) => {
+    const incomingRevision = Number(draftRecord?.client_revision || 0);
+    if (!latestPendingDraftRef.current
+      || incomingRevision >= Number(latestPendingDraftRef.current.client_revision || 0)) {
+      latestPendingDraftRef.current = draftRecord;
+    }
     const requestVersion = draftRequestVersionRef.current + 1;
     draftRequestVersionRef.current = requestVersion;
     setDraftSaveStatus((previous) => ({
       ...previous,
       state: "saving_server",
       pendingLocalChanges: true,
+      pendingRevision: incomingRevision,
+      lastConfirmedRevision: lastConfirmedRevisionRef.current,
       lastError: "",
     }));
 
@@ -247,33 +315,46 @@ export default function Questionnaire() {
       if (result.stale) {
         const currentDraft = await draftApi.load();
         remoteDraftRef.current = currentDraft;
+        const confirmedRevision = Number(currentDraft?.last_confirmed_revision || result.lastConfirmedRevision || 0);
+        lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
+        const stillPending = Number(latestPendingDraftRef.current?.client_revision || 0) > lastConfirmedRevisionRef.current;
+        if (!stillPending) latestPendingDraftRef.current = null;
         setDraftSaveStatus({
-          state: "saved_server",
+          state: stillPending ? "changes_pending" : "saved_server",
           lastServerSavedAt: currentDraft?.last_saved_at || result.lastSavedAt || "",
-          pendingLocalChanges: false,
+          pendingLocalChanges: stillPending,
+          pendingRevision: Number(latestPendingDraftRef.current?.client_revision || 0),
+          lastConfirmedRevision: lastConfirmedRevisionRef.current,
           lastError: "",
         });
         return result;
       }
 
       const savedAt = result.lastSavedAt || draftRecord.last_saved_at || new Date().toISOString();
+      const confirmedRevision = Number(result.lastConfirmedRevision ?? incomingRevision);
+      lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
+      const stillPending = Number(latestPendingDraftRef.current?.client_revision || 0) > lastConfirmedRevisionRef.current;
+      if (!stillPending) latestPendingDraftRef.current = null;
       remoteDraftRef.current = {
         ...(remoteDraftRef.current || {}),
         ...draftRecord,
         id: result.draftId || remoteDraftRef.current?.id || "",
         last_saved_at: savedAt,
+        last_confirmed_revision: lastConfirmedRevisionRef.current,
       };
       setDraftSaveStatus({
-        state: "saved_server",
+        state: stillPending ? "changes_pending" : (draftIdentity.storageAvailable ? "saved_server" : "saved_server_no_local"),
         lastServerSavedAt: savedAt,
-        pendingLocalChanges: false,
+        pendingLocalChanges: stillPending,
+        pendingRevision: Number(latestPendingDraftRef.current?.client_revision || 0),
+        lastConfirmedRevision: lastConfirmedRevisionRef.current,
         lastError: "",
       });
       return result;
     };
 
     return performSave();
-  }, [draftApi, enqueueDraftSave]);
+  }, [draftApi, draftIdentity.storageAvailable, enqueueDraftSave]);
 
   const saveDraftSnapshot = useCallback(
     createSaveDraftSnapshot({
@@ -298,7 +379,9 @@ export default function Questionnaire() {
       businessName: modalBusinessName,
       domain: modalDomain,
     } = /** @type {any} */ (options);
-    if (!isHydratedRef.current && !responsesSnapshot) return; // Block pre-hydration saves unless caller passes an explicit snapshot
+    if (!draftBootstrapReadyRef.current || (!isHydratedRef.current && !responsesSnapshot)) return;
+    const clientRevision = draftRevisionRef.current + 1;
+    draftRevisionRef.current = clientRevision;
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
     );
@@ -311,35 +394,57 @@ export default function Questionnaire() {
       touchedQuestions: touchedQuestionsSnapshot || touchedQuestions,
       expandedQuestions: expandedSnap,
       credentials: urlCredentials,
-      businessNameParam: modalBusinessName || businessNameParam,
-      domainParam: modalDomain || domainParam,
+      businessNameParam: modalBusinessName || businessDetailsRef.current.businessName || businessNameParam,
+      domainParam: modalDomain || businessDetailsRef.current.domain || domainParam,
       currentQuestionId: lastChangedQuestionIdRef.current,
       lastChangedQuestionId: lastChangedQuestionIdRef.current,
       status: status || "draft",
       submitError: submitError || "",
       finalSubmissionId: finalSubmissionId || "",
       submitAttemptId: submitAttemptId || "",
+      clientRevision,
     });
   }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
   const queueDraftSave = useCallback((changedQuestionId, nextFormData, historySnapshot) => {
     if (hasFinalSubmittedRef.current) return;
-    if (!isHydratedRef.current) return; // Don't save before cookie state is loaded
+    if (!isHydratedRef.current || !draftBootstrapReadyRef.current) return;
     lastChangedQuestionIdRef.current = String(changedQuestionId || "");
+    const clientRevision = draftRevisionRef.current + 1;
+    draftRevisionRef.current = clientRevision;
+    const expandedSnap = Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
+    );
+    const validationStatus = textValidation.getAllFieldStatuses();
+    latestPendingDraftRef.current = buildImmediateDraftRecord({
+      sessionId: questionnaireSessionId,
+      responses: nextFormData,
+      validationStatus,
+      touchedQuestions,
+      expandedQuestions: expandedSnap,
+      credentials: urlCredentials,
+      businessName: businessDetailsRef.current.businessName,
+      domain: businessDetailsRef.current.domain,
+      currentQuestionId: String(changedQuestionId || ""),
+      lastChangedQuestionId: String(changedQuestionId || ""),
+      lastNonEmptyAnswers: historySnapshot || answerHistory.lastNonEmptyAnswers,
+      fieldHistory: answerHistory.fieldHistory,
+      clientRevision,
+      existingResponses: (() => {
+        try { return JSON.parse(remoteDraftRef.current?.responses_json || "{}"); }
+        catch { return {}; }
+      })(),
+    });
     setDraftSaveStatus((previous) => ({
       ...previous,
-      state: "saved_local",
+      state: draftIdentity.storageAvailable ? "changes_pending" : "storage_blocked_pending",
       pendingLocalChanges: true,
-      lastLocalSavedAt: new Date().toISOString(),
+      pendingRevision: clientRevision,
+      lastConfirmedRevision: lastConfirmedRevisionRef.current,
     }));
     if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
     draftSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        const expandedSnap = Object.fromEntries(
-          Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
-        );
-        // Include validation status from hook
-        const validationStatus = textValidation.getAllFieldStatuses();
         await saveDraftSnapshot({
           sessionId: questionnaireSessionId,
           responses: nextFormData,
@@ -347,8 +452,8 @@ export default function Questionnaire() {
           touchedQuestions,
           expandedQuestions: expandedSnap,
           credentials: urlCredentials,
-          businessNameParam,
-          domainParam,
+          businessNameParam: businessDetailsRef.current.businessName || businessNameParam,
+          domainParam: businessDetailsRef.current.domain || domainParam,
           currentQuestionId: String(changedQuestionId || ""),
           lastChangedQuestionId: String(changedQuestionId || ""),
           status: "draft",
@@ -358,14 +463,17 @@ export default function Questionnaire() {
           lastNonEmptyAnswers: historySnapshot || answerHistory.lastNonEmptyAnswers,
           fieldHistory: answerHistory.fieldHistory,
           lastLocalPersistedAt: new Date().toISOString(),
+          clientRevision,
         });
       } catch (err) {
         console.error("[draft] save failed:", err?.message || err);
         if (!err?.draftSaveSuperseded) {
           setDraftSaveStatus((previous) => ({
             ...previous,
-            state: navigator.onLine === false ? "offline_saved_local" : "server_error",
+            state: navigator.onLine === false ? "offline_server_pending" : previous.state,
             pendingLocalChanges: true,
+            pendingRevision: clientRevision,
+            lastConfirmedRevision: lastConfirmedRevisionRef.current,
             lastError: err?.message || "Secure draft save failed",
           }));
         }
@@ -382,7 +490,83 @@ export default function Questionnaire() {
         });
       }
     }, 1800);
-  }, [saveDraftSnapshot, questionnaireSessionId, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
+  }, [answerHistory, businessNameParam, domainParam, draftIdentity.storageAvailable, openQuestions, questionnaireSessionId, saveDraftSnapshot, textValidation, touchedQuestions]);
+
+  const retryLatestDraft = useCallback(async () => {
+    if (!draftBootstrapReadyRef.current || hasFinalSubmittedRef.current) return;
+    const pendingDraft = latestPendingDraftRef.current;
+    if (!pendingDraft) return;
+    try {
+      await persistDraftRecord(pendingDraft);
+    } catch (error) {
+      const failure = classifyDraftFailure(error);
+      setDraftSaveStatus((previous) => ({
+        ...previous,
+        state: navigator.onLine === false ? "offline_server_pending" : (failure.retryable ? "retry_exhausted" : "save_rejected"),
+        pendingLocalChanges: true,
+        pendingRevision: Number(pendingDraft.client_revision || 0),
+        lastConfirmedRevision: lastConfirmedRevisionRef.current,
+        lastError: failure.code,
+      }));
+    }
+  }, [persistDraftRecord]);
+
+  const keepaliveDraftSave = useMemo(() => createKeepaliveDraftSaver({
+    endpoint: getBase44FunctionEndpoint("questionnaireDraftData"),
+    sessionId: draftIdentity.sessionId,
+    accessKey: draftIdentity.accessKey,
+  }), [draftIdentity]);
+
+  useEffect(() => attachDraftLifecycleFlush({
+    documentTarget: document,
+    windowTarget: window,
+    getPendingDraft: () => draftBootstrapReadyRef.current && !hasFinalSubmittedRef.current
+      ? latestPendingDraftRef.current
+      : null,
+    flushDraft: async (draftRecord) => {
+      try {
+        const result = await keepaliveDraftSave(draftRecord);
+        const confirmedRevision = Number(result.lastConfirmedRevision ?? draftRecord.client_revision ?? 0);
+        lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
+        if (Number(latestPendingDraftRef.current?.client_revision || 0) <= lastConfirmedRevisionRef.current) {
+          latestPendingDraftRef.current = null;
+        }
+      } catch (error) {
+        const failure = classifyDraftFailure(error);
+        setDraftSaveStatus((previous) => ({
+          ...previous,
+          state: navigator.onLine === false ? "offline_server_pending" : "retry_exhausted",
+          pendingLocalChanges: true,
+          lastConfirmedRevision: lastConfirmedRevisionRef.current,
+          lastError: failure.code,
+        }));
+        throw error;
+      }
+    },
+    retryPendingDraft: retryLatestDraft,
+    onLifecycleEvent: (eventType) => {
+      void reportPersistenceTelemetry(eventType);
+    },
+  }), [keepaliveDraftSave, reportPersistenceTelemetry, retryLatestDraft]);
+
+  useEffect(() => {
+    const retryTimer = window.setInterval(() => {
+      if (latestPendingDraftRef.current && navigator.onLine !== false) void retryLatestDraft();
+    }, 15000);
+    return () => window.clearInterval(retryTimer);
+  }, [retryLatestDraft]);
+
+  const handleBusinessDetailsChange = useCallback((businessName, domain) => {
+    const nextDetails = {
+      businessName: String(businessName || "").trim(),
+      domain: String(domain || "").trim(),
+    };
+    businessDetailsRef.current = nextDetails;
+    setKnownBusinessDetails(nextDetails);
+    if (draftBootstrapReadyRef.current && isHydratedRef.current && (nextDetails.businessName || nextDetails.domain)) {
+      void saveDraftNow(nextDetails).catch(() => undefined);
+    }
+  }, [saveDraftNow]);
 
   // Cleanup draft save timeout on unmount
   useEffect(() => {
@@ -465,7 +649,8 @@ export default function Questionnaire() {
 
 
 
-  // Restore the newest valid browser or secure-server snapshot before accepting edits.
+  // Restore the newest valid browser or secure-server snapshot. The form remains
+  // locked until the server has created/confirmed the draft and recovery key.
   useEffect(() => {
     let active = true;
 
@@ -502,18 +687,77 @@ export default function Questionnaire() {
       }
 
       let remoteDraft = null;
-      let remoteError = null;
-      try {
-        remoteDraft = await draftApi.load();
-      } catch (error) {
-        remoteError = error;
-        console.error("[draft] secure restore failed:", error?.message || error);
+      let bootstrapResult = null;
+      let bootstrapAttempt = 0;
+      let bootstrapHadFailure = false;
+      const bootstrapIdentity = {
+        business_name: businessNameParam,
+        domain: domainParam,
+        user_id: urlCredentials.userId,
+        user_name: urlCredentials.userName,
+        user_email: urlCredentials.userEmail,
+      };
+
+      while (active && !bootstrapResult) {
+        bootstrapAttempt += 1;
+        setDraftSaveStatus((previous) => ({
+          ...previous,
+          state: bootstrapAttempt === 1 ? "bootstrap_connecting" : "bootstrap_retrying",
+          pendingLocalChanges: Boolean(localResult?.state),
+          lastError: bootstrapHadFailure ? previous.lastError : "",
+        }));
+        try {
+          bootstrapResult = await draftApi.bootstrap(bootstrapIdentity, {
+            storageAvailable: draftIdentity.storageAvailable,
+            urlCredentialPersisted: draftIdentity.urlCredentialPersisted,
+          }, bootstrapAttempt);
+          if (!bootstrapResult.bootstrapConfirmed || !bootstrapResult.draftId) {
+            throw Object.assign(new Error("The recovery draft bootstrap response was incomplete."), {
+              code: "bootstrap_unconfirmed",
+              status: 503,
+            });
+          }
+          remoteDraft = bootstrapResult.draft || null;
+        } catch (error) {
+          bootstrapHadFailure = true;
+          const failure = classifyDraftFailure(error);
+          console.error("[draft] secure bootstrap failed:", failure.code);
+          if (!failure.retryable) {
+            if (active) {
+              setDraftSaveStatus({
+                state: "bootstrap_blocked",
+                pendingLocalChanges: Boolean(localResult?.state),
+                lastConfirmedRevision: 0,
+                lastError: failure.code,
+              });
+            }
+            return;
+          }
+          if (active) {
+            setDraftSaveStatus({
+              state: "bootstrap_retrying",
+              pendingLocalChanges: Boolean(localResult?.state),
+              lastConfirmedRevision: 0,
+              lastError: failure.code,
+            });
+          }
+          const delayMs = Math.min(15000, 1000 * (2 ** Math.min(4, bootstrapAttempt - 1)));
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        }
       }
 
-      if (!active) return;
+      if (!active || !bootstrapResult) return;
 
       remoteDraftRef.current = remoteDraft;
-      draftRecordIdRef.current = remoteDraft?.id || "";
+      draftRecordIdRef.current = bootstrapResult.draftId || remoteDraft?.id || "";
+      const remoteRevision = Number(bootstrapResult.lastConfirmedRevision || remoteDraft?.last_confirmed_revision || 0);
+      lastConfirmedRevisionRef.current = remoteRevision;
+      draftRevisionRef.current = remoteRevision;
+      businessDetailsRef.current = {
+        businessName: remoteDraft?.business_name || businessNameParam,
+        domain: remoteDraft?.domain || domainParam,
+      };
+      setKnownBusinessDetails(businessDetailsRef.current);
       const remoteState = buildPersistedStateFromRemoteDraft(remoteDraft, questionnaireSessionId);
       const selected = selectNewestPersistedState(localResult?.state || null, remoteState);
       const restoredState = selected.state;
@@ -538,8 +782,9 @@ export default function Questionnaire() {
         }
 
         // Repopulate browser storage after a server recovery so subsequent reloads are instant.
-        saveStateToLocalStorage(restoredState, questionnaireSessionId);
+        const storageResult = saveStateToLocalStorage(restoredState, questionnaireSessionId);
         writeStateMarkerCookie(questionnaireSessionId, restoredState.savedAt);
+        if (!storageResult.confirmed) storageTelemetrySentRef.current = false;
       }
 
       const remoteHistory = selected.source === "server_draft"
@@ -560,37 +805,32 @@ export default function Questionnaire() {
         console.log(`[persisted-state] Loaded from ${selected.source || localSource}`);
       }
 
-      if (remoteDraft) {
-        setDraftSaveStatus({
-          state: "saved_server",
-          lastServerSavedAt: remoteDraft.last_saved_at || remoteDraft.updated_date || "",
-          pendingLocalChanges: selected.source === "local",
-          lastError: "",
-        });
-      } else if (remoteError) {
-        setDraftSaveStatus({
-          state: navigator.onLine === false ? "offline_saved_local" : "server_error",
-          lastLocalSavedAt: restoredState?.savedAt || "",
-          pendingLocalChanges: Boolean(restoredState),
-          lastError: remoteError?.message || "Secure restore failed",
-        });
-      } else if (restoredState) {
-        setDraftSaveStatus({
-          state: "saved_local",
-          lastLocalSavedAt: restoredState.savedAt || "",
-          pendingLocalChanges: true,
-          lastError: "",
-        });
-      } else {
-        setDraftSaveStatus({
-          state: "ready",
-          pendingLocalChanges: false,
-          lastError: "",
-        });
-      }
-
+      draftBootstrapReadyRef.current = true;
       isHydratedRef.current = true;
       setIsDraftHydrating(false);
+      setDraftSaveStatus({
+        state: selected.source === "local"
+          ? (draftIdentity.storageAvailable ? "changes_pending" : "storage_blocked_pending")
+          : (draftIdentity.storageAvailable ? "saved_server" : "saved_server_no_local"),
+        lastServerSavedAt: bootstrapResult.lastSavedAt || remoteDraft?.last_saved_at || remoteDraft?.updated_date || "",
+        lastLocalSavedAt: restoredState?.savedAt || "",
+        pendingLocalChanges: selected.source === "local",
+        pendingRevision: remoteRevision,
+        lastConfirmedRevision: remoteRevision,
+        lastError: "",
+      });
+
+      if (bootstrapHadFailure) {
+        void draftApi.telemetry("bootstrap_failed", telemetryPayload({
+          attempt: Math.max(1, bootstrapAttempt - 1),
+          failureCode: "recovered_after_failure",
+        }));
+        void draftApi.telemetry("bootstrap_recovered", telemetryPayload({ attempt: bootstrapAttempt }));
+      }
+      if (!draftIdentity.storageAvailable && !storageTelemetrySentRef.current) {
+        storageTelemetrySentRef.current = true;
+        void draftApi.telemetry("storage_blocked", telemetryPayload({ failureCode: "browser_storage_denied" }));
+      }
 
       // Upload a newer browser snapshot (including legacy cookie data) immediately.
       if (restoredState && selected.source === "local") {
@@ -613,13 +853,17 @@ export default function Questionnaire() {
             lastNonEmptyAnswers: remoteHistory || answerHistory.lastNonEmptyAnswers,
             fieldHistory: answerHistory.fieldHistory,
             lastLocalPersistedAt: restoredState.savedAt || new Date().toISOString(),
+            clientRevision: remoteRevision + 1,
           });
+          draftRevisionRef.current = remoteRevision + 1;
         } catch (error) {
           if (!active) return;
           setDraftSaveStatus({
-            state: navigator.onLine === false ? "offline_saved_local" : "server_error",
+            state: navigator.onLine === false ? "offline_server_pending" : "retry_exhausted",
             lastLocalSavedAt: restoredState.savedAt || "",
             pendingLocalChanges: true,
+            pendingRevision: remoteRevision + 1,
+            lastConfirmedRevision: remoteRevision,
             lastError: error?.message || "Secure draft save failed",
           });
         }
@@ -656,14 +900,24 @@ export default function Questionnaire() {
         questionnaireSessionId,
       });
       
-      // Save full state to localStorage (primary persistence layer)
-      saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      const storageResult = saveStateToLocalStorage(persistedState, questionnaireSessionId);
       // Write a small marker cookie for legacy compatibility (no form data)
       writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
+      if (!storageResult.confirmed) {
+        setDraftSaveStatus((previous) => ({
+          ...previous,
+          state: previous.pendingLocalChanges ? "storage_blocked_pending" : "saved_server_no_local",
+          lastError: previous.pendingLocalChanges ? "browser_storage_denied" : "",
+        }));
+        if (!storageTelemetrySentRef.current) {
+          storageTelemetrySentRef.current = true;
+          void reportPersistenceTelemetry("storage_blocked", { failureCode: "browser_storage_denied" });
+        }
+      }
     }, 300);
 
     return () => clearTimeout(saveTimer);
-  }, [formData, textValidation, touchedQuestions, openQuestions, questionnaireSessionId]);
+  }, [formData, textValidation, touchedQuestions, openQuestions, questionnaireSessionId, reportPersistenceTelemetry]);
 
   // Save before page unload
   useEffect(() => {
@@ -852,6 +1106,11 @@ export default function Questionnaire() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    if (!draftBootstrapReadyRef.current) {
+      toast.error("Your secure recovery draft is still connecting. Please wait before submitting.");
+      return;
+    }
     
     // Check for blocking incomplete items
     const hasBlocking = hasBlockingIncompleteItems(incompleteSummary);
@@ -1344,8 +1603,8 @@ export default function Questionnaire() {
     }
   }, [formData, textValidation, urlCredentials, createDraftEvent, queueDraftSave]);
 
-  const initialBusinessName = businessNameParam;
-  const initialDomain = domainParam;
+  const initialBusinessName = knownBusinessDetails.businessName;
+  const initialDomain = knownBusinessDetails.domain;
 
   // Helper functions for converting between openQuestions array and expandedQuestions object
   const openQuestionsToExpandedQuestionsObject = (openQuestionsArray) => {
@@ -2041,6 +2300,7 @@ export default function Questionnaire() {
           onCancel={() => !isSubmitting && setShowConfirmModal(false)}
           initialBusinessName={initialBusinessName}
           initialDomain={initialDomain}
+          onBusinessDetailsChange={handleBusinessDetailsChange}
           isSubmitting={isSubmitting}
           isSubmitValidatingText={isSubmitValidatingText}
           submitValidationIssues={submitValidationIssues}

@@ -525,6 +525,10 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
               <Detail label="Current Question" value={draft.current_question_id} />
               <Detail label="Last Changed At" value={formatDate(draft.last_changed_at)} />
               <Detail label="Last Saved At" value={formatDate(draft.last_saved_at)} />
+              <Detail label="Bootstrap Confirmed" value={formatDate(draft.bootstrap_confirmed_at)} />
+              <Detail label="Last Confirmed Revision" value={String(draft.last_confirmed_revision ?? "—")} />
+              <Detail label="Persistence Health" value={draft.persistence_health_status} />
+              <Detail label="Browser Storage" value={draft.storage_available === false ? "Blocked" : draft.storage_available === true ? "Available" : "Unknown"} />
               <Detail label="Save Error" value={draft.save_error} />
               <Detail label="Submit Error" value={typeof draft.submit_error === "string" ? draft.submit_error : JSON.stringify(draft.submit_error)} />
               {mappedPayload && <>
@@ -728,6 +732,15 @@ export default function FormDraftRecovery() {
     status: statusFilter,
     archiveState,
     search,
+    identityState: "identified",
+  });
+  const unidentifiedPagination = useAdminRecoveryPagination({
+    recordType: "draft",
+    recoveryGrant,
+    status: statusFilter,
+    archiveState,
+    search,
+    identityState: "unidentified",
   });
   const submissionPagination = useAdminRecoveryPagination({
     recordType: "submission",
@@ -737,6 +750,7 @@ export default function FormDraftRecovery() {
     search,
   });
   const drafts = pagination.records;
+  const unidentifiedDrafts = unidentifiedPagination.records;
   const submissions = submissionPagination.records;
 
   const loadDraftDetail = useCallback((recordId) => requestRecoveryRecord({
@@ -757,9 +771,9 @@ export default function FormDraftRecovery() {
 
   const duplicateSessionIds = useMemo(() => {
     const counts = {};
-    drafts.forEach(d => { if (d.session_id) counts[d.session_id] = (counts[d.session_id] || 0) + 1; });
+    [...drafts, ...unidentifiedDrafts].forEach(d => { if (d.session_id) counts[d.session_id] = (counts[d.session_id] || 0) + 1; });
     return new Set(Object.keys(counts).filter(k => counts[k] > 1));
-  }, [drafts]);
+  }, [drafts, unidentifiedDrafts]);
 
   const visibleRange = getVisibleRecordRange({
     page: pagination.page,
@@ -770,6 +784,16 @@ export default function FormDraftRecovery() {
     page: pagination.page,
     hasMore: pagination.hasMore,
     loading: pagination.loading,
+  });
+  const unidentifiedRange = getVisibleRecordRange({
+    page: unidentifiedPagination.page,
+    pageSize: unidentifiedPagination.pageSize,
+    recordCount: unidentifiedDrafts.length,
+  });
+  const unidentifiedControls = getPaginationControls({
+    page: unidentifiedPagination.page,
+    hasMore: unidentifiedPagination.hasMore,
+    loading: unidentifiedPagination.loading,
   });
   const submissionRange = getVisibleRecordRange({
     page: submissionPagination.page,
@@ -783,8 +807,8 @@ export default function FormDraftRecovery() {
   });
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([pagination.refresh(), submissionPagination.refresh()]);
-  }, [pagination.refresh, submissionPagination.refresh]);
+    await Promise.all([pagination.refresh(), unidentifiedPagination.refresh(), submissionPagination.refresh()]);
+  }, [pagination.refresh, unidentifiedPagination.refresh, submissionPagination.refresh]);
 
   return (
     <main className="draft-recovery-brand draft-recovery-brand-page">
@@ -831,7 +855,7 @@ export default function FormDraftRecovery() {
                 </SelectContent>
               </Select>
               <Input
-                placeholder="Search by business, domain, email, session ID, or submission ID"
+                placeholder="Search business, domain, name/email, session ID, submission ID, or answer text"
                 value={search}
                 onChange={event => setSearch(event.target.value)}
                 className="draft-recovery-brand__filter-search"
@@ -841,10 +865,10 @@ export default function FormDraftRecovery() {
                 type="button"
                 variant="outline"
                 onClick={refreshAll}
-                disabled={pagination.loading || submissionPagination.loading}
+                disabled={pagination.loading || unidentifiedPagination.loading || submissionPagination.loading}
                 className="brand-button-secondary draft-recovery-brand__refresh"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${pagination.loading || submissionPagination.loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${pagination.loading || unidentifiedPagination.loading || submissionPagination.loading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
             </div>
@@ -911,6 +935,43 @@ export default function FormDraftRecovery() {
               >
                 Next
               </Button>
+            </div>
+          </section>
+
+          <section className="draft-recovery-brand__list" aria-labelledby="unidentified-drafts-heading">
+            <div className="draft-recovery-brand__list-heading">
+              <div>
+                <h2 id="unidentified-drafts-heading">Unidentified Drafts</h2>
+                <p>Saved answers whose business name or domain has not yet been captured. Search answer text, user identity, or session ID to recover them.</p>
+              </div>
+              <p>{unidentifiedDrafts.length ? `Showing ${unidentifiedRange.start}–${unidentifiedRange.end} · Page ${unidentifiedPagination.page}` : `Page ${unidentifiedPagination.page} · no visible records`}</p>
+            </div>
+
+            {unidentifiedPagination.error && (
+              <div className="brand-panel draft-recovery-brand__error" role="alert">
+                <span><AlertTriangle className="w-4 h-4" /> {unidentifiedPagination.error}</span>
+                <Button size="sm" variant="outline" onClick={unidentifiedPagination.retry}>Retry</Button>
+              </div>
+            )}
+            {unidentifiedPagination.loading ? (
+              <div className="brand-panel draft-recovery-brand__loading"><Loader2 className="w-4 h-4 animate-spin" /> Loading unidentified drafts…</div>
+            ) : !unidentifiedPagination.error && unidentifiedDrafts.length === 0 ? (
+              <div className="brand-panel draft-recovery-brand__loading">No matching unidentified drafts found.</div>
+            ) : !unidentifiedPagination.error ? unidentifiedDrafts.map(draft => (
+              <DraftRow
+                key={`${draft.id}:${unidentifiedPagination.refreshVersion}`}
+                draft={draft}
+                isDuplicate={duplicateSessionIds.has(draft.session_id)}
+                onRefresh={refreshAll}
+                onLoadDetail={loadDraftDetail}
+                recoveryGrant={recoveryGrant}
+              />
+            )) : null}
+
+            <div className="draft-recovery-brand__pagination" aria-label="Unidentified draft pagination">
+              <Button type="button" variant="outline" onClick={unidentifiedPagination.goToPreviousPage} disabled={unidentifiedControls.previousDisabled}>Previous</Button>
+              <span>Page {unidentifiedPagination.page}</span>
+              <Button type="button" variant="outline" onClick={unidentifiedPagination.goToNextPage} disabled={unidentifiedControls.nextDisabled}>Next</Button>
             </div>
           </section>
 

@@ -19,10 +19,12 @@ export const getExpressLsKeySession = (sessionId) => `msp_questionnaire_data_v3_
  */
 export function saveStateToLocalStorage(state, sessionId) {
   const serialized = serializePersistedState(state);
-  safeLocalStorageSet(EXPRESS_LS_KEY_GLOBAL, serialized);
+  const globalSaved = safeLocalStorageSet(EXPRESS_LS_KEY_GLOBAL, serialized);
+  let sessionSaved = false;
   if (sessionId) {
-    safeLocalStorageSet(getExpressLsKeySession(sessionId), serialized);
+    sessionSaved = safeLocalStorageSet(getExpressLsKeySession(sessionId), serialized);
   }
+  return { globalSaved, sessionSaved, confirmed: globalSaved || sessionSaved };
 }
 
 /**

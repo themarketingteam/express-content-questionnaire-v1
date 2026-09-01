@@ -14,6 +14,17 @@ const json = (body: Record<string, unknown>, status = 200) =>
 const encoder = new TextEncoder();
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{20,160}$/;
 const ACCESS_KEY_PATTERN = /^[A-Za-z0-9_-]{32,160}$/;
+const TELEMETRY_EVENT_TYPES = new Set([
+  'bootstrap_failed',
+  'bootstrap_recovered',
+  'storage_blocked',
+  'save_rejected',
+  'save_retrying',
+  'retry_exhausted',
+  'visibility_flush',
+  'pagehide_flush',
+  'online_recovery',
+]);
 
 const stringFieldLimits: Record<string, number> = {
   business_name: 500,
@@ -97,6 +108,102 @@ function sanitizeDraft(rawDraft: unknown, sessionId: string): Record<string, str
   return draft;
 }
 
+function sanitizeRevision(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isSafeInteger(numeric) && numeric >= 0 ? Math.min(numeric, 2_147_483_647) : 0;
+}
+
+function sanitizeIdentity(rawIdentity: unknown): Record<string, string> {
+  const source = rawIdentity && typeof rawIdentity === 'object' && !Array.isArray(rawIdentity)
+    ? rawIdentity as Record<string, unknown>
+    : {};
+  const limits: Record<string, number> = {
+    business_name: 500,
+    domain: 500,
+    user_id: 500,
+    user_name: 500,
+    user_email: 500,
+  };
+  const identity: Record<string, string> = {};
+  for (const [field, limit] of Object.entries(limits)) {
+    const value = source[field];
+    if (typeof value === 'string' && value.trim() && value.length <= limit) identity[field] = value.trim();
+  }
+  return identity;
+}
+
+function hasScopedAccess(draft: Record<string, unknown> | null): boolean {
+  return Boolean(
+    draft?.draft_access_key_hash
+    || (Array.isArray(draft?.draft_recovery_access_key_hashes)
+      && draft.draft_recovery_access_key_hashes.length > 0),
+  );
+}
+
+function classifyFailureCode(value: unknown): string {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[a-z0-9_-]{1,80}$/.test(normalized) ? normalized : 'unknown';
+}
+
+async function recordPersistenceTelemetry({
+  base44,
+  existing,
+  sessionId,
+  eventType,
+  telemetry,
+}: {
+  base44: any;
+  existing: Record<string, unknown>;
+  sessionId: string;
+  eventType: string;
+  telemetry: Record<string, unknown>;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  const pendingRevision = sanitizeRevision(telemetry.pendingRevision);
+  const lastConfirmedRevision = sanitizeRevision(telemetry.lastConfirmedRevision);
+  const failureCode = classifyFailureCode(telemetry.failureCode);
+  const safeTelemetry = {
+    attempt: Math.min(100, Math.max(0, sanitizeRevision(telemetry.attempt))),
+    pending_revision: pendingRevision,
+    last_confirmed_revision: lastConfirmedRevision,
+    failure_code: failureCode,
+    online: telemetry.online !== false,
+    storage_available: telemetry.storageAvailable !== false,
+    url_credential_persisted: telemetry.urlCredentialPersisted !== false,
+  };
+
+  await base44.asServiceRole.entities.FormDraftEvent.create({
+    session_id: sessionId,
+    event_type: eventType,
+    question_id: '',
+    question_type: 'persistence_telemetry',
+    value_json: JSON.stringify(safeTelemetry),
+    value_summary: `Persistence telemetry: ${eventType}`,
+    value_length: JSON.stringify(safeTelemetry).length,
+    selected_option_count: 0,
+    business_name: typeof existing.business_name === 'string' ? existing.business_name : '',
+    domain: typeof existing.domain === 'string' ? existing.domain : '',
+    user_id: typeof existing.user_id === 'string' ? existing.user_id : '',
+    submit_attempt_id: '',
+    created_at_iso: now,
+    retention_policy: 'indefinite_until_manual_deletion',
+    retention_policy_version: '2026-08-18',
+    retention_protected_at: now,
+  });
+
+  const healthStatus = eventType === 'retry_exhausted'
+    ? 'retry_exhausted'
+    : eventType === 'save_retrying' || eventType === 'save_rejected'
+      ? 'retrying'
+      : 'healthy';
+  await base44.asServiceRole.entities.FormDraft.update(String(existing.id), {
+    persistence_health_status: healthStatus,
+    last_persistence_telemetry_at: now,
+    last_save_failure_code: healthStatus === 'healthy' ? '' : failureCode,
+    ...(eventType === 'storage_blocked' ? { storage_available: false } : {}),
+  });
+}
+
 function newestRecord(records: any[]): any | null {
   return [...(records || [])].sort((left, right) => {
     const leftTime = new Date(left.last_saved_at || left.updated_date || left.created_date || 0).getTime() || 0;
@@ -132,12 +239,105 @@ Deno.serve(async (req) => {
     );
     const existing = newestRecord(matches || []);
 
+    if (body.action === 'bootstrap') {
+      if (existing && hasScopedAccess(existing) && !draftAllowsAccess(existing, accessKeyHash)) {
+        console.warn(JSON.stringify({
+          functionName: 'questionnaireDraftData',
+          deliveryStage: 'bootstrap_rejected',
+          identifier: sessionId,
+        }));
+        return json({ success: false, error: 'Draft access was denied.', code: 'access_denied' }, 403);
+      }
+
+      const now = new Date().toISOString();
+      const identity = sanitizeIdentity(body.identity);
+      const attempt = Math.min(100, Math.max(1, sanitizeRevision(body.attempt) || 1));
+      const updates: Record<string, unknown> = {
+        draft_access_key_hash: existing?.draft_access_key_hash || accessKeyHash,
+        bootstrap_confirmed_at: now,
+        bootstrap_attempt_count: attempt,
+        persistence_health_status: 'healthy',
+        storage_available: body.storageAvailable !== false,
+        url_credential_persisted: body.urlCredentialPersisted !== false,
+        retention_policy: 'indefinite_until_manual_deletion',
+        retention_policy_version: '2026-08-18',
+        retention_protected_at: existing?.retention_protected_at || now,
+      };
+      for (const [field, value] of Object.entries(identity)) {
+        if (!existing?.[field]) updates[field] = value;
+      }
+
+      const savedResult = existing
+        ? await base44.asServiceRole.entities.FormDraft.update(existing.id, updates)
+        : await base44.asServiceRole.entities.FormDraft.create({
+          session_id: sessionId,
+          status: 'draft',
+          responses_json: '{}',
+          validation_status_json: '{}',
+          touched_questions_json: '{}',
+          expanded_questions_json: '{}',
+          metadata_json: '{}',
+          userdata_json: '{}',
+          mapped_payload_json: '{}',
+          draft_metadata_json: JSON.stringify({
+            app: 'express_questionnaire',
+            source: 'server_bootstrap',
+            schema_version: '3',
+          }),
+          client_revision: 0,
+          last_confirmed_revision: 0,
+          last_changed_at: now,
+          last_saved_at: now,
+          ...identity,
+          ...updates,
+        });
+      const saved = { ...(existing || {}), ...(savedResult || {}) };
+
+      console.info(JSON.stringify({
+        functionName: 'questionnaireDraftData',
+        deliveryStage: existing ? 'bootstrap_confirmed' : 'bootstrap_created',
+        identifier: sessionId,
+        attempt,
+      }));
+      return json({
+        success: true,
+        bootstrapConfirmed: true,
+        created: !existing,
+        draftId: saved.id || existing?.id,
+        lastSavedAt: saved.last_saved_at || saved.updated_date || now,
+        lastConfirmedRevision: sanitizeRevision(saved.last_confirmed_revision),
+        draft: withoutDraftAccessHashes(saved),
+      });
+    }
+
     if (body.action === 'load') {
       if (!existing) return json({ success: true, draft: null });
       if (!draftAllowsAccess(existing, accessKeyHash)) {
         return json({ success: false, error: 'Draft access was denied.' }, 403);
       }
       return json({ success: true, draft: withoutDraftAccessHashes(existing) });
+    }
+
+    if (body.action === 'telemetry') {
+      if (!existing || !draftAllowsAccess(existing, accessKeyHash)) {
+        return json({ success: false, error: 'Draft access was denied.', code: 'access_denied' }, 403);
+      }
+      const eventType = typeof body.eventType === 'string' ? body.eventType : '';
+      if (!TELEMETRY_EVENT_TYPES.has(eventType)) {
+        return json({ success: false, error: 'Unsupported telemetry event.' }, 400);
+      }
+      const telemetry = body.telemetry && typeof body.telemetry === 'object' && !Array.isArray(body.telemetry)
+        ? body.telemetry as Record<string, unknown>
+        : {};
+      await recordPersistenceTelemetry({ base44, existing, sessionId, eventType, telemetry });
+      console.info(JSON.stringify({
+        functionName: 'questionnaireDraftData',
+        deliveryStage: eventType,
+        identifier: sessionId,
+        pendingRevision: sanitizeRevision(telemetry.pendingRevision),
+        lastConfirmedRevision: sanitizeRevision(telemetry.lastConfirmedRevision),
+      }));
+      return json({ success: true, recorded: true });
     }
 
     if (body.action !== 'save') {
@@ -147,29 +347,33 @@ Deno.serve(async (req) => {
     const draft = sanitizeDraft(body.draft, sessionId);
     if (!draft) return json({ success: false, error: 'Draft data is invalid.' }, 400);
 
-    const existingHasScopedAccess = Boolean(
-      existing?.draft_access_key_hash
-      || (Array.isArray(existing?.draft_recovery_access_key_hashes)
-        && existing.draft_recovery_access_key_hashes.length > 0),
-    );
+    const existingHasScopedAccess = hasScopedAccess(existing);
     if (existingHasScopedAccess && !draftAllowsAccess(existing, accessKeyHash)) {
       return json({ success: false, error: 'Draft access was denied.' }, 403);
     }
 
+    const incomingRevision = sanitizeRevision((body.draft as Record<string, unknown>)?.client_revision);
+    const existingRevision = sanitizeRevision(existing?.last_confirmed_revision);
     const incomingTime = new Date(draft.last_changed_at || draft.last_saved_at || 0).getTime() || 0;
     const existingTime = new Date(existing?.last_changed_at || existing?.last_saved_at || 0).getTime() || 0;
-    if (existing && incomingTime > 0 && existingTime > incomingTime) {
+    if (existing && (existingRevision > incomingRevision
+      || (incomingRevision === 0 && incomingTime > 0 && existingTime > incomingTime))) {
       return json({
         success: true,
         saved: false,
         stale: true,
         draftId: existing.id,
         lastSavedAt: existing.last_saved_at || existing.updated_date || '',
+        lastConfirmedRevision: existingRevision,
       });
     }
 
     const nextDraft = {
       ...draft,
+      client_revision: incomingRevision,
+      last_confirmed_revision: incomingRevision,
+      persistence_health_status: 'healthy',
+      last_save_failure_code: '',
       // A generated recovery link may use the secondary access hash. Preserve
       // the client's original autosave key instead of rotating it on resume.
       draft_access_key_hash: existing?.draft_access_key_hash || accessKeyHash,
@@ -194,6 +398,7 @@ Deno.serve(async (req) => {
       stale: false,
       draftId: saved.id,
       lastSavedAt: saved.last_saved_at || saved.updated_date || nextDraft.last_saved_at,
+      lastConfirmedRevision: sanitizeRevision(saved.last_confirmed_revision),
     });
   } catch (error) {
     console.error('Questionnaire draft request failed', error);

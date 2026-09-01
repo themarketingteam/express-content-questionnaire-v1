@@ -17,12 +17,18 @@ const capitalizeBusinessName = (name) => {
     .join(' ');
 };
 
+const cleanDomain = (raw) => {
+  if (!raw || !raw.trim()) return "";
+  return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
+};
+
 export default function ConfirmModal({ 
   formData, 
   onConfirm, 
   onCancel, 
   initialBusinessName, 
   initialDomain, 
+  onBusinessDetailsChange,
   isSubmitting = false, 
   isSubmitValidatingText = false,
   submitError = null, 
@@ -38,8 +44,7 @@ export default function ConfirmModal({
   const normalizedFormData = normalizeExpressFormData(formData || {});
   
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
-  // Domain is always blank — never prefilled from URL params
-  const [domain, setDomain] = useState("");
+  const [domain, setDomain] = useState(initialDomain || "");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isCopyingRecovery, setIsCopyingRecovery] = useState(false);
 
@@ -57,6 +62,13 @@ export default function ConfirmModal({
     };
   }, [onCancel, isSubmitting]);
 
+  useEffect(() => {
+    const saveIdentityTimer = window.setTimeout(() => {
+      onBusinessDetailsChange?.(businessName.trim(), cleanDomain(domain));
+    }, 700);
+    return () => window.clearTimeout(saveIdentityTimer);
+  }, [businessName, domain, onBusinessDetailsChange]);
+
   // Prevent backdrop click during submit
   const handleBackdropClick = isSubmitting ? undefined : onCancel;
 
@@ -68,11 +80,6 @@ export default function ConfirmModal({
       return value.label || "Not answered";
     }
     return value || "Not answered";
-  };
-
-  const cleanDomain = (raw) => {
-    if (!raw || !raw.trim()) return "";
-    return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
 
   // Validate that the input looks like a domain (accepts example.com, www.example.com,

@@ -16,19 +16,25 @@ export const RECOVERY_RECORD_CONFIG = {
       'auto_repair_pending',
       'auto_repair_failed',
     ]),
-    searchFields: ['business_name', 'domain', 'user_email', 'session_id'],
+    searchFields: ['business_name', 'domain', 'user_name', 'user_email', 'user_id', 'session_id', 'responses_json'],
     listFields: [
       'id',
       'status',
       'business_name',
       'domain',
       'user_email',
+      'user_name',
+      'user_id',
       'session_id',
       'last_saved_at',
       'last_changed_question_id',
       'current_question_id',
       'final_submission_id',
       'ai_repair_status',
+      'bootstrap_confirmed_at',
+      'persistence_health_status',
+      'last_confirmed_revision',
+      'storage_available',
       'archived',
       'archived_at',
       'created_date',
@@ -114,6 +120,7 @@ export const RECOVERY_RECORD_CONFIG = {
 
 type RecordType = keyof typeof RECOVERY_RECORD_CONFIG;
 type ArchiveState = 'active' | 'archived' | 'all';
+type IdentityState = 'all' | 'identified' | 'unidentified';
 
 export type NormalizedRecoveryListRequest = {
   action: 'list';
@@ -122,6 +129,7 @@ export type NormalizedRecoveryListRequest = {
   pageSize: number;
   status: string;
   archiveState: ArchiveState;
+  identityState: IdentityState;
   search: string;
 };
 
@@ -145,6 +153,13 @@ function clampInteger(value: unknown, fallback: number, minimum: number, maximum
 function normalizeArchiveState(value: unknown): ArchiveState | null {
   const normalized = typeof value === 'string' ? value : 'active';
   return normalized === 'active' || normalized === 'archived' || normalized === 'all'
+    ? normalized
+    : null;
+}
+
+function normalizeIdentityState(value: unknown): IdentityState | null {
+  const normalized = typeof value === 'string' ? value : 'all';
+  return normalized === 'all' || normalized === 'identified' || normalized === 'unidentified'
     ? normalized
     : null;
 }
@@ -182,6 +197,10 @@ export function normalizeRecoveryRequest(body: Record<string, unknown>): Normali
   if (!RECOVERY_RECORD_CONFIG[recordType].statuses.has(status)) {
     return { ok: false, error: 'Unsupported status filter.' };
   }
+  const identityState = normalizeIdentityState(body.identityState);
+  if (!identityState || (recordType !== 'draft' && identityState !== 'all')) {
+    return { ok: false, error: 'Unsupported identityState.' };
+  }
 
   const search = replaceControlCharacters(typeof body.search === 'string' ? body.search : '')
     .trim()
@@ -196,6 +215,7 @@ export function normalizeRecoveryRequest(body: Record<string, unknown>): Normali
       pageSize: clampInteger(body.pageSize, DEFAULT_RECOVERY_PAGE_SIZE, 1, MAX_RECOVERY_PAGE_SIZE),
       status,
       archiveState,
+      identityState,
       search,
     },
   };
@@ -224,6 +244,34 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
       .map((field) => ({ [field]: { $regex: pattern, $options: 'i' } }));
   }
 
+  const appendClause = (clause: Record<string, unknown>) => {
+    if (Array.isArray(query.$and)) {
+      (query.$and as Record<string, unknown>[]).push(clause);
+    } else if (query.$or) {
+      query.$and = [{ $or: query.$or }, clause];
+      delete query.$or;
+    } else {
+      query.$and = [clause];
+    }
+  };
+
+  if (request.recordType === 'draft' && request.identityState === 'identified') {
+    appendClause({
+      $and: [
+        { business_name: { $exists: true, $ne: '' } },
+        { domain: { $exists: true, $ne: '' } },
+      ],
+    });
+  }
+  if (request.recordType === 'draft' && request.identityState === 'unidentified') {
+    appendClause({
+      $or: [
+        { business_name: { $exists: false } }, { business_name: '' }, { business_name: null },
+        { domain: { $exists: false } }, { domain: '' }, { domain: null },
+      ],
+    });
+  }
+
   // Connected submissions are nested beneath their draft. The submission
   // collection on Draft Recovery normally shows only legacy or otherwise
   // standalone final records so clients are not duplicated in the UI. During
@@ -237,12 +285,8 @@ export function buildRecoveryListQuery(request: NormalizedRecoveryListRequest): 
         { linked_draft_id: null },
       ],
     };
-    if (query.$or) {
-      query.$and = [{ $or: query.$or }, standalone];
-      delete query.$or;
-    } else {
-      Object.assign(query, standalone);
-    }
+    if (query.$and || query.$or) appendClause(standalone);
+    else Object.assign(query, standalone);
   }
 
   return query;

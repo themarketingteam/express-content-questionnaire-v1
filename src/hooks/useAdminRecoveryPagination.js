@@ -24,6 +24,7 @@ export function useAdminRecoveryPagination({
   recoveryGrant,
   status = "all",
   archiveState = "active",
+  identityState = "all",
   search = "",
   pageSize = ADMIN_RECOVERY_PAGE_SIZE,
 }) {
@@ -41,7 +42,7 @@ export function useAdminRecoveryPagination({
 
   useEffect(() => {
     setPage(1);
-  }, [status, archiveState, search]);
+  }, [status, archiveState, identityState, search]);
 
   const loadPage = useCallback(async () => {
     if (!recoveryGrant) return;
@@ -58,6 +59,7 @@ export function useAdminRecoveryPagination({
         pageSize,
         status,
         archiveState,
+        identityState,
         search: debouncedSearch,
       });
       if (!requestGateRef.current.isLatest(requestId)) return;
@@ -77,7 +79,7 @@ export function useAdminRecoveryPagination({
     } finally {
       if (requestGateRef.current.isLatest(requestId)) setLoading(false);
     }
-  }, [archiveState, debouncedSearch, page, pageSize, recordType, recoveryGrant, refreshVersion, status]);
+  }, [archiveState, debouncedSearch, identityState, page, pageSize, recordType, recoveryGrant, refreshVersion, status]);
 
   useEffect(() => {
     loadPage();

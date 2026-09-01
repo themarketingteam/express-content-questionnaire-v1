@@ -44,8 +44,10 @@ test("list requests are normalized, bounded, filtered, and projected to collapse
   const query = buildRecoveryListQuery(normalized.value);
   assert.equal(query.status, "submit_failed");
   assert.deepEqual(query.archived, { $ne: true });
-  assert.equal(query.$or.length, 4);
+  assert.equal(query.$or.length, RECOVERY_RECORD_CONFIG.draft.searchFields.length);
   assert.equal(query.$or[0].business_name.$regex, "Client\\.\\*");
+  assert.ok(RECOVERY_RECORD_CONFIG.draft.searchFields.includes("responses_json"));
+  assert.ok(RECOVERY_RECORD_CONFIG.draft.searchFields.includes("user_name"));
 
   for (const config of Object.values(RECOVERY_RECORD_CONFIG)) {
     for (const sensitiveField of [
@@ -74,6 +76,24 @@ test("unsupported filters and invalid detail IDs are rejected", () => {
   );
   assert.equal(recordMatchesArchiveState({ archived: true }, "active"), false);
   assert.equal(recordMatchesArchiveState({ archived: true }, "archived"), true);
+});
+
+test("identified and unidentified drafts are separated without exposing answer payloads", () => {
+  const unidentified = normalizeRecoveryRequest({
+    action: "list", recordType: "draft", status: "all", archiveState: "active", identityState: "unidentified",
+  });
+  assert.equal(unidentified.ok, true);
+  const unidentifiedQuery = buildRecoveryListQuery(unidentified.value);
+  assert.ok(Array.isArray(unidentifiedQuery.$and));
+  assert.equal(unidentifiedQuery.$and[0].$or.length, 6);
+
+  const identified = normalizeRecoveryRequest({
+    action: "list", recordType: "draft", status: "all", archiveState: "active", identityState: "identified",
+  });
+  assert.equal(identified.ok, true);
+  const identifiedQuery = buildRecoveryListQuery(identified.value);
+  assert.equal(identifiedQuery.$and[0].$and.length, 2);
+  assert.equal(RECOVERY_RECORD_CONFIG.draft.listFields.includes("responses_json"), false);
 });
 
 test("standalone submissions are the default while submission searches include connected records", () => {
@@ -191,11 +211,13 @@ test("frontend uses protected pagination, resets filters to page one, lazy-loads
   assert.doesNotMatch(intake, /action:\s*["']listIntakes["']/);
   assert.match(page, /useAdminRecoveryPagination\(\{[\s\S]*recordType: "draft"/);
   assert.match(intake, /useAdminRecoveryPagination\(\{[\s\S]*recordType: "intake"/);
-  assert.match(hook, /setPage\(1\);[\s\S]*\[status, archiveState, search\]/);
+  assert.match(hook, /setPage\(1\);[\s\S]*\[status, archiveState, identityState, search\]/);
   assert.match(hook, /createLatestRecoveryRequestGate/);
   assert.match(page, /requestRecoveryRecord\(\{[\s\S]*recordType: "draft"/);
   assert.match(intake, /requestRecoveryRecord\(\{[\s\S]*recordType: "intake"/);
   assert.match(page, /intakeAvailable !== false/);
+  assert.match(page, /Unidentified Drafts/);
+  assert.match(page, /identityState: "unidentified"/);
   assert.match(intake, /onAvailabilityChange\?\.\(pagination\.hasAnyRecords\)/);
 
   const authorization = backend.indexOf("await authorizeRecoveryRequest");

@@ -19,6 +19,7 @@ export function createRecoveryListPayload({
   pageSize = ADMIN_RECOVERY_PAGE_SIZE,
   status = "all",
   archiveState = "active",
+  identityState = "all",
   search = "",
 }) {
   return {
@@ -28,6 +29,7 @@ export function createRecoveryListPayload({
     pageSize,
     status,
     archiveState,
+    identityState,
     search: search.trim(),
     recoveryGrant,
   };
@@ -51,6 +53,7 @@ export async function requestRecoveryPage({
   pageSize,
   status,
   archiveState,
+  identityState,
   search,
 }) {
   const response = await invoke(ADMIN_RECOVERY_PAGINATION_FUNCTION, createRecoveryListPayload({
@@ -60,6 +63,7 @@ export async function requestRecoveryPage({
     pageSize,
     status,
     archiveState,
+    identityState,
     search,
   }));
   return unwrapFunctionResponse(response);

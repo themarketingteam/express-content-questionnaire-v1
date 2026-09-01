@@ -41,47 +41,69 @@ export function buildDraftIdentityHash(hash, identity) {
   return `#${params.toString()}`;
 }
 
-export function getOrCreateQuestionnaireDraftIdentity({
-  storage = globalThis.localStorage,
-  location = globalThis.location,
-  history = globalThis.history,
-  cryptoApi = globalThis.crypto,
-} = {}) {
+export function getOrCreateQuestionnaireDraftIdentity(options = {}) {
+  const {
+    storage,
+    location = globalThis.location,
+    history = globalThis.history,
+    cryptoApi = globalThis.crypto,
+  } = /** @type {any} */ (options);
+  let storageTarget = storage;
+  if (storageTarget === undefined) {
+    try { storageTarget = globalThis.localStorage; }
+    catch { storageTarget = null; }
+  }
   const hashIdentity = readDraftIdentityFromHash(location?.hash || "");
   let sessionId = hashIdentity?.sessionId || "";
   let accessKey = hashIdentity?.accessKey || "";
+  let storageAvailable = true;
+  let urlCredentialPersisted = Boolean(hashIdentity);
 
   try {
     if (!sessionId) {
-      const storedSessionId = storage?.getItem(SESSION_STORAGE_KEY) || "";
+      const storedSessionId = storageTarget?.getItem(SESSION_STORAGE_KEY) || "";
       if (SESSION_PATTERN.test(storedSessionId)) sessionId = storedSessionId;
     }
     if (!accessKey) {
-      const storedAccessKey = storage?.getItem(ACCESS_KEY_STORAGE_KEY) || "";
+      const storedAccessKey = storageTarget?.getItem(ACCESS_KEY_STORAGE_KEY) || "";
       if (ACCESS_KEY_PATTERN.test(storedAccessKey)) accessKey = storedAccessKey;
     }
   } catch {
     // Storage may be unavailable; the URL fragment remains the recovery source.
+    storageAvailable = false;
   }
 
   if (!sessionId) sessionId = createSessionId(cryptoApi);
   if (!accessKey) accessKey = randomBase64Url(32, cryptoApi);
 
   try {
-    storage?.setItem(SESSION_STORAGE_KEY, sessionId);
-    storage?.setItem(ACCESS_KEY_STORAGE_KEY, accessKey);
+    storageTarget?.setItem(SESSION_STORAGE_KEY, sessionId);
+    storageTarget?.setItem(ACCESS_KEY_STORAGE_KEY, accessKey);
+    storageAvailable = storageTarget?.getItem(SESSION_STORAGE_KEY) === sessionId
+      && storageTarget?.getItem(ACCESS_KEY_STORAGE_KEY) === accessKey;
   } catch {
     // The URL fragment still preserves the identity when storage is unavailable.
+    storageAvailable = false;
   }
 
   if (location && history?.replaceState) {
-    const nextHash = buildDraftIdentityHash(location.hash, { sessionId, accessKey });
-    if (nextHash !== location.hash) {
-      history.replaceState(history.state ?? null, "", `${location.pathname || ""}${location.search || ""}${nextHash}`);
+    try {
+      const nextHash = buildDraftIdentityHash(location.hash, { sessionId, accessKey });
+      if (nextHash !== location.hash) {
+        history.replaceState(history.state ?? null, "", `${location.pathname || ""}${location.search || ""}${nextHash}`);
+      }
+      urlCredentialPersisted = readDraftIdentityFromHash(location.hash)?.accessKey === accessKey;
+    } catch {
+      try {
+        location.hash = buildDraftIdentityHash(location.hash, { sessionId, accessKey });
+        urlCredentialPersisted = readDraftIdentityFromHash(location.hash)?.accessKey === accessKey;
+      } catch {
+        urlCredentialPersisted = false;
+      }
     }
   }
 
-  return { sessionId, accessKey };
+  return { sessionId, accessKey, storageAvailable, urlCredentialPersisted };
 }
 
 export function clearQuestionnaireDraftIdentity({

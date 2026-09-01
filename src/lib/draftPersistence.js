@@ -143,7 +143,8 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
     submitAttemptId = "",
     lastNonEmptyAnswers = null,
     fieldHistory = null,
-    lastLocalPersistedAt = ""
+    lastLocalPersistedAt = "",
+    clientRevision = 0
   }) {
     const creds = sanitizeCredentialsForDraft(credentials);
     const businessName = businessNameParam || creds.businessName || "";
@@ -215,7 +216,7 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       source: "real_time_draft",
       path: typeof window !== "undefined" ? window.location.pathname : "",
       userAgent: safeGetUserAgent(),
-      schema_version: "2",
+      schema_version: "3",
       normalized: true,
       normalization_source: "draft_save",
       merge_applied: true,
@@ -247,6 +248,7 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       submitted_at: isSubmitted ? now : "",
       last_changed_at: now,
       last_saved_at: now,
+      client_revision: Number.isSafeInteger(clientRevision) && clientRevision >= 0 ? clientRevision : 0,
       ...(lastNonEmptyAnswers !== null ? { last_non_empty_answers_json: safeJsonStringify(lastNonEmptyAnswers) } : {}),
       ...(fieldHistory !== null ? { field_history_json: safeJsonStringify(fieldHistory) } : {}),
       ...(lastLocalPersistedAt ? { last_local_persisted_at: lastLocalPersistedAt } : {})
@@ -268,6 +270,76 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
         draftRecordIdRef.current = created.id;
       }
     }
+  };
+}
+
+export function buildImmediateDraftRecord({
+  sessionId,
+  responses,
+  validationStatus,
+  touchedQuestions,
+  expandedQuestions,
+  credentials = {},
+  businessName = "",
+  domain = "",
+  currentQuestionId = "",
+  lastChangedQuestionId = "",
+  lastNonEmptyAnswers = null,
+  fieldHistory = null,
+  clientRevision = 0,
+  existingResponses = {},
+}) {
+  const creds = sanitizeCredentialsForDraft(credentials);
+  const normalizedResponses = normalizeExpressFormData(responses || {});
+  const mergedResponses = mergeFormResponses(existingResponses || {}, normalizedResponses);
+  const normalizedValidationStatus = normalizeValidationStatus(validationStatus || {});
+  const normalizedTouchedQuestions = normalizeTouchedQuestions(touchedQuestions || {});
+  const normalizedExpandedQuestions = normalizeExpandedQuestions(expandedQuestions || {});
+  const resolvedBusinessName = String(businessName || creds.businessName || "").trim();
+  const resolvedDomain = String(domain || creds.domain || "").trim();
+  const mappedPayload = buildExpressSubmissionPayload({
+    formData: mergedResponses,
+    businessName: resolvedBusinessName,
+    domain: resolvedDomain,
+    sessionId,
+    submitAttemptId: "",
+  });
+  const now = safeNowIso();
+
+  return {
+    session_id: sessionId,
+    business_name: resolvedBusinessName,
+    domain: resolvedDomain,
+    user_id: creds.userId,
+    user_name: creds.userName,
+    user_email: creds.userEmail,
+    status: "draft",
+    current_question_id: String(currentQuestionId || ""),
+    last_changed_question_id: String(lastChangedQuestionId || ""),
+    responses_json: safeJsonStringify(mergedResponses),
+    validation_status_json: safeJsonStringify(normalizedValidationStatus),
+    touched_questions_json: safeJsonStringify(normalizedTouchedQuestions),
+    expanded_questions_json: safeJsonStringify(normalizedExpandedQuestions),
+    metadata_json: safeJsonStringify(mappedPayload.metadata),
+    userdata_json: safeJsonStringify(mappedPayload.userdata),
+    mapped_payload_json: safeJsonStringify({ metadata: mappedPayload.metadata, userdata: mappedPayload.userdata }),
+    draft_metadata_json: safeJsonStringify({
+      app: "express_questionnaire",
+      source: "lifecycle_flush",
+      schema_version: "3",
+      storage_independent: true,
+    }),
+    save_error: "",
+    submit_error: "",
+    final_submission_id: "",
+    submit_attempted_at: "",
+    submitted_at: "",
+    last_changed_at: now,
+    last_saved_at: now,
+    client_revision: Number.isSafeInteger(clientRevision) && clientRevision >= 0 ? clientRevision : 0,
+    ...(lastNonEmptyAnswers !== null ? { last_non_empty_answers_json: safeJsonStringify(lastNonEmptyAnswers) } : {}),
+    ...(fieldHistory !== null ? { field_history_json: safeJsonStringify(fieldHistory) } : {}),
+    last_local_persisted_at: now,
   };
 }
 

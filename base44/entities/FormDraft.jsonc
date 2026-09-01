@@ -128,6 +128,47 @@
       "format": "date-time",
       "description": "When this state was most recently persisted in the client browser"
     },
+    "client_revision": {
+      "type": "integer",
+      "default": 0,
+      "description": "Monotonic client-side revision included with the latest draft payload"
+    },
+    "last_confirmed_revision": {
+      "type": "integer",
+      "default": 0,
+      "description": "Latest client revision confirmed by the Base44 database"
+    },
+    "bootstrap_confirmed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the server draft and its recovery credential were last confirmed"
+    },
+    "bootstrap_attempt_count": {
+      "type": "integer",
+      "default": 0,
+      "description": "Client-reported bootstrap attempt number for the latest successful bootstrap"
+    },
+    "persistence_health_status": {
+      "type": "string",
+      "enum": ["healthy", "retrying", "retry_exhausted"],
+      "default": "healthy"
+    },
+    "last_persistence_telemetry_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "storage_available": {
+      "type": "boolean",
+      "description": "Whether durable browser storage was available at bootstrap"
+    },
+    "url_credential_persisted": {
+      "type": "boolean",
+      "description": "Whether the recovery credential was confirmed in the URL fragment"
+    },
+    "last_save_failure_code": {
+      "type": "string",
+      "description": "Sanitized classification of the latest client-side persistence failure"
+    },
     "final_submission_id": {
       "type": "string",
       "description": "Linked final FormSubmission ID"
