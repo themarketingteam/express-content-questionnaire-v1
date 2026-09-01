@@ -542,7 +542,8 @@
 
 .draft-recovery-brand .brand-button-primary,
 .draft-recovery-brand .brand-button-dark,
-.draft-recovery-brand .brand-button-secondary {
+.draft-recovery-brand .brand-button-secondary,
+.draft-recovery-brand .brand-button-danger {
   min-height: 2.35rem;
   border-width: 1px;
   font-weight: 500;

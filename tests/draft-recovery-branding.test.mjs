@@ -59,6 +59,7 @@ test("admin tools and their shared access gate use the scoped MSP Success brand 
   assert.match(page, /<span className="brand-detail__label">\{label\}:<\/span>/);
   assert.match(styles, /\.brand-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
   assert.match(styles, /\.brand-detail__label\s*\{[\s\S]*?font-weight:\s*700;/);
+  assert.match(styles, /\.draft-recovery-brand \.brand-button-secondary,\s*\n\.draft-recovery-brand \.brand-button-danger\s*\{\s*\n\s*min-height:\s*2\.35rem;/);
   assert.match(styles, /@media \(max-width: 44rem\)[\s\S]*?\.draft-recovery-brand \.brand-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr;/);
   assert.match(styles, /"Figtree", Arial, sans-serif/);
   assert.match(styles, /"Plus Jakarta Sans", Arial, sans-serif/);
