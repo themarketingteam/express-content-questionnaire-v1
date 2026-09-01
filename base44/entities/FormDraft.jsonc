@@ -14,6 +14,14 @@
       "pattern": "^[a-f0-9]{64}$",
       "description": "SHA-256 hash of the client-held secret used to access this draft"
     },
+    "draft_recovery_access_key_hashes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "description": "SHA-256 hashes of active admin-generated recovery-link secrets"
+    },
     "business_name": {
       "type": "string",
       "description": "Business name associated with the draft"

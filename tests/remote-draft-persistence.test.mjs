@@ -83,7 +83,22 @@ test("draft identity hash preserves unrelated fragment parameters", () => {
   const hash = buildDraftIdentityHash("#section=two", identity);
 
   assert.equal(new URLSearchParams(hash.slice(1)).get("section"), "two");
+  assert.equal(new URLSearchParams(hash.slice(1)).get("draft"), identity.sessionId);
+  assert.equal(new URLSearchParams(hash.slice(1)).get("key"), identity.accessKey);
   assert.deepEqual(readDraftIdentityFromHash(hash), identity);
+});
+
+test("legacy secure draft links remain compatible and session-only links are rejected", () => {
+  const identity = {
+    sessionId: "f23f4508-7516-4b1b-81e5-14e0d3d43b05",
+    accessKey: "abcdefghijklmnopqrstuvwxyz_ABCDEFG-1234567890",
+  };
+
+  assert.deepEqual(
+    readDraftIdentityFromHash(`#draft_session=${identity.sessionId}&draft_key=${identity.accessKey}`),
+    identity,
+  );
+  assert.equal(readDraftIdentityFromHash(`#draft=${identity.sessionId}`), null);
 });
 
 test("remote draft is converted to a restorable questionnaire state", () => {

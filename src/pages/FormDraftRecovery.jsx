@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   ChevronDown, ChevronUp, Copy, AlertTriangle, CheckCircle2,
-  Loader2, RefreshCw, Wrench, Stethoscope, RotateCcw, Pencil,
+  Loader2, RefreshCw, Wrench, Stethoscope, RotateCcw, Pencil, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import LocalRecoveryBackupsPanel from "@/components/admin/LocalRecoveryBackupsPanel";
@@ -25,6 +25,7 @@ import StandaloneSubmissionRow from "@/components/admin/StandaloneSubmissionRow"
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
+import { buildDraftIdentityHash } from "@/lib/questionnaireDraftIdentity";
 import { useAdminRecoveryPagination } from "@/hooks/useAdminRecoveryPagination";
 import {
   getPaginationControls,
@@ -48,6 +49,28 @@ function canParseJson(value) {
 function formatDate(value) {
   if (!value) return "—";
   try { const d = new Date(value); return isNaN(d.getTime()) ? "—" : d.toLocaleString(); } catch { return "—"; }
+}
+
+async function copyTextToClipboard(value) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    // Fall through to the compatibility path for stricter browsers.
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Clipboard access was denied by the browser.");
 }
 
 const STATUS_BADGE = {
@@ -255,6 +278,8 @@ const SOURCE_LABEL = {
   empty_schema: "empty schema — no data available",
 };
 
+const EXPRESS_QUESTIONNAIRE_URL = "https://expressform.tmtwebsiteresources.xyz/";
+
 function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, recoveryGrant }) {
   const [expanded, setExpanded] = useState(false);
   const [fullDraft, setFullDraft] = useState(null);
@@ -356,6 +381,30 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
       toast.error(msg);
     }
   });
+
+  const handleCopyDraftLink = () => handleAction("copyDraftLink", async () => {
+    try {
+      const response = await base44.functions.invoke("draftRecoveryData", {
+        action: "createDraftRecoveryLink",
+        draftId: draft.id,
+        recoveryGrant,
+      });
+      const data = response?.data || response;
+      if (!data?.success || !data.sessionId || !data.accessKey) {
+        throw new Error(data?.error || "The draft recovery link could not be created.");
+      }
+
+      const recoveryUrl = new URL(EXPRESS_QUESTIONNAIRE_URL);
+      recoveryUrl.hash = buildDraftIdentityHash("", {
+        sessionId: data.sessionId,
+        accessKey: data.accessKey,
+      });
+      await copyTextToClipboard(recoveryUrl.toString());
+      toast.success("Draft recovery link copied to the clipboard.");
+    } catch (error) {
+      toast.error(getBackendErrorMessage(error, "Draft recovery link could not be copied."));
+    }
+  }, { refresh: false });
 
   const handleAiAction = (mode) => handleAction(mode, async () => {
     try {
@@ -534,6 +583,13 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
                 title="Re-sends the payload to Zapier every time. The webhook handles de-duplication.">
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 Retry Submission
+              </Button>
+              <Button size="sm" variant="outline" className="brand-button-secondary"
+                disabled={isLoading}
+                onClick={handleCopyDraftLink}
+                title="Creates a secure link that restores this draft and keeps future saves attached to the same session.">
+                {actionLoading === "copyDraftLink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                Copy Draft Link
               </Button>
               <ClientDataDeletionDialog
                 recordType="draft"

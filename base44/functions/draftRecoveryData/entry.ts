@@ -3,6 +3,10 @@ import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
 import { sanitizePdfVersions } from '../../shared/pdfVersionPrivacy.ts';
 import {
+  appendDraftRecoveryAccessHash,
+  withoutDraftAccessHashes,
+} from '../../shared/draftAccess.ts';
+import {
   buildRecoveryListQuery,
   normalizeRecoveryRequest,
   RECOVERY_RECORD_CONFIG,
@@ -27,9 +31,24 @@ const updateLimits: Record<string, number> = {
 };
 
 const PDF_VERSION_LIST_LIMIT = 100;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{20,160}$/;
+const encoder = new TextEncoder();
 
 function isNonEmptyString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength;
+}
+
+function randomBase64Url(byteLength = 32): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function hashAccessKey(accessKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(accessKey));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 Deno.serve(async (req) => {
@@ -94,7 +113,10 @@ Deno.serve(async (req) => {
         if (!record || !recordMatchesArchiveState(record, request.archiveState)) {
           return json({ success: false, error: 'Record not found.' }, 404);
         }
-        return json({ success: true, record });
+        return json({
+          success: true,
+          record: request.recordType === 'draft' ? withoutDraftAccessHashes(record) : record,
+        });
       }
 
       const skip = (request.page - 1) * request.pageSize;
@@ -177,7 +199,38 @@ Deno.serve(async (req) => {
           PDF_VERSION_LIST_LIMIT,
         );
 
-        return json({ success: true, draft, submission, pdfVersions: sanitizePdfVersions(pdfVersions) });
+        return json({
+          success: true,
+          draft: withoutDraftAccessHashes(draft),
+          submission,
+          pdfVersions: sanitizePdfVersions(pdfVersions),
+        });
+      }
+
+      case 'createDraftRecoveryLink': {
+        if (!isNonEmptyString(body.draftId, 200)) {
+          return json({ success: false, error: 'draftId is required.' }, 400);
+        }
+        const draft = await base44.asServiceRole.entities.FormDraft.get(body.draftId);
+        if (!draft || typeof draft.session_id !== 'string' || !SESSION_ID_PATTERN.test(draft.session_id)) {
+          return json({ success: false, error: 'This draft does not have a valid recovery session.' }, 409);
+        }
+
+        const accessKey = randomBase64Url();
+        const accessKeyHash = await hashAccessKey(accessKey);
+        const recoveryHashes = appendDraftRecoveryAccessHash(
+          draft.draft_recovery_access_key_hashes,
+          accessKeyHash,
+        );
+        await base44.asServiceRole.entities.FormDraft.update(draft.id, {
+          draft_recovery_access_key_hashes: recoveryHashes,
+        });
+
+        return json({
+          success: true,
+          sessionId: draft.session_id,
+          accessKey,
+        });
       }
 
       case 'createPdfVersion': {
@@ -221,7 +274,7 @@ Deno.serve(async (req) => {
         }
 
         const draft = await base44.asServiceRole.entities.FormDraft.update(body.draftId, updates);
-        return json({ success: true, draft });
+        return json({ success: true, draft: withoutDraftAccessHashes(draft) });
       }
 
       default:

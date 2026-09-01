@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
+import { draftAllowsAccess, withoutDraftAccessHashes } from '../../shared/draftAccess.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,15 +60,6 @@ async function hashAccessKey(accessKey: string): Promise<string> {
   return bytesToHex(new Uint8Array(digest));
 }
 
-function constantTimeEqual(left: string, right: string): boolean {
-  const maxLength = Math.max(left.length, right.length);
-  let mismatch = left.length ^ right.length;
-  for (let index = 0; index < maxLength; index += 1) {
-    mismatch |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
-  }
-  return mismatch === 0;
-}
-
 function sanitizeDraft(rawDraft: unknown, sessionId: string): Record<string, string> | null {
   if (!rawDraft || typeof rawDraft !== 'object' || Array.isArray(rawDraft)) return null;
 
@@ -113,11 +105,6 @@ function newestRecord(records: any[]): any | null {
   })[0] || null;
 }
 
-function clientSafeDraft(draft: Record<string, unknown>): Record<string, unknown> {
-  const { draft_access_key_hash: _accessKeyHash, ...safeDraft } = draft;
-  return safeDraft;
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== 'POST') return json({ success: false, error: 'Method not allowed.' }, 405);
@@ -147,11 +134,10 @@ Deno.serve(async (req) => {
 
     if (body.action === 'load') {
       if (!existing) return json({ success: true, draft: null });
-      if (!existing.draft_access_key_hash
-        || !constantTimeEqual(existing.draft_access_key_hash, accessKeyHash)) {
+      if (!draftAllowsAccess(existing, accessKeyHash)) {
         return json({ success: false, error: 'Draft access was denied.' }, 403);
       }
-      return json({ success: true, draft: clientSafeDraft(existing) });
+      return json({ success: true, draft: withoutDraftAccessHashes(existing) });
     }
 
     if (body.action !== 'save') {
@@ -161,8 +147,12 @@ Deno.serve(async (req) => {
     const draft = sanitizeDraft(body.draft, sessionId);
     if (!draft) return json({ success: false, error: 'Draft data is invalid.' }, 400);
 
-    if (existing?.draft_access_key_hash
-      && !constantTimeEqual(existing.draft_access_key_hash, accessKeyHash)) {
+    const existingHasScopedAccess = Boolean(
+      existing?.draft_access_key_hash
+      || (Array.isArray(existing?.draft_recovery_access_key_hashes)
+        && existing.draft_recovery_access_key_hashes.length > 0),
+    );
+    if (existingHasScopedAccess && !draftAllowsAccess(existing, accessKeyHash)) {
       return json({ success: false, error: 'Draft access was denied.' }, 403);
     }
 
@@ -180,7 +170,9 @@ Deno.serve(async (req) => {
 
     const nextDraft = {
       ...draft,
-      draft_access_key_hash: accessKeyHash,
+      // A generated recovery link may use the secondary access hash. Preserve
+      // the client's original autosave key instead of rotating it on resume.
+      draft_access_key_hash: existing?.draft_access_key_hash || accessKeyHash,
       last_saved_at: draft.last_saved_at || new Date().toISOString(),
       retention_policy: 'indefinite_until_manual_deletion',
       retention_policy_version: '2026-08-18',

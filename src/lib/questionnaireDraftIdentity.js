@@ -1,7 +1,9 @@
 const SESSION_STORAGE_KEY = "express_questionnaire_session_id";
 const ACCESS_KEY_STORAGE_KEY = "express_questionnaire_draft_access_key";
-const HASH_SESSION_KEY = "draft_session";
-const HASH_ACCESS_KEY = "draft_key";
+const HASH_SESSION_KEY = "draft";
+const HASH_ACCESS_KEY = "key";
+const LEGACY_HASH_SESSION_KEY = "draft_session";
+const LEGACY_HASH_ACCESS_KEY = "draft_key";
 
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{20,160}$/;
 const ACCESS_KEY_PATTERN = /^[A-Za-z0-9_-]{32,160}$/;
@@ -24,14 +26,16 @@ function createSessionId(cryptoApi = globalThis.crypto) {
 
 export function readDraftIdentityFromHash(hash = "") {
   const params = new URLSearchParams(String(hash).replace(/^#/, ""));
-  const sessionId = params.get(HASH_SESSION_KEY) || "";
-  const accessKey = params.get(HASH_ACCESS_KEY) || "";
+  const sessionId = params.get(HASH_SESSION_KEY) || params.get(LEGACY_HASH_SESSION_KEY) || "";
+  const accessKey = params.get(HASH_ACCESS_KEY) || params.get(LEGACY_HASH_ACCESS_KEY) || "";
   if (!SESSION_PATTERN.test(sessionId) || !ACCESS_KEY_PATTERN.test(accessKey)) return null;
   return { sessionId, accessKey };
 }
 
 export function buildDraftIdentityHash(hash, identity) {
   const params = new URLSearchParams(String(hash || "").replace(/^#/, ""));
+  params.delete(LEGACY_HASH_SESSION_KEY);
+  params.delete(LEGACY_HASH_ACCESS_KEY);
   params.set(HASH_SESSION_KEY, identity.sessionId);
   params.set(HASH_ACCESS_KEY, identity.accessKey);
   return `#${params.toString()}`;
@@ -96,6 +100,8 @@ export function clearQuestionnaireDraftIdentity({
     const params = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
     params.delete(HASH_SESSION_KEY);
     params.delete(HASH_ACCESS_KEY);
+    params.delete(LEGACY_HASH_SESSION_KEY);
+    params.delete(LEGACY_HASH_ACCESS_KEY);
     const nextHash = params.toString() ? `#${params.toString()}` : "";
     history.replaceState(history.state ?? null, "", `${location.pathname || ""}${location.search || ""}${nextHash}`);
   }
