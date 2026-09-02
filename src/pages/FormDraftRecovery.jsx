@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,6 +26,7 @@ import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expre
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 import { buildDraftIdentityHash } from "@/lib/questionnaireDraftIdentity";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { useAdminRecoveryPagination } from "@/hooks/useAdminRecoveryPagination";
 import {
   getPaginationControls,
@@ -49,28 +50,6 @@ function canParseJson(value) {
 function formatDate(value) {
   if (!value) return "—";
   try { const d = new Date(value); return isNaN(d.getTime()) ? "—" : d.toLocaleString(); } catch { return "—"; }
-}
-
-async function copyTextToClipboard(value) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-      return;
-    }
-  } catch {
-    // Fall through to the compatibility path for stricter browsers.
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand("copy");
-  textarea.remove();
-  if (!copied) throw new Error("Clipboard access was denied by the browser.");
 }
 
 const STATUS_BADGE = {
@@ -288,6 +267,10 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const [actionLoading, setActionLoading] = useState(null);
   const [payloadEditorOpen, setPayloadEditorOpen] = useState(false);
   const [liveIdentityResolution, setLiveIdentityResolution] = useState(null);
+  const [draftRecoveryLink, setDraftRecoveryLink] = useState("");
+  const [draftRecoveryLinkError, setDraftRecoveryLinkError] = useState("");
+  const [draftRecoveryLinkLoading, setDraftRecoveryLinkLoading] = useState(false);
+  const draftRecoveryLinkRequestRef = useRef(null);
   const draft = fullDraft || draftSummary;
   const payloadEditorId = `payload-editor-${draft.id}`;
 
@@ -382,11 +365,16 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     }
   });
 
-  const handleCopyDraftLink = () => handleAction("copyDraftLink", async () => {
-    try {
+  const requestDraftRecoveryLink = useCallback(async () => {
+    if (draftRecoveryLink) return draftRecoveryLink;
+    if (draftRecoveryLinkRequestRef.current) return draftRecoveryLinkRequestRef.current;
+
+    setDraftRecoveryLinkLoading(true);
+    setDraftRecoveryLinkError("");
+    const request = (async () => {
       const response = await base44.functions.invoke("draftRecoveryData", {
         action: "createDraftRecoveryLink",
-        draftId: draft.id,
+        draftId: draftSummary.id,
         recoveryGrant,
       });
       const data = response?.data || response;
@@ -399,7 +387,43 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
         sessionId: data.sessionId,
         accessKey: data.accessKey,
       });
-      await copyTextToClipboard(recoveryUrl.toString());
+      return recoveryUrl.toString();
+    })();
+    draftRecoveryLinkRequestRef.current = request;
+
+    try {
+      const link = await request;
+      setDraftRecoveryLink(link);
+      return link;
+    } catch (error) {
+      setDraftRecoveryLinkError(getBackendErrorMessage(error, "Draft recovery link could not be created."));
+      throw error;
+    } finally {
+      if (draftRecoveryLinkRequestRef.current === request) {
+        draftRecoveryLinkRequestRef.current = null;
+      }
+      setDraftRecoveryLinkLoading(false);
+    }
+  }, [draftRecoveryLink, draftSummary.id, recoveryGrant]);
+
+  useEffect(() => {
+    if (!expanded || !fullDraft || draftRecoveryLink || draftRecoveryLinkLoading || draftRecoveryLinkError) return;
+    requestDraftRecoveryLink().catch(() => {
+      // The persistent row surfaces the error and the copy action can retry.
+    });
+  }, [
+    draftRecoveryLink,
+    draftRecoveryLinkError,
+    draftRecoveryLinkLoading,
+    expanded,
+    fullDraft,
+    requestDraftRecoveryLink,
+  ]);
+
+  const handleCopyDraftLink = () => handleAction("copyDraftLink", async () => {
+    try {
+      const link = draftRecoveryLink || await requestDraftRecoveryLink();
+      await copyTextToClipboard(link);
       toast.success("Draft recovery link copied to the clipboard.");
     } catch (error) {
       toast.error(getBackendErrorMessage(error, "Draft recovery link could not be copied."));
@@ -570,14 +594,38 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
 
           <DraftPdfManager draft={draft} recoveryGrant={recoveryGrant} />
 
+          <div className="brand-draft-link" aria-live="polite">
+            <span className="brand-draft-link__label">Draft Link</span>
+            {draftRecoveryLink ? (
+              <a
+                className="brand-draft-link__value"
+                href={draftRecoveryLink}
+                target="_blank"
+                rel="noreferrer"
+                title="Open this draft recovery link in a new tab"
+              >
+                {draftRecoveryLink}
+              </a>
+            ) : draftRecoveryLinkLoading ? (
+              <span className="brand-draft-link__status">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing secure draft link…
+              </span>
+            ) : (
+              <span className="brand-draft-link__error">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {draftRecoveryLinkError || "Secure draft link is not available yet."}
+              </span>
+            )}
+          </div>
+
           <div className="brand-action-group">
             <p className="brand-action-label">Actions</p>
             <div className="brand-action-buttons">
               <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading}
+                disabled={isLoading || draftRecoveryLinkLoading}
                 onClick={handleCopyDraftLink}
                 title="Creates a secure link that restores this draft and keeps future saves attached to the same session.">
-                {actionLoading === "copyDraftLink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                {actionLoading === "copyDraftLink" || draftRecoveryLinkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
                 Copy Draft Link
               </Button>
               <Button size="sm" variant="outline" className="brand-button-secondary"

@@ -7,6 +7,7 @@ import {
   draftAllowsAccess,
   withoutDraftAccessHashes,
 } from "../base44/shared/draftAccess.ts";
+import { copyTextToClipboard } from "../src/lib/clipboard.js";
 
 const PRIMARY_HASH = "a".repeat(64);
 const RECOVERY_HASH = "b".repeat(64);
@@ -47,6 +48,11 @@ test("admin action and questionnaire load are wired to the secondary recovery ke
   assert.match(adminSource, /draft_recovery_access_key_hashes/);
   assert.match(draftSource, /draftAllowsAccess\(existing, accessKeyHash\)/);
   assert.match(pageSource, /Copy Draft Link/);
+  assert.match(pageSource, />Draft Link</);
+  assert.match(pageSource, /className="brand-draft-link__value"/);
+  assert.match(pageSource, /requestDraftRecoveryLink\(\)\.catch/);
+  assert.match(pageSource, /const link = draftRecoveryLink \|\| await requestDraftRecoveryLink\(\)/);
+  assert.match(pageSource, /await copyTextToClipboard\(link\)/);
   assert.match(pageSource, /#?draftRecoveryData/);
   const actionsMarkup = pageSource.slice(
     pageSource.indexOf('<p className="brand-action-label">Actions</p>'),
@@ -56,4 +62,51 @@ test("admin action and questionnaire load are wired to the secondary recovery ke
     actionsMarkup.indexOf("Copy Draft Link") < actionsMarkup.indexOf("Edit Draft"),
     "Copy Draft Link should be the first action, before Edit Draft",
   );
+});
+
+test("clipboard helper copies the complete recovery URL with the modern API", async () => {
+  const writes = [];
+  const recoveryUrl = "https://expressform.tmtwebsiteresources.xyz/#draft=f23f4508-7516-4b1b-81e5-14e0d3d43b05&key=secure_recovery_key_12345678901234567890";
+
+  await copyTextToClipboard(recoveryUrl, {
+    navigatorObject: {
+      clipboard: {
+        writeText: async (value) => writes.push(value),
+      },
+    },
+  });
+
+  assert.deepEqual(writes, [recoveryUrl]);
+});
+
+test("clipboard helper falls back to a selected textarea when the modern API is denied", async () => {
+  let selectedValue = "";
+  let removed = false;
+  const textarea = {
+    value: "",
+    style: {},
+    setAttribute() {},
+    focus() {},
+    select() { selectedValue = this.value; },
+    setSelectionRange() {},
+    remove() { removed = true; },
+  };
+  const recoveryUrl = "https://expressform.tmtwebsiteresources.xyz/#draft=f23f4508-7516-4b1b-81e5-14e0d3d43b05&key=secure_recovery_key_12345678901234567890";
+
+  await copyTextToClipboard(recoveryUrl, {
+    navigatorObject: {
+      clipboard: {
+        writeText: async () => { throw new Error("NotAllowedError"); },
+      },
+    },
+    documentObject: {
+      activeElement: null,
+      body: { appendChild() {} },
+      createElement: () => textarea,
+      execCommand: (command) => command === "copy",
+    },
+  });
+
+  assert.equal(selectedValue, recoveryUrl);
+  assert.equal(removed, true);
 });
