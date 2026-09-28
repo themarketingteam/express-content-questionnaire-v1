@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
+import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -329,7 +330,15 @@ Deno.serve(async (req) => {
         // Persist the complete incoming snapshot before any validation or create
         // attempt. Anonymous and authenticated clients therefore have the same
         // server-side recovery guarantee.
-        await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, draftSnapshot);
+        const checkpointDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, draftSnapshot);
+        await createQuestionnaireVersion({
+          base44,
+          draft: checkpointDraft,
+          previous: coordinatorDraft,
+          versionType: 'submission_checkpoint',
+          sourceRecordId: String(coordinatorDraft.id),
+          capturedAt: String(checkpointDraft.submit_attempted_at || nowIso()),
+        }).catch((error) => console.error('Submission checkpoint version capture failed', error));
 
     // If payload is invalid/missing → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&
@@ -418,11 +427,19 @@ Deno.serve(async (req) => {
         linkedSubmissionId: existingSubmissionId,
       });
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
-      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      const submittedDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
         status: 'submitted',
         submitted_at: nowIso(),
         final_submission_id: existingSubmissionId,
       });
+      await createQuestionnaireVersion({
+        base44,
+        draft: submittedDraft,
+        previous: checkpointDraft,
+        versionType: 'submitted_snapshot',
+        sourceRecordId: existingSubmissionId,
+        capturedAt: String(submittedDraft.submitted_at || nowIso()),
+      }).catch((error) => console.error('Submitted version capture failed', error));
 
       return Response.json({
         success: true, received: true, alreadySubmitted: true,
@@ -468,12 +485,20 @@ Deno.serve(async (req) => {
       });
 
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
-      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      const submittedDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
         status: 'submitted',
         submitted_at: nowIso(),
         final_submission_id: submissionId || '',
         mapped_payload_json: safeJsonStringify(normalized),
       });
+      await createQuestionnaireVersion({
+        base44,
+        draft: submittedDraft,
+        previous: checkpointDraft,
+        versionType: 'submitted_snapshot',
+        sourceRecordId: String(submissionId || coordinatorDraft.id),
+        capturedAt: String(submittedDraft.submitted_at || nowIso()),
+      }).catch((error) => console.error('Submitted version capture failed', error));
 
       return Response.json({
         success: true, received: true, submissionCreated: true,

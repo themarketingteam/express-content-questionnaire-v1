@@ -6,6 +6,7 @@ export const BACKUP_ENTITY_NAMES = [
   'FormSubmission',
   'FormSubmissionIntake',
   'FormDraftEvent',
+  'QuestionnaireVersion',
   'SubmissionPdfVersion',
   'ExpressIdentityResolutionAttempt',
 ] as const;

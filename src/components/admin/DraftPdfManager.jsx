@@ -56,7 +56,7 @@ async function downloadStoredVersion(version, { draftId, recoveryGrant }) {
   triggerBlobDownload(blob, authorization.version?.pdf_filename || version.pdf_filename || "Express_Questionnaire_Responses.pdf");
 }
 
-export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
+export default function DraftPdfManager({ draft, submission = null, questionnaireVersion = null, recoveryGrant = "" }) {
   const [versions, setVersions] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -99,17 +99,29 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
     setPreparing(true);
 
     try {
-      const contextResponse = await base44.functions.invoke("draftRecoveryData", {
-        action: "getPdfContext",
-        draftId: draft.id,
-        recoveryGrant,
-      });
-      const context = responseData(contextResponse);
-      if (!context.success) throw new Error(context.error || "Failed to load the latest submission values.");
+      let context;
+      if (questionnaireVersion?.readOnly) {
+        const historyResponse = await base44.functions.invoke("draftRecoveryData", {
+          action: "listPdfVersions",
+          draftId: draft.id,
+          recoveryGrant,
+        });
+        const history = responseData(historyResponse);
+        if (!history.success) throw new Error(history.error || "Failed to load saved PDFs.");
+        context = { draft, submission, pdfVersions: history.pdfVersions || [] };
+      } else {
+        const contextResponse = await base44.functions.invoke("draftRecoveryData", {
+          action: "getPdfContext",
+          draftId: draft.id,
+          recoveryGrant,
+        });
+        context = responseData(contextResponse);
+        if (!context.success) throw new Error(context.error || "Failed to load the latest submission values.");
+      }
 
       const input = prepareDraftPdfInput({
         draft: context.draft || draft,
-        submission: context.submission || null,
+        submission: context.submission || submission || null,
       });
       const payloadHash = await createPdfPayloadFingerprint(input);
       const currentVersions = sortPdfVersions(context.pdfVersions || versions);
@@ -139,7 +151,9 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
         submissionId: input.submissionId,
         submitAttemptId: input.submitAttemptId,
         payloadHash,
-        payloadSource: input.source,
+        payloadSource: questionnaireVersion?.id
+          ? `${input.source}@${questionnaireVersion.id}`
+          : input.source,
         sourceUpdatedAt: input.sourceUpdatedAt,
         pdfFilename: filename,
         pdfByteSize: file.size,
@@ -188,7 +202,7 @@ export default function DraftPdfManager({ draft, recoveryGrant = "" }) {
     <section className="brand-pdf-panel" aria-label="Questionnaire PDF downloads">
       <div className="brand-pdf-panel__copy">
         <p className="brand-action-label">PDF Downloads</p>
-        <p>Current questionnaire values · payload changes create a new saved version</p>
+        <p>{questionnaireVersion?.readOnly ? "Selected historical questionnaire version" : "Current questionnaire values"} · payload changes create a new saved version</p>
       </div>
 
       <div className="brand-pdf-panel__actions">

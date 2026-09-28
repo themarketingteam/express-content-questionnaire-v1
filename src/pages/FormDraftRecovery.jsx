@@ -22,6 +22,7 @@ import IdentityResolutionPanel from "@/components/admin/IdentityResolutionPanel"
 import ClientDataDeletionDialog from "@/components/admin/ClientDataDeletionDialog";
 import RetentionRecoveryPanel from "@/components/admin/RetentionRecoveryPanel";
 import StandaloneSubmissionRow from "@/components/admin/StandaloneSubmissionRow";
+import QuestionnaireVersionSelector from "@/components/admin/QuestionnaireVersionSelector";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
@@ -270,9 +271,20 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const [draftRecoveryLink, setDraftRecoveryLink] = useState("");
   const [draftRecoveryLinkError, setDraftRecoveryLinkError] = useState("");
   const [draftRecoveryLinkLoading, setDraftRecoveryLinkLoading] = useState(false);
+  const [versionMode, setVersionMode] = useState("meaningful");
+  const [versionCatalog, setVersionCatalog] = useState(null);
+  const [versionCatalogLoading, setVersionCatalogLoading] = useState(false);
+  const [versionCatalogError, setVersionCatalogError] = useState("");
+  const [selectedVersionId, setSelectedVersionId] = useState("");
+  const [selectedVersionDetail, setSelectedVersionDetail] = useState(null);
+  const [selectedVersionLoading, setSelectedVersionLoading] = useState(false);
+  const [copyVersionLoading, setCopyVersionLoading] = useState(false);
   const draftRecoveryLinkRequestRef = useRef(null);
-  const draft = fullDraft || draftSummary;
-  const payloadEditorId = `payload-editor-${draft.id}`;
+  const activeDraft = fullDraft || draftSummary;
+  const selectedVersion = versionCatalog?.versions?.find(version => version.id === selectedVersionId) || null;
+  const isHistoricalVersion = Boolean(selectedVersion?.readOnly);
+  const draft = selectedVersionDetail?.draft || activeDraft;
+  const payloadEditorId = `payload-editor-${activeDraft.id}`;
 
   const loadDetails = useCallback(async () => {
     setDetailLoading(true);
@@ -286,6 +298,65 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
       setDetailLoading(false);
     }
   }, [draftSummary.id, onLoadDetail]);
+
+  const loadVersionCatalog = useCallback(async (mode = versionMode) => {
+    if (!fullDraft) return;
+    setVersionCatalogLoading(true);
+    setVersionCatalogError("");
+    try {
+      const response = await base44.functions.invoke("draftRecoveryData", {
+        action: "list_versions",
+        recordId: draftSummary.id,
+        mode,
+        recoveryGrant,
+      });
+      const data = response?.data || response;
+      if (!data?.success) throw new Error(data?.error || "Questionnaire versions could not be loaded.");
+      setVersionCatalog(data);
+      setSelectedVersionId(current => (
+        data.versions?.some(version => version.id === current)
+          ? current
+          : data.defaultVersionId || `current:${draftSummary.id}`
+      ));
+    } catch (error) {
+      setVersionCatalogError(getBackendErrorMessage(error, "Questionnaire versions could not be loaded."));
+    } finally {
+      setVersionCatalogLoading(false);
+    }
+  }, [draftSummary.id, fullDraft, recoveryGrant, versionMode]);
+
+  useEffect(() => {
+    if (!expanded || !fullDraft || versionCatalog || versionCatalogLoading) return;
+    loadVersionCatalog("meaningful");
+  }, [expanded, fullDraft, loadVersionCatalog, versionCatalog, versionCatalogLoading]);
+
+  useEffect(() => {
+    if (!expanded || !fullDraft || !selectedVersionId) return;
+    let active = true;
+    setSelectedVersionLoading(true);
+    base44.functions.invoke("draftRecoveryData", {
+      action: "get_version",
+      recordId: draftSummary.id,
+      versionId: selectedVersionId,
+      recoveryGrant,
+    }).then((response) => {
+      const data = response?.data || response;
+      if (!data?.success || !data?.draft) throw new Error(data?.error || "The selected version could not be loaded.");
+      if (active) setSelectedVersionDetail({ draft: data.draft, submission: data.submission || null });
+    }).catch((error) => {
+      if (active) {
+        setSelectedVersionDetail(null);
+        toast.error(getBackendErrorMessage(error, "The selected version could not be loaded."));
+      }
+    }).finally(() => {
+      if (active) setSelectedVersionLoading(false);
+    });
+    return () => { active = false; };
+  }, [draftSummary.id, expanded, fullDraft, recoveryGrant, selectedVersionId]);
+
+  useEffect(() => {
+    if (isHistoricalVersion) setPayloadEditorOpen(false);
+  }, [isHistoricalVersion]);
 
   const toggleExpanded = () => {
     if (expanded) {
@@ -302,7 +373,9 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const mappedPayload = safeJsonParse(draft.mapped_payload_json, null);
   const aiRepairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
   const aiRepairReport = safeJsonParse(draft.ai_repair_report_json, null);
-  const linkedSubmission = fullDraft?.linked_submission || null;
+  const linkedSubmission = selectedVersionDetail?.submission
+    || (!isHistoricalVersion ? fullDraft?.linked_submission : null)
+    || null;
   const responsesParseOk = canParseJson(draft.responses_json);
   const mappedParseOk = canParseJson(draft.mapped_payload_json);
   const hasResponses = Object.keys(responses).length > 0;
@@ -407,7 +480,8 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   }, [draftRecoveryLink, draftSummary.id, recoveryGrant]);
 
   useEffect(() => {
-    if (!expanded || !fullDraft || draftRecoveryLink || draftRecoveryLinkLoading || draftRecoveryLinkError) return;
+    if (!expanded || !fullDraft || !versionCatalog || !selectedVersion || isHistoricalVersion
+      || draftRecoveryLink || draftRecoveryLinkLoading || draftRecoveryLinkError) return;
     requestDraftRecoveryLink().catch(() => {
       // The persistent row surfaces the error and the copy action can retry.
     });
@@ -417,7 +491,10 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     draftRecoveryLinkLoading,
     expanded,
     fullDraft,
+    isHistoricalVersion,
     requestDraftRecoveryLink,
+    selectedVersion,
+    versionCatalog,
   ]);
 
   const handleCopyDraftLink = () => handleAction("copyDraftLink", async () => {
@@ -429,6 +506,36 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
       toast.error(getBackendErrorMessage(error, "Draft recovery link could not be copied."));
     }
   }, { refresh: false });
+
+  const handleCreateEditableCopy = async () => {
+    if (!selectedVersionId || copyVersionLoading) return;
+    setCopyVersionLoading(true);
+    try {
+      const response = await base44.functions.invoke("draftRecoveryData", {
+        action: "create_version_copy",
+        recordId: draftSummary.id,
+        versionId: selectedVersionId,
+        recoveryGrant,
+      });
+      const data = response?.data || response;
+      if (!data?.success || !data.sessionId || !data.accessKey) {
+        throw new Error(data?.error || "An editable recovery copy could not be created.");
+      }
+      const recoveryUrl = new URL(EXPRESS_QUESTIONNAIRE_URL);
+      recoveryUrl.hash = buildDraftIdentityHash("", {
+        sessionId: data.sessionId,
+        accessKey: data.accessKey,
+      });
+      await copyTextToClipboard(recoveryUrl.toString());
+      toast.success("Editable recovery copy created. Its secure client link was copied to the clipboard.");
+      await onRefresh?.();
+      await loadVersionCatalog(versionMode);
+    } catch (error) {
+      toast.error(getBackendErrorMessage(error, "An editable recovery copy could not be created."));
+    } finally {
+      setCopyVersionLoading(false);
+    }
+  };
 
   const handleAiAction = (mode) => handleAction(mode, async () => {
     try {
@@ -533,6 +640,29 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             </div>
           ) : fullDraft ? (
             <>
+          <QuestionnaireVersionSelector
+            catalog={versionCatalog}
+            mode={versionMode}
+            selectedVersionId={selectedVersionId}
+            selectedVersion={selectedVersion}
+            loading={versionCatalogLoading}
+            detailLoading={selectedVersionLoading}
+            error={versionCatalogError}
+            onModeChange={(nextMode) => {
+              setVersionMode(nextMode);
+              loadVersionCatalog(nextMode);
+            }}
+            onSelect={setSelectedVersionId}
+            onCreateCopy={handleCreateEditableCopy}
+            copyLoading={copyVersionLoading}
+          />
+
+          {selectedVersionLoading ? (
+            <div className="draft-recovery-brand__loading" role="status">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading selected questionnaire version…
+            </div>
+          ) : (
+            <>
           <div className="brand-detail-grid">
             <div className="brand-detail-column">
               <Detail label="Business Name" value={draft.business_name} />
@@ -592,11 +722,20 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             </div>
           )}
 
-          <DraftPdfManager draft={draft} recoveryGrant={recoveryGrant} />
+          <DraftPdfManager
+            draft={draft}
+            submission={linkedSubmission}
+            questionnaireVersion={selectedVersion}
+            recoveryGrant={recoveryGrant}
+          />
 
           <div className="brand-draft-link" aria-live="polite">
             <span className="brand-draft-link__label">Draft Link</span>
-            {draftRecoveryLink ? (
+            {isHistoricalVersion ? (
+              <span className="brand-draft-link__status">
+                Select the current draft or create an editable recovery copy to generate a client link.
+              </span>
+            ) : draftRecoveryLink ? (
               <a
                 className="brand-draft-link__value"
                 href={draftRecoveryLink}
@@ -622,14 +761,14 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             <p className="brand-action-label">Actions</p>
             <div className="brand-action-buttons">
               <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading || draftRecoveryLinkLoading}
+                disabled={isLoading || draftRecoveryLinkLoading || isHistoricalVersion}
                 onClick={handleCopyDraftLink}
                 title="Creates a secure link that restores this draft and keeps future saves attached to the same session.">
                 {actionLoading === "copyDraftLink" || draftRecoveryLinkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
                 Copy Draft Link
               </Button>
               <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading}
+                disabled={isLoading || isHistoricalVersion}
                 onClick={() => setPayloadEditorOpen(value => !value)}
                 aria-expanded={payloadEditorOpen}
                 aria-controls={payloadEditorId}>
@@ -637,7 +776,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
                 Edit Draft
               </Button>
               <Button size="sm" className="brand-button-primary"
-                disabled={isLoading}
+                disabled={isLoading || isHistoricalVersion}
                 onClick={handleRetry}
                 title="Re-sends the payload to Zapier every time. The webhook handles de-duplication.">
                 {actionLoading === "retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -648,6 +787,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
                 record={draft}
                 recoveryGrant={recoveryGrant}
                 onDeleted={onRefresh}
+                disabled={isHistoricalVersion}
               />
             </div>
             <PayloadEditor
@@ -664,19 +804,19 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             <p className="brand-action-label">AI Actions</p>
             <div className="brand-action-buttons">
               <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading}
+                disabled={isLoading || isHistoricalVersion}
                 onClick={() => handleAiAction("diagnose_only")}>
                 {actionLoading === "diagnose_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
                 Diagnose
               </Button>
               <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading}
+                disabled={isLoading || isHistoricalVersion}
                 onClick={() => handleAiAction("repair_only")}>
                 {actionLoading === "repair_only" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
                 Repair Only
               </Button>
               <Button size="sm" className="brand-button-dark"
-                disabled={isLoading}
+                disabled={isLoading || isHistoricalVersion}
                 title="For draft rows: prefer intake retry for safest recovery. This uses the draft payload directly."
                 onClick={() => { if (window.confirm("AI Repair + Retry from draft will attempt to create a FormSubmission from the repaired draft payload. For safer recovery, use intake retry from the Submission Intake Recovery section. Continue?")) handleAiAction("repair_and_retry"); }}>
                 {actionLoading === "repair_and_retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
@@ -748,6 +888,8 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
           </div>
 
           <RawDraftDataSection draft={draft} />
+            </>
+          )}
             </>
           ) : null}
         </div>

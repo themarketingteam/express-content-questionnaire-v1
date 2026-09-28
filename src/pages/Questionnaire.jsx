@@ -1422,6 +1422,24 @@ export default function Questionnaire() {
             cleared_fields_count: Object.keys(clearedFormData).length,
           },
         });
+
+        const clearedCheckpoint = buildImmediateDraftRecord({
+          sessionId: questionnaireSessionId,
+          responses: clearedFormData,
+          validationStatus: clearedValidationStatus,
+          touchedQuestions: clearedTouchedQuestions,
+          expandedQuestions: clearedExpandedQuestions,
+          credentials: urlCredentials,
+          businessName: businessDetailsRef.current.businessName,
+          domain: businessDetailsRef.current.domain,
+          currentQuestionId: "",
+          lastChangedQuestionId: "",
+          clientRevision: draftRevisionRef.current,
+          existingResponses: {},
+        });
+        await draftApi.checkpoint(clearedCheckpoint, "explicit_clear").catch((error) => {
+          console.error("[clear-all] immutable checkpoint failed:", error?.message || error);
+        });
       }
       
       // Save cleared state to localStorage and write marker cookie
@@ -1443,7 +1461,7 @@ export default function Questionnaire() {
       setIsClearingAll(false);
       setShowClearAllConfirm(false);
     }
-  }, [questionnaireSessionId, textValidation, createDraftEvent]);
+  }, [createDraftEvent, draftApi, questionnaireSessionId, textValidation, urlCredentials]);
 
   // Silent reset after full successful submission (no confirmation modal)
   const resetQuestionnaireStateAfterFullSuccess = useCallback(() => {

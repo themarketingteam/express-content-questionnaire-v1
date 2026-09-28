@@ -56,6 +56,9 @@ export function createQuestionnaireDraftApi({ invoke, sessionId, accessKey, requ
     async save(draft) {
       return request({ action: "save", draft });
     },
+    async checkpoint(draft, checkpointType) {
+      return request({ action: "checkpoint", draft, checkpointType });
+    },
     async telemetry(eventType, telemetry = {}) {
       return request({ action: "telemetry", eventType, telemetry });
     },

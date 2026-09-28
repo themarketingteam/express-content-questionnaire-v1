@@ -21,7 +21,7 @@ function responseData(response) {
   return response?.data || response || {};
 }
 
-export default function ClientDataDeletionDialog({ recordType, record, recoveryGrant, onDeleted }) {
+export default function ClientDataDeletionDialog({ recordType, record, recoveryGrant, onDeleted, disabled = false }) {
   const [open, setOpen] = useState(false);
   const [reasonCode, setReasonCode] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -87,7 +87,7 @@ export default function ClientDataDeletionDialog({ recordType, record, recoveryG
   return (
     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) reset(); }}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="brand-button-danger">
+        <Button size="sm" variant="outline" className="brand-button-danger" disabled={disabled}>
           <Trash2 className="w-3.5 h-3.5" /> Delete Client Data
         </Button>
       </DialogTrigger>

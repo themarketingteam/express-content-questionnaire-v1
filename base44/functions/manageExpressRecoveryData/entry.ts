@@ -26,6 +26,7 @@ const ROOT_ENTITIES = {
 } as const;
 const ENTITY_DELETE_ORDER = [
   'FormDraftEvent',
+  'QuestionnaireVersion',
   'ExpressIdentityResolutionAttempt',
   'SubmissionPdfVersion',
   'FormSubmissionIntake',
@@ -89,6 +90,10 @@ async function resolveGraph(base44: any, rootType: keyof typeof ROOT_ENTITIES, r
   ]);
   const intakeIds = intakes.map((record) => String(record.id));
   const events = session ? await filter(base44, 'FormDraftEvent', { session_id: session }) : [];
+  const questionnaireVersions = unique([
+    ...(session ? await filter(base44, 'QuestionnaireVersion', { session_id: session }) : []),
+    ...await Promise.all(draftIds.map((id) => filter(base44, 'QuestionnaireVersion', { draft_id: id }))).then((groups) => groups.flat()),
+  ]);
   const pdfs = unique([
     ...(session ? await filter(base44, 'SubmissionPdfVersion', { questionnaire_session_id: session }) : []),
     ...await Promise.all(draftIds.map((id) => filter(base44, 'SubmissionPdfVersion', { draft_id: id }))).then((groups) => groups.flat()),
@@ -104,6 +109,7 @@ async function resolveGraph(base44: any, rootType: keyof typeof ROOT_ENTITIES, r
     FormSubmission: submissions,
     FormSubmissionIntake: intakes,
     FormDraftEvent: unique(events),
+    QuestionnaireVersion: questionnaireVersions,
     SubmissionPdfVersion: pdfs,
     ExpressIdentityResolutionAttempt: identities,
   };
@@ -345,6 +351,11 @@ async function restoreApply(base44: any, body: Record<string, any>, lifecycleSec
     return record;
   });
   await createGroup('FormDraftEvent', (record) => record);
+  await createGroup('QuestionnaireVersion', (record) => {
+    if (record.draft_id) record.draft_id = idMap.get(String(record.draft_id)) || record.draft_id;
+    if (record.source_record_id) record.source_record_id = idMap.get(String(record.source_record_id)) || record.source_record_id;
+    return record;
+  });
   await createGroup('SubmissionPdfVersion', (record) => {
     if (record.draft_id) record.draft_id = idMap.get(String(record.draft_id)) || record.draft_id;
     if (record.submission_id) record.submission_id = idMap.get(String(record.submission_id)) || record.submission_id;

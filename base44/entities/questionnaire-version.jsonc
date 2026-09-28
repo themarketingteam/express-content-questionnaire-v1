@@ -1,0 +1,121 @@
+{
+  "name": "QuestionnaireVersion",
+  "type": "object",
+  "required": [
+    "draft_id",
+    "session_id",
+    "version_key",
+    "version_type",
+    "snapshot_json",
+    "snapshot_hash",
+    "captured_at"
+  ],
+  "properties": {
+    "draft_id": {
+      "type": "string",
+      "description": "FormDraft that owned the materialized state when this immutable version was captured"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Questionnaire session associated with this immutable version"
+    },
+    "version_key": {
+      "type": "string",
+      "description": "Stable idempotency key for this version capture"
+    },
+    "version_type": {
+      "type": "string",
+      "enum": [
+        "autosave",
+        "submission_checkpoint",
+        "submitted_snapshot",
+        "admin_edit",
+        "explicit_clear",
+        "recovery_copy"
+      ]
+    },
+    "status": {
+      "type": "string"
+    },
+    "snapshot_json": {
+      "type": "string",
+      "description": "Complete immutable FormDraft-compatible questionnaire snapshot"
+    },
+    "snapshot_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "answer_count": {
+      "type": "integer",
+      "default": 0
+    },
+    "progress_percent": {
+      "type": "integer",
+      "default": 0
+    },
+    "client_revision": {
+      "type": "integer",
+      "default": 0
+    },
+    "meaningful": {
+      "type": "boolean",
+      "default": false
+    },
+    "meaningful_reasons_json": {
+      "type": "string"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_record_id": {
+      "type": "string"
+    },
+    "source_version_id": {
+      "type": "string"
+    },
+    "normalized_user_id": {
+      "type": "string"
+    },
+    "normalized_email": {
+      "type": "string"
+    },
+    "normalized_business_name": {
+      "type": "string"
+    },
+    "normalized_domain": {
+      "type": "string"
+    },
+    "retention_policy": {
+      "type": "string",
+      "enum": ["indefinite_until_manual_deletion"],
+      "default": "indefinite_until_manual_deletion"
+    },
+    "retention_policy_version": {
+      "type": "string",
+      "default": "2026-08-18"
+    },
+    "retention_protected_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": false,
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

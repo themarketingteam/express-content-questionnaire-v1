@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { draftAllowsAccess, withoutDraftAccessHashes } from '../../shared/draftAccess.ts';
+import { createQuestionnaireVersion, normalizeIdentityValue } from '../../shared/questionnaireVersions.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -266,6 +267,14 @@ Deno.serve(async (req) => {
       for (const [field, value] of Object.entries(identity)) {
         if (!existing?.[field]) updates[field] = value;
       }
+      const resolvedUserId = String(existing?.user_id || identity.user_id || '');
+      const resolvedEmail = String(existing?.user_email || identity.user_email || '');
+      const resolvedBusiness = String(existing?.business_name || identity.business_name || '');
+      const resolvedDomain = String(existing?.domain || identity.domain || '');
+      updates.normalized_user_id = normalizeIdentityValue(resolvedUserId);
+      updates.normalized_user_email = normalizeIdentityValue(resolvedEmail, 'email');
+      updates.normalized_business_name = normalizeIdentityValue(resolvedBusiness);
+      updates.normalized_domain = normalizeIdentityValue(resolvedDomain, 'domain');
 
       const savedResult = existing
         ? await base44.asServiceRole.entities.FormDraft.update(existing.id, updates)
@@ -340,7 +349,7 @@ Deno.serve(async (req) => {
       return json({ success: true, recorded: true });
     }
 
-    if (body.action !== 'save') {
+    if (body.action !== 'save' && body.action !== 'checkpoint') {
       return json({ success: false, error: 'Unsupported action.' }, 400);
     }
 
@@ -352,11 +361,52 @@ Deno.serve(async (req) => {
       return json({ success: false, error: 'Draft access was denied.' }, 403);
     }
 
+    if (body.action === 'checkpoint') {
+      if (!existing) return json({ success: false, error: 'Draft not found.' }, 404);
+      if (existing.status === 'submitted' || existing.final_submission_id) {
+        return json({ success: true, saved: false, finalized: true, draft: withoutDraftAccessHashes(existing) });
+      }
+      const checkpointType = body.checkpointType === 'explicit_clear' ? 'explicit_clear' : '';
+      if (!checkpointType) return json({ success: false, error: 'Unsupported checkpoint type.' }, 400);
+      const checkpointDraft = {
+        ...draft,
+        id: existing.id,
+        status: existing.status || 'draft',
+        last_confirmed_revision: sanitizeRevision(existing.last_confirmed_revision),
+      };
+      const version = await createQuestionnaireVersion({
+        base44,
+        draft: checkpointDraft,
+        previous: existing,
+        versionType: checkpointType,
+        sourceRecordId: String(existing.id),
+        capturedAt: new Date().toISOString(),
+        versionKey: `${existing.id}:${checkpointType}:${crypto.randomUUID()}`,
+      });
+      return json({ success: true, saved: true, materialized: false, versionId: version?.id || '' });
+    }
+
+    // A finalized draft is immutable from the public autosave path. Delayed
+    // pagehide/background/stale-tab saves receive the durable server state and
+    // can never rematerialize or downgrade a completed questionnaire.
+    if (existing && (existing.status === 'submitted' || existing.final_submission_id)) {
+      return json({
+        success: true,
+        saved: false,
+        stale: true,
+        finalized: true,
+        draftId: existing.id,
+        lastSavedAt: existing.last_saved_at || existing.updated_date || '',
+        lastConfirmedRevision: sanitizeRevision(existing.last_confirmed_revision),
+        draft: withoutDraftAccessHashes(existing),
+      });
+    }
+
     const incomingRevision = sanitizeRevision((body.draft as Record<string, unknown>)?.client_revision);
     const existingRevision = sanitizeRevision(existing?.last_confirmed_revision);
     const incomingTime = new Date(draft.last_changed_at || draft.last_saved_at || 0).getTime() || 0;
     const existingTime = new Date(existing?.last_changed_at || existing?.last_saved_at || 0).getTime() || 0;
-    if (existing && (existingRevision > incomingRevision
+    if (existing && ((existingRevision > 0 && incomingRevision <= existingRevision)
       || (incomingRevision === 0 && incomingTime > 0 && existingTime > incomingTime))) {
       return json({
         success: true,
@@ -370,6 +420,10 @@ Deno.serve(async (req) => {
 
     const nextDraft = {
       ...draft,
+      normalized_user_id: normalizeIdentityValue(draft.user_id || existing?.user_id),
+      normalized_user_email: normalizeIdentityValue(draft.user_email || existing?.user_email, 'email'),
+      normalized_business_name: normalizeIdentityValue(draft.business_name || existing?.business_name),
+      normalized_domain: normalizeIdentityValue(draft.domain || existing?.domain, 'domain'),
       client_revision: incomingRevision,
       last_confirmed_revision: incomingRevision,
       persistence_health_status: 'healthy',
@@ -382,9 +436,44 @@ Deno.serve(async (req) => {
       retention_policy_version: '2026-08-18',
       retention_protected_at: existing?.retention_protected_at || new Date().toISOString(),
     };
+    if (existing) {
+      try {
+        await createQuestionnaireVersion({
+          base44,
+          draft: existing,
+          previous: null,
+          versionType: 'autosave',
+          sourceRecordId: String(existing.id),
+          capturedAt: String(existing.last_saved_at || existing.updated_date || new Date().toISOString()),
+          versionKey: `${existing.id}:materialized-before-update:${existingRevision}`,
+        });
+      } catch (versionError) {
+        console.error('Pre-update questionnaire version capture failed', versionError);
+      }
+    }
     const saved = existing
       ? await base44.asServiceRole.entities.FormDraft.update(existing.id, nextDraft)
       : await base44.asServiceRole.entities.FormDraft.create(nextDraft);
+
+    const versionType = saved.status === 'submitted'
+      ? 'submitted_snapshot'
+      : ['submitting', 'submit_attempted', 'submit_failed'].includes(String(saved.status || ''))
+        ? 'submission_checkpoint'
+        : 'autosave';
+    try {
+      await createQuestionnaireVersion({
+        base44,
+        draft: saved,
+        previous: existing,
+        versionType,
+        sourceRecordId: String(saved.id),
+        capturedAt: String(saved.last_saved_at || new Date().toISOString()),
+      });
+    } catch (versionError) {
+      // Never discard the materialized draft because history capture failed.
+      // The failure remains visible in function logs and a later save can retry.
+      console.error('Questionnaire version capture failed', versionError);
+    }
 
     console.info(JSON.stringify({
       functionName: 'questionnaireDraftData',

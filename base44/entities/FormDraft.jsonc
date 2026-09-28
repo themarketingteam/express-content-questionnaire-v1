@@ -42,6 +42,22 @@
       "type": "string",
       "description": "Client user email if available"
     },
+    "normalized_user_id": {
+      "type": "string",
+      "description": "Lowercased exact user identity used only for deterministic related-session grouping"
+    },
+    "normalized_user_email": {
+      "type": "string",
+      "description": "Lowercased exact email used only for deterministic related-session grouping"
+    },
+    "normalized_business_name": {
+      "type": "string",
+      "description": "Normalized exact business name used with normalized domain for safe grouping"
+    },
+    "normalized_domain": {
+      "type": "string",
+      "description": "Normalized exact domain used with normalized business name for safe grouping"
+    },
     "status": {
       "type": "string",
       "description": "Draft lifecycle status"
@@ -248,6 +264,18 @@
     "submit_attempt_id": {
       "type": "string",
       "description": "Latest client submit attempt identifier persisted with this draft"
+    },
+    "recovery_copy_source_draft_id": {
+      "type": "string",
+      "description": "Original draft used to create this independent editable recovery copy"
+    },
+    "recovery_copy_source_version_id": {
+      "type": "string",
+      "description": "Immutable questionnaire version used to create this recovery copy"
+    },
+    "recovery_copy_created_at": {
+      "type": "string",
+      "format": "date-time"
     },
     "idempotency_lock_token": {
       "type": "string",

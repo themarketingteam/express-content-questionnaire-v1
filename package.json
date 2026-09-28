@@ -20,7 +20,7 @@
     "deploy:base44:site": "node scripts/verify-deploy-source.mjs && npx base44 site deploy -y",
     "deploy:base44:functions": "node scripts/verify-deploy-source.mjs && npx base44 functions deploy",
     "typecheck": "tsc -p ./jsconfig.json",
-    "typecheck:retention-backend": "deno check --no-config base44/functions/backupExpressRecoveryData/entry.ts base44/functions/manageExpressRecoveryData/entry.ts base44/functions/draftPdfStorage/entry.ts base44/functions/adminRecoveryPagination/entry.ts base44/functions/draftRecoveryRetention/entry.ts",
+    "typecheck:retention-backend": "deno check --no-config base44/functions/backupExpressRecoveryData/entry.ts base44/functions/manageExpressRecoveryData/entry.ts base44/functions/draftPdfStorage/entry.ts base44/functions/adminRecoveryPagination/entry.ts base44/functions/draftRecoveryRetention/entry.ts base44/functions/draftRecoveryData/entry.ts base44/functions/questionnaireDraftData/entry.ts",
     "preview": "vite preview"
   },
   "dependencies": {
