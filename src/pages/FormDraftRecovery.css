@@ -581,6 +581,16 @@
   font-size: 0.76rem;
 }
 
+.draft-recovery-brand .questionnaire-version-panel__error {
+  justify-content: space-between;
+}
+
+.draft-recovery-brand .questionnaire-version-panel__error span {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .draft-recovery-brand .questionnaire-version-panel__loading {
   color: #64647f;
   background: #fff;

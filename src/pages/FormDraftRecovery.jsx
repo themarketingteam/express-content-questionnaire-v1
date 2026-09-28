@@ -28,6 +28,10 @@ import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 import { buildDraftIdentityHash } from "@/lib/questionnaireDraftIdentity";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import {
+  createQuestionnaireVersionLoadGate,
+  withQuestionnaireVersionRequestTimeout,
+} from "@/lib/questionnaireVersionHistory";
 import { useAdminRecoveryPagination } from "@/hooks/useAdminRecoveryPagination";
 import {
   getPaginationControls,
@@ -280,6 +284,10 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const [selectedVersionLoading, setSelectedVersionLoading] = useState(false);
   const [copyVersionLoading, setCopyVersionLoading] = useState(false);
   const draftRecoveryLinkRequestRef = useRef(null);
+  const versionCatalogLoadGateRef = useRef(null);
+  if (!versionCatalogLoadGateRef.current) {
+    versionCatalogLoadGateRef.current = createQuestionnaireVersionLoadGate();
+  }
   const activeDraft = fullDraft || draftSummary;
   const selectedVersion = versionCatalog?.versions?.find(version => version.id === selectedVersionId) || null;
   const isHistoricalVersion = Boolean(selectedVersion?.readOnly);
@@ -299,47 +307,51 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     }
   }, [draftSummary.id, onLoadDetail]);
 
-  const loadVersionCatalog = useCallback(async (mode = versionMode) => {
-    if (!fullDraft) return;
-    setVersionCatalogLoading(true);
-    setVersionCatalogError("");
-    try {
-      const response = await base44.functions.invoke("draftRecoveryData", {
-        action: "list_versions",
-        recordId: draftSummary.id,
-        mode,
-        recoveryGrant,
-      });
-      const data = response?.data || response;
-      if (!data?.success) throw new Error(data?.error || "Questionnaire versions could not be loaded.");
-      setVersionCatalog(data);
-      setSelectedVersionId(current => (
-        data.versions?.some(version => version.id === current)
-          ? current
-          : data.defaultVersionId || `current:${draftSummary.id}`
-      ));
-    } catch (error) {
-      setVersionCatalogError(getBackendErrorMessage(error, "Questionnaire versions could not be loaded."));
-    } finally {
-      setVersionCatalogLoading(false);
-    }
-  }, [draftSummary.id, fullDraft, recoveryGrant, versionMode]);
+  const loadVersionCatalog = useCallback((mode = "meaningful", { force = false } = {}) => (
+    versionCatalogLoadGateRef.current.run(async () => {
+      setVersionCatalogLoading(true);
+      setVersionCatalogError("");
+      try {
+        const response = await withQuestionnaireVersionRequestTimeout(
+          base44.functions.invoke("draftRecoveryData", {
+            action: "list_versions",
+            recordId: draftSummary.id,
+            mode,
+            recoveryGrant,
+          }),
+        );
+        const data = response?.data || response;
+        if (!data?.success) throw new Error(data?.error || "Questionnaire versions could not be loaded.");
+        setVersionCatalog(data);
+        setSelectedVersionId(current => (
+          data.versions?.some(version => version.id === current)
+            ? current
+            : data.defaultVersionId || `current:${draftSummary.id}`
+        ));
+      } catch (error) {
+        setVersionCatalogError(getBackendErrorMessage(error, "Questionnaire versions could not be loaded."));
+      } finally {
+        setVersionCatalogLoading(false);
+      }
+    }, { force })
+  ), [draftSummary.id, recoveryGrant]);
 
   useEffect(() => {
-    if (!expanded || !fullDraft || versionCatalog || versionCatalogLoading) return;
-    loadVersionCatalog("meaningful");
-  }, [expanded, fullDraft, loadVersionCatalog, versionCatalog, versionCatalogLoading]);
+    const gate = versionCatalogLoadGateRef.current;
+    if (!gate.shouldAutoLoad({ expanded, detailReady: Boolean(fullDraft), hasCatalog: Boolean(versionCatalog) })) return;
+    void loadVersionCatalog("meaningful");
+  }, [expanded, fullDraft, loadVersionCatalog, versionCatalog]);
 
   useEffect(() => {
     if (!expanded || !fullDraft || !selectedVersionId) return;
     let active = true;
     setSelectedVersionLoading(true);
-    base44.functions.invoke("draftRecoveryData", {
+    withQuestionnaireVersionRequestTimeout(base44.functions.invoke("draftRecoveryData", {
       action: "get_version",
       recordId: draftSummary.id,
       versionId: selectedVersionId,
       recoveryGrant,
-    }).then((response) => {
+    })).then((response) => {
       const data = response?.data || response;
       if (!data?.success || !data?.draft) throw new Error(data?.error || "The selected version could not be loaded.");
       if (active) setSelectedVersionDetail({ draft: data.draft, submission: data.submission || null });
@@ -529,7 +541,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
       await copyTextToClipboard(recoveryUrl.toString());
       toast.success("Editable recovery copy created. Its secure client link was copied to the clipboard.");
       await onRefresh?.();
-      await loadVersionCatalog(versionMode);
+      await loadVersionCatalog(versionMode, { force: true });
     } catch (error) {
       toast.error(getBackendErrorMessage(error, "An editable recovery copy could not be created."));
     } finally {
@@ -650,8 +662,9 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             error={versionCatalogError}
             onModeChange={(nextMode) => {
               setVersionMode(nextMode);
-              loadVersionCatalog(nextMode);
+              void loadVersionCatalog(nextMode, { force: true });
             }}
+            onRetry={() => loadVersionCatalog(versionMode, { force: true })}
             onSelect={setSelectedVersionId}
             onCreateCopy={handleCreateEditableCopy}
             copyLoading={copyVersionLoading}

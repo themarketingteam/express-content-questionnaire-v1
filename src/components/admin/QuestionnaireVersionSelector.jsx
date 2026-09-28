@@ -19,6 +19,7 @@ export default function QuestionnaireVersionSelector({
   detailLoading,
   error,
   onModeChange,
+  onRetry,
   onSelect,
   onCreateCopy,
   copyLoading,
@@ -56,7 +57,8 @@ export default function QuestionnaireVersionSelector({
         </div>
       ) : error ? (
         <div className="questionnaire-version-panel__error" role="alert">
-          <AlertTriangle /> {error}
+          <span><AlertTriangle /> {error}</span>
+          <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry</Button>
         </div>
       ) : (
         <>

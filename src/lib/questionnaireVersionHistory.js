@@ -56,3 +56,35 @@ export function questionnaireVersionOptionLabel(version, {
   const session = showSession && version.sessionId ? ` · Session ${String(version.sessionId).slice(0, 8)}…` : "";
   return `${version.label} · ${displayedDate} · ${version.answerCount} answer${version.answerCount === 1 ? "" : "s"} · ${version.progressPercent}%${session}`;
 }
+
+export function createQuestionnaireVersionLoadGate() {
+  let attempted = false;
+  let inFlight = null;
+
+  return {
+    shouldAutoLoad({ expanded, detailReady, hasCatalog }) {
+      return Boolean(expanded && detailReady && !hasCatalog && !attempted && !inFlight);
+    },
+    run(factory, { force = false } = {}) {
+      if (inFlight) return inFlight;
+      if (attempted && !force) return Promise.resolve(null);
+      attempted = true;
+      const request = Promise.resolve().then(factory);
+      const wrappedRequest = request.finally(() => {
+        if (inFlight === wrappedRequest) inFlight = null;
+      });
+      inFlight = wrappedRequest;
+      return wrappedRequest;
+    },
+  };
+}
+
+export function withQuestionnaireVersionRequestTimeout(request, timeoutMs = 20_000) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("Questionnaire versions took too long to load. Please retry."));
+    }, timeoutMs);
+  });
+  return Promise.race([request, timeout]).finally(() => clearTimeout(timeoutId));
+}

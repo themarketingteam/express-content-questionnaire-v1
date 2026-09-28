@@ -4,9 +4,11 @@ import test from "node:test";
 
 import {
   chooseDefaultQuestionnaireVersion,
+  createQuestionnaireVersionLoadGate,
   filterMeaningfulQuestionnaireVersions,
   isSameQuestionnaireClient,
   questionnaireVersionOptionLabel,
+  withQuestionnaireVersionRequestTimeout,
 } from "../src/lib/questionnaireVersionHistory.js";
 
 const projectUrl = new URL("../", import.meta.url);
@@ -45,6 +47,35 @@ test("meaningful filtering and version option labels remain deterministic", () =
   assert.equal(
     questionnaireVersionOptionLabel(versions[0], { formatDate: value => value }),
     "Saved draft · 2026-09-28T10:00:00Z · 3 answers · 25%",
+  );
+});
+
+test("version catalog loading is single-flight and never auto-retries forever", async () => {
+  const gate = createQuestionnaireVersionLoadGate();
+  assert.equal(gate.shouldAutoLoad({ expanded: true, detailReady: true, hasCatalog: false }), true);
+  let calls = 0;
+  let release;
+  const deferred = new Promise(resolve => { release = resolve; });
+  const first = gate.run(async () => {
+    calls += 1;
+    await deferred;
+    return "loaded";
+  });
+  const duplicate = gate.run(async () => {
+    calls += 1;
+    return "duplicate";
+  });
+  release();
+  assert.equal(await first, "loaded");
+  assert.equal(await duplicate, "loaded");
+  assert.equal(calls, 1);
+  assert.equal(gate.shouldAutoLoad({ expanded: true, detailReady: true, hasCatalog: false }), false);
+});
+
+test("a stalled version request becomes a retryable timeout instead of a permanent spinner", async () => {
+  await assert.rejects(
+    withQuestionnaireVersionRequestTimeout(new Promise(() => {}), 5),
+    /took too long to load/i,
   );
 });
 
