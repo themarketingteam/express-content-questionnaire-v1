@@ -134,6 +134,7 @@ export async function createQuestionnaireVersion({
   draft,
   previous = null,
   versionType = 'autosave',
+  additionalMeaningfulReasons = [],
   sourceRecordId = '',
   sourceVersionId = '',
   capturedAt = '',
@@ -143,6 +144,7 @@ export async function createQuestionnaireVersion({
   draft: Record<string, unknown>;
   previous?: Record<string, unknown> | null;
   versionType?: string;
+  additionalMeaningfulReasons?: string[];
   sourceRecordId?: string;
   sourceVersionId?: string;
   capturedAt?: string;
@@ -166,7 +168,10 @@ export async function createQuestionnaireVersion({
   );
   if (existing?.[0]) return existing[0];
   const metrics = questionnaireMetrics(snapshot);
-  const reasons = meaningfulReasons({ previous, next: snapshot, versionType });
+  const reasons = [...new Set([
+    ...meaningfulReasons({ previous, next: snapshot, versionType }),
+    ...additionalMeaningfulReasons,
+  ])];
   return await base44.asServiceRole.entities.QuestionnaireVersion.create({
     draft_id: draftId,
     session_id: sessionId,

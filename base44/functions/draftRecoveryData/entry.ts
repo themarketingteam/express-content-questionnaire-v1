@@ -870,7 +870,7 @@ Deno.serve(async (req) => {
         await createQuestionnaireVersion({
           base44,
           draft: previousDraft,
-          previous: null,
+          previous: previousDraft,
           versionType: 'autosave',
           sourceRecordId: String(previousDraft.id),
           capturedAt: String(previousDraft.last_saved_at || previousDraft.updated_date || new Date().toISOString()),

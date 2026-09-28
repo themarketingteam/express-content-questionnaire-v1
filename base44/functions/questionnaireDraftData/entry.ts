@@ -1,6 +1,10 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { draftAllowsAccess, withoutDraftAccessHashes } from '../../shared/draftAccess.ts';
-import { createQuestionnaireVersion, normalizeIdentityValue } from '../../shared/questionnaireVersions.ts';
+import {
+  createQuestionnaireVersion,
+  meaningfulReasons,
+  normalizeIdentityValue,
+} from '../../shared/questionnaireVersions.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -438,11 +442,17 @@ Deno.serve(async (req) => {
     };
     if (existing) {
       try {
+        const resetIsMeaningful = meaningfulReasons({
+          previous: existing,
+          next: nextDraft,
+          versionType: 'autosave',
+        }).includes('before_or_after_large_reset');
         await createQuestionnaireVersion({
           base44,
           draft: existing,
-          previous: null,
+          previous: existing,
           versionType: 'autosave',
+          additionalMeaningfulReasons: resetIsMeaningful ? ['before_large_reset'] : [],
           sourceRecordId: String(existing.id),
           capturedAt: String(existing.last_saved_at || existing.updated_date || new Date().toISOString()),
           versionKey: `${existing.id}:materialized-before-update:${existingRevision}`,

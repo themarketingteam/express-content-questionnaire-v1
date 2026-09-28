@@ -73,6 +73,8 @@ test("protected backend implements pagination, isolation, immutable copies, and 
   assert.match(draftApi, /existing\.status === 'submitted' \|\| existing\.final_submission_id/);
   assert.match(draftApi, /incomingRevision <= existingRevision/);
   assert.match(draftApi, /versionType: 'admin_edit'|checkpointType/);
+  assert.match(draftApi, /additionalMeaningfulReasons: resetIsMeaningful \? \['before_large_reset'\] : \[\]/);
+  assert.match(draftApi, /draft: existing,[\s\S]*?previous: existing/);
   assert.match(submitBackend, /versionType: 'submitted_snapshot'/);
   assert.match(page, /isHistoricalVersion/);
   assert.match(page, /disabled=\{isLoading \|\| isHistoricalVersion\}/);
