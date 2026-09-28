@@ -330,15 +330,31 @@ Deno.serve(async (req) => {
         // Persist the complete incoming snapshot before any validation or create
         // attempt. Anonymous and authenticated clients therefore have the same
         // server-side recovery guarantee.
-        const checkpointDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, draftSnapshot);
-        await createQuestionnaireVersion({
+        const checkpointNext = { ...coordinatorDraft, ...draftSnapshot, id: coordinatorDraft.id };
+        const checkpointVersion = await createQuestionnaireVersion({
           base44,
-          draft: checkpointDraft,
+          draft: checkpointNext,
           previous: coordinatorDraft,
           versionType: 'submission_checkpoint',
           sourceRecordId: String(coordinatorDraft.id),
-          capturedAt: String(checkpointDraft.submit_attempted_at || nowIso()),
-        }).catch((error) => console.error('Submission checkpoint version capture failed', error));
+          capturedAt: String(checkpointNext.submit_attempted_at || nowIso()),
+          versionKey: `${coordinatorDraft.id}:submission-checkpoint:${submitAttemptId || questionnaireSessionId}`,
+          mutationMetadata: {
+            mutationId: `submission-checkpoint:${submitAttemptId || questionnaireSessionId}`,
+            clientInstanceId: 'submission-fallback',
+            clientSequence: Number(coordinatorDraft.last_confirmed_revision || 0) + 1,
+            baseRevision: Number(coordinatorDraft.last_confirmed_revision || 0),
+            changedKeys: Object.keys(draftSnapshot),
+            deletedKeys: [],
+            serverTimestamp: String(checkpointNext.submit_attempted_at || nowIso()),
+          },
+        });
+        if (!checkpointVersion?.id) throw new Error('Submission checkpoint history was not retained.');
+        const checkpointDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+          ...draftSnapshot,
+          last_materialized_version_id: checkpointVersion.id,
+          last_mutation_id: `submission-checkpoint:${submitAttemptId || questionnaireSessionId}`,
+        });
 
     // If payload is invalid/missing → intake only
     const hasValidPayload = !transformFailed && !validationFailed &&
@@ -370,9 +386,22 @@ Deno.serve(async (req) => {
       });
 
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
-      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      const failedNext = {
+        ...checkpointDraft,
         status: 'auto_repair_pending',
         submit_error: intakeData.primary_error_json || intakeReason,
+      };
+      const failedVersion = await createQuestionnaireVersion({
+        base44, draft: failedNext, previous: checkpointDraft,
+        versionType: 'failed_submission_checkpoint', sourceRecordId: String(coordinatorDraft.id),
+        capturedAt: nowIso(),
+        versionKey: `${coordinatorDraft.id}:failed-submission:${submitAttemptId || questionnaireSessionId}:${intakeReason}`,
+      });
+      if (!failedVersion?.id) throw new Error('Failed-submission history was not retained.');
+      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        status: failedNext.status,
+        submit_error: failedNext.submit_error,
+        last_materialized_version_id: failedVersion.id,
       });
 
       return Response.json({
@@ -427,19 +456,28 @@ Deno.serve(async (req) => {
         linkedSubmissionId: existingSubmissionId,
       });
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
-      const submittedDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      const submittedNext = {
+        ...checkpointDraft,
         status: 'submitted',
         submitted_at: nowIso(),
         final_submission_id: existingSubmissionId,
-      });
-      await createQuestionnaireVersion({
+      };
+      const submittedVersion = await createQuestionnaireVersion({
         base44,
-        draft: submittedDraft,
+        draft: submittedNext,
         previous: checkpointDraft,
         versionType: 'submitted_snapshot',
         sourceRecordId: existingSubmissionId,
-        capturedAt: String(submittedDraft.submitted_at || nowIso()),
-      }).catch((error) => console.error('Submitted version capture failed', error));
+        capturedAt: String(submittedNext.submitted_at || nowIso()),
+        versionKey: `${coordinatorDraft.id}:submitted:${existingSubmissionId}`,
+      });
+      if (!submittedVersion?.id) throw new Error('Submitted questionnaire history was not retained.');
+      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        status: submittedNext.status,
+        submitted_at: submittedNext.submitted_at,
+        final_submission_id: submittedNext.final_submission_id,
+        last_materialized_version_id: submittedVersion.id,
+      });
 
       return Response.json({
         success: true, received: true, alreadySubmitted: true,
@@ -485,20 +523,30 @@ Deno.serve(async (req) => {
       });
 
       const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
-      const submittedDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      const submittedNext = {
+        ...checkpointDraft,
         status: 'submitted',
         submitted_at: nowIso(),
         final_submission_id: submissionId || '',
         mapped_payload_json: safeJsonStringify(normalized),
-      });
-      await createQuestionnaireVersion({
+      };
+      const submittedVersion = await createQuestionnaireVersion({
         base44,
-        draft: submittedDraft,
+        draft: submittedNext,
         previous: checkpointDraft,
         versionType: 'submitted_snapshot',
         sourceRecordId: String(submissionId || coordinatorDraft.id),
-        capturedAt: String(submittedDraft.submitted_at || nowIso()),
-      }).catch((error) => console.error('Submitted version capture failed', error));
+        capturedAt: String(submittedNext.submitted_at || nowIso()),
+        versionKey: `${coordinatorDraft.id}:submitted:${submissionId || submitAttemptId || questionnaireSessionId}`,
+      });
+      if (!submittedVersion?.id) throw new Error('Submitted questionnaire history was not retained.');
+      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        status: submittedNext.status,
+        submitted_at: submittedNext.submitted_at,
+        final_submission_id: submittedNext.final_submission_id,
+        mapped_payload_json: submittedNext.mapped_payload_json,
+        last_materialized_version_id: submittedVersion.id,
+      });
 
       return Response.json({
         success: true, received: true, submissionCreated: true,
@@ -520,10 +568,24 @@ Deno.serve(async (req) => {
     });
 
     const intake = await upsertIntake(base44, questionnaireSessionId, intakeData);
-    await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+    const failedNext = {
+      ...checkpointDraft,
       status: 'auto_repair_pending',
       submit_error: safeJsonStringify(submissionError),
       mapped_payload_json: safeJsonStringify(normalized),
+    };
+    const failedVersion = await createQuestionnaireVersion({
+      base44, draft: failedNext, previous: checkpointDraft,
+      versionType: 'failed_submission_checkpoint', sourceRecordId: String(coordinatorDraft.id),
+      capturedAt: nowIso(),
+      versionKey: `${coordinatorDraft.id}:failed-submission:${submitAttemptId || questionnaireSessionId}:create-failed`,
+    });
+    if (!failedVersion?.id) throw new Error('Failed-submission history was not retained.');
+    await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      status: failedNext.status,
+      submit_error: failedNext.submit_error,
+      mapped_payload_json: failedNext.mapped_payload_json,
+      last_materialized_version_id: failedVersion.id,
     });
 
     return Response.json({

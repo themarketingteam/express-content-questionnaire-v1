@@ -11,6 +11,7 @@ import {
 } from "@/components/questionnaire/PDFGenerator.js";
 import {
   createPdfPayloadFingerprint,
+  createPdfVersionFingerprint,
   prepareDraftPdfInput,
   selectReusablePdfVersion,
   sortPdfVersions,
@@ -124,8 +125,15 @@ export default function DraftPdfManager({ draft, submission = null, questionnair
         submission: context.submission || submission || null,
       });
       const payloadHash = await createPdfPayloadFingerprint(input);
+      const versionFingerprint = await createPdfVersionFingerprint({
+        sourceDraftId: input.draftId,
+        questionnaireVersionId: questionnaireVersion?.id || `current:${input.draftId}`,
+        snapshotHash: questionnaireVersion?.snapshotHash || "",
+        payloadHash,
+        templateVersion: EXPRESS_PDF_TEMPLATE_VERSION,
+      });
       const currentVersions = sortPdfVersions(context.pdfVersions || versions);
-      const reusableVersion = selectReusablePdfVersion(currentVersions, payloadHash);
+      const reusableVersion = selectReusablePdfVersion(currentVersions, versionFingerprint);
 
       if (reusableVersion) {
         setVersions(currentVersions);
@@ -151,6 +159,10 @@ export default function DraftPdfManager({ draft, submission = null, questionnair
         submissionId: input.submissionId,
         submitAttemptId: input.submitAttemptId,
         payloadHash,
+        sourceDraftId: input.draftId,
+        questionnaireVersionId: questionnaireVersion?.id || `current:${input.draftId}`,
+        snapshotHash: questionnaireVersion?.snapshotHash || "",
+        versionFingerprint,
         payloadSource: questionnaireVersion?.id
           ? `${input.source}@${questionnaireVersion.id}`
           : input.source,

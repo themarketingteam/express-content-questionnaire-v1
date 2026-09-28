@@ -112,7 +112,7 @@ function CandidateCard({
   );
 }
 
-export default function IdentityResolutionPanel({ resolution, recoveryGrant = "", onReviewed = null }) {
+export default function IdentityResolutionPanel({ resolution, recoveryGrant = "", onReviewed = null, disabled = false }) {
   const [current, setCurrent] = useState(resolution || null);
   const [loading, setLoading] = useState("");
 
@@ -178,6 +178,7 @@ export default function IdentityResolutionPanel({ resolution, recoveryGrant = ""
           label="Business Name"
           threshold={0.90}
           {...current.businessName}
+          disabled={disabled}
           loading={loading}
           onReview={review}
         />
@@ -186,6 +187,7 @@ export default function IdentityResolutionPanel({ resolution, recoveryGrant = ""
           label="Domain"
           threshold={0.92}
           {...current.domain}
+          disabled={disabled}
           domainBlocked={!nameConfirmed}
           loading={loading}
           onReview={review}

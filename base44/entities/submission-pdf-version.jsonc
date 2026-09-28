@@ -30,6 +30,23 @@
       "pattern": "^[a-f0-9]{64}$",
       "description": "SHA-256 fingerprint of all values rendered into the PDF"
     },
+    "source_draft_id": {
+      "type": "string",
+      "description": "Draft that owned the selected questionnaire version"
+    },
+    "questionnaire_version_id": {
+      "type": "string",
+      "description": "Typed retained-version identifier selected by the administrator"
+    },
+    "snapshot_hash": {
+      "type": "string",
+      "description": "Immutable questionnaire snapshot hash, when available"
+    },
+    "version_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Compound fingerprint of draft, selected version, snapshot, payload, and template"
+    },
     "payload_source": {
       "type": "string",
       "description": "Payload source used for generation, such as mapped_payload_json or form_submission"

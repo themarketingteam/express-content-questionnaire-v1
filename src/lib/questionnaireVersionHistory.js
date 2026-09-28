@@ -38,10 +38,61 @@ function versionRank(version) {
 
 export function chooseDefaultQuestionnaireVersion(versions) {
   const all = Array.isArray(versions) ? versions : [];
-  const submitted = all.filter(version => version.type === "submitted_snapshot");
+  const submitted = all.filter(version => version.type === "submitted_snapshot" && version.rawAvailable !== false);
   const finals = all.filter(version => version.type === "final_submission");
-  const pool = submitted.length ? submitted : finals.length ? finals : all;
+  const barriers = all.filter(version => [
+    "submission_checkpoint", "failed_submission_checkpoint", "intake_snapshot", "submission_intake",
+  ].includes(version.type));
+  const nonEmpty = all.filter(version => Number(version.answerCount || 0) > 0);
+  const current = all.filter(version => version.type === "current_draft");
+  const pool = submitted.length
+    ? submitted
+    : finals.length
+      ? finals
+      : barriers.length
+        ? barriers
+        : nonEmpty.length
+          ? nonEmpty
+          : current.length
+            ? current
+            : all;
   return [...pool].sort((left, right) => versionRank(right) - versionRank(left))[0] || null;
+}
+
+export function calculateMeaningfulQuestionnaireVersions(versions, workingSessionGapMs = 30 * 60 * 1000) {
+  const bySession = new Map();
+  (versions || []).forEach((version) => {
+    const key = String(version.sessionId || "");
+    bySession.set(key, [...(bySession.get(key) || []), { ...version }]);
+  });
+  const result = [];
+  for (const sessionVersions of bySession.values()) {
+    const ascending = sessionVersions.sort((left, right) => (
+      (Date.parse(left.capturedAt || "") || 0) - (Date.parse(right.capturedAt || "") || 0)
+      || String(left.id || "").localeCompare(String(right.id || ""))
+    ));
+    let answerHighWater = -1;
+    let progressHighWater = -1;
+    ascending.forEach((version, index) => {
+      const reasons = new Set(version.meaningfulReasons || []);
+      if (index === 0) reasons.add("first_retained_revision");
+      if (index === ascending.length - 1) reasons.add("latest_retained_revision");
+      if (Number(version.answerCount || 0) > answerHighWater) reasons.add("answer_count_high_water");
+      if (Number(version.progressPercent || 0) > progressHighWater) reasons.add("progress_high_water");
+      answerHighWater = Math.max(answerHighWater, Number(version.answerCount || 0));
+      progressHighWater = Math.max(progressHighWater, Number(version.progressPercent || 0));
+      const next = ascending[index + 1];
+      if (next && (
+        Number(version.answerCount || 0) - Number(next.answerCount || 0) >= 3
+        || Number(version.progressPercent || 0) - Number(next.progressPercent || 0) >= 20
+      )) reasons.add("before_substantial_deletion");
+      const currentTime = Date.parse(version.capturedAt || "") || 0;
+      const nextTime = Date.parse(next?.capturedAt || "") || 0;
+      if (nextTime && currentTime && nextTime - currentTime >= workingSessionGapMs) reasons.add("working_session_end");
+      result.push({ ...version, meaningful: reasons.size > 0, meaningfulReasons: [...reasons] });
+    });
+  }
+  return result;
 }
 
 export function filterMeaningfulQuestionnaireVersions(versions) {

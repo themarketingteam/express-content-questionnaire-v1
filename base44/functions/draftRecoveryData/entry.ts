@@ -18,6 +18,7 @@ import {
   questionnaireMetrics,
   snapshotFromDraft,
 } from '../../shared/questionnaireVersions.ts';
+import { applyDurableDraftMutation } from '../../shared/durableDraftMutation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,7 +40,7 @@ const updateLimits: Record<string, number> = {
 const PDF_VERSION_LIST_LIMIT = 100;
 const VERSION_PAGE_SIZE = 250;
 const VERSION_CATALOG_CEILING = 5_000;
-const RELATED_SESSION_CEILING = 100;
+const RELATED_SESSION_CEILING = 5_000;
 const WORKING_SESSION_GAP_MS = 30 * 60 * 1_000;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{20,160}$/;
 const encoder = new TextEncoder();
@@ -161,6 +162,11 @@ function versionLabel(type: string): string {
     admin_edit: 'Administrative edit',
     explicit_clear: 'Explicit clear',
     recovery_copy: 'Recovery copy',
+    failed_submission_checkpoint: 'Failed submission checkpoint',
+    legacy_baseline: 'Legacy current baseline',
+    submission_intake: 'Submission intake',
+    reconstructed_candidate: 'Reconstructed recovery candidate',
+    ai_applied_edit: 'AI-applied edit',
   };
   return labels[type] || type.replace(/_/g, ' ');
 }
@@ -427,6 +433,7 @@ async function buildVersionCatalog(base44: any, rootDraft: Record<string, any>, 
   for (const summary of summaries) unique.set(String(summary.id), summary);
   const all = [...unique.values()].sort((left, right) => (
     (Date.parse(String(right.capturedAt || '')) || 0) - (Date.parse(String(left.capturedAt || '')) || 0)
+    || String(right.id || '').localeCompare(String(left.id || ''))
   ));
   const bySession = new Map<string, Array<Record<string, any>>>();
   for (const summary of all) {
@@ -437,29 +444,54 @@ async function buildVersionCatalog(base44: any, rootDraft: Record<string, any>, 
     const ascending = [...sessionVersions].sort((left, right) => (
       (Date.parse(String(left.capturedAt || '')) || 0) - (Date.parse(String(right.capturedAt || '')) || 0)
     ));
+    let answerHighWater = -1;
+    let progressHighWater = -1;
     ascending.forEach((summary, index) => {
-      if (index === 0) summary.meaningful = true;
-      if (index === ascending.length - 1) summary.meaningful = true;
+      const reasons = new Set<string>(summary.meaningfulReasons || []);
+      if (index === 0) reasons.add('first_retained_revision');
+      if (index === ascending.length - 1) reasons.add('latest_retained_revision');
+      if (Number(summary.answerCount || 0) > answerHighWater) reasons.add('answer_count_high_water');
+      if (Number(summary.progressPercent || 0) > progressHighWater) reasons.add('progress_high_water');
+      answerHighWater = Math.max(answerHighWater, Number(summary.answerCount || 0));
+      progressHighWater = Math.max(progressHighWater, Number(summary.progressPercent || 0));
+      const next = ascending[index + 1];
+      if (next && (
+        Number(summary.answerCount || 0) - Number(next.answerCount || 0) >= 3
+        || Number(summary.progressPercent || 0) - Number(next.progressPercent || 0) >= 20
+      )) reasons.add('before_substantial_deletion');
       const nextTime = Date.parse(String(ascending[index + 1]?.capturedAt || '')) || 0;
       const currentTime = Date.parse(String(summary.capturedAt || '')) || 0;
       if (nextTime && currentTime && nextTime - currentTime >= WORKING_SESSION_GAP_MS) {
-        summary.meaningful = true;
-        summary.meaningfulReasons = [...new Set([...(summary.meaningfulReasons || []), 'working_session_end'])];
+        reasons.add('working_session_end');
       }
+      summary.meaningfulReasons = [...reasons];
+      summary.meaningful = reasons.size > 0;
     });
   }
 
-  const submitted = all.filter((version) => version.type === 'submitted_snapshot');
+  const submitted = all.filter((version) => version.type === 'submitted_snapshot' && version.rawAvailable !== false);
   const finalSubmissions = all.filter((version) => version.type === 'final_submission');
+  const barriers = all.filter((version) => [
+    'submission_checkpoint', 'failed_submission_checkpoint', 'intake_snapshot', 'submission_intake',
+  ].includes(String(version.type || '')));
   const rank = (version: Record<string, any>) => (
-    (version.type === 'submitted_snapshot' ? 1_000_000 : 0)
-    + (version.type === 'final_submission' ? 900_000 : 0)
-    + (version.status === 'submitted' ? 800_000 : 0)
     + Number(version.progressPercent || 0) * 1_000
     + Number(version.answerCount || 0) * 10
     + Math.floor((Date.parse(String(version.capturedAt || '')) || 0) / 1_000_000_000)
   );
-  const preferredPool = submitted.length ? submitted : finalSubmissions.length ? finalSubmissions : all;
+  const nonEmpty = all.filter((version) => Number(version.answerCount || 0) > 0);
+  const currentDrafts = all.filter((version) => version.type === 'current_draft');
+  const preferredPool = submitted.length
+    ? submitted
+    : finalSubmissions.length
+      ? finalSubmissions
+      : barriers.length
+        ? barriers
+        : nonEmpty.length
+          ? nonEmpty
+          : currentDrafts.length
+            ? currentDrafts
+            : all;
   const defaultVersion = [...preferredPool].sort((left, right) => rank(right) - rank(left))[0] || null;
   const visible = mode === 'all' ? all : all.filter((version) => version.meaningful);
   return {
@@ -476,34 +508,107 @@ async function buildVersionCatalog(base44: any, rootDraft: Record<string, any>, 
 }
 
 async function resolveVersion(base44: any, rootDraft: Record<string, any>, versionId: string) {
-  const catalog = await buildVersionCatalog(base44, rootDraft, 'all');
-  const summary = catalog.versions.find((version: Record<string, any>) => version.id === versionId);
-  if (!summary) return null;
-  const owningDraft = catalog.relatedDrafts.find((draft: Record<string, any>) => String(draft.id) === String(summary.draftId));
-  if (!owningDraft) return null;
+  const separator = versionId.indexOf(':');
+  const kind = separator > 0 ? versionId.slice(0, separator) : '';
+  const entityId = separator > 0 ? versionId.slice(separator + 1) : '';
+  if (!kind || !entityId) return null;
   let draft: Record<string, unknown> | null = null;
   let submission: Record<string, unknown> | null = null;
-  if (versionId.startsWith('current:')) {
-    draft = withoutDraftAccessHashes(await base44.asServiceRole.entities.FormDraft.get(String(summary.draftId)));
-  } else if (versionId.startsWith('snapshot:')) {
-    const entityId = versionId.slice('snapshot:'.length);
+  let owningDraft: Record<string, any> | null = null;
+  let summary: Record<string, any> | null = null;
+
+  if (kind === 'current') {
+    owningDraft = await base44.asServiceRole.entities.FormDraft.get(entityId).catch(() => null);
+    if (!owningDraft || !strongIdentityMatch(rootDraft, owningDraft)) return null;
+    const metrics = questionnaireMetrics(owningDraft);
+    summary = versionSummary({
+      id: versionId,
+      draftId: owningDraft.id,
+      sessionId: owningDraft.session_id,
+      type: 'current_draft',
+      status: owningDraft.status,
+      capturedAt: owningDraft.last_saved_at || owningDraft.updated_date || owningDraft.created_date,
+      answerCount: metrics.answerCount,
+      progressPercent: metrics.progressPercent,
+      meaningful: true,
+      reasons: ['current_materialized_draft'],
+      readOnly: String(owningDraft.id) !== String(rootDraft.id),
+    });
+    draft = withoutDraftAccessHashes(owningDraft);
+  } else if (kind === 'snapshot') {
     const version = await base44.asServiceRole.entities.QuestionnaireVersion.get(entityId).catch(() => null);
-    if (!version || !catalog.relatedDraftIds.has(String(version.draft_id))) return null;
+    if (!version) return null;
+    owningDraft = await base44.asServiceRole.entities.FormDraft.get(String(version.draft_id)).catch(() => null);
+    if (!owningDraft || !strongIdentityMatch(rootDraft, owningDraft)) return null;
     draft = parseObject(version.snapshot_json);
     draft.id = version.draft_id;
-  } else if (versionId.startsWith('submission:')) {
-    const entityId = versionId.slice('submission:'.length);
-    const record = catalog.linked.submissions.find((candidate: Record<string, any>) => String(candidate.id) === entityId);
+    let reasons: string[] = [];
+    try { reasons = JSON.parse(version.meaningful_reasons_json || '[]'); } catch { reasons = []; }
+    summary = versionSummary({
+      id: versionId,
+      draftId: version.draft_id,
+      sessionId: version.session_id,
+      type: version.version_type,
+      status: version.status,
+      capturedAt: version.captured_at || version.created_date,
+      answerCount: version.answer_count,
+      progressPercent: version.progress_percent,
+      meaningful: version.meaningful,
+      reasons,
+      readOnly: true,
+    });
+    summary.snapshotHash = version.snapshot_hash || '';
+  } else if (kind === 'submission') {
+    const record = await base44.asServiceRole.entities.FormSubmission.get(entityId).catch(() => null);
     if (!record) return null;
+    owningDraft = record.linked_draft_id
+      ? await base44.asServiceRole.entities.FormDraft.get(String(record.linked_draft_id)).catch(() => null)
+      : (await base44.asServiceRole.entities.FormDraft.filter(
+        { session_id: record.questionnaire_session_id }, '-last_saved_at', 1,
+      ).catch(() => []))?.[0] || null;
+    if (!owningDraft || !strongIdentityMatch(rootDraft, owningDraft)) return null;
     submission = record;
     draft = submissionAsDraft(record, owningDraft);
-  } else if (versionId.startsWith('intake:')) {
-    const entityId = versionId.slice('intake:'.length);
-    const record = catalog.linked.intakes.find((candidate: Record<string, any>) => String(candidate.id) === entityId);
+    const metrics = questionnaireMetrics(draft);
+    summary = versionSummary({
+      id: versionId,
+      draftId: owningDraft.id,
+      sessionId: record.questionnaire_session_id || owningDraft.session_id,
+      type: 'final_submission',
+      status: 'submitted',
+      capturedAt: record.submission_datetime || record.created_date,
+      answerCount: metrics.answerCount,
+      progressPercent: 100,
+      meaningful: true,
+      reasons: ['linked_final_submission'],
+      readOnly: true,
+      rawAvailable: Object.keys(parseObject(record.raw_responses_json)).length > 0,
+    });
+  } else if (kind === 'intake') {
+    const record = await base44.asServiceRole.entities.FormSubmissionIntake.get(entityId).catch(() => null);
     if (!record) return null;
+    owningDraft = (await base44.asServiceRole.entities.FormDraft.filter(
+      { session_id: record.questionnaire_session_id }, '-last_saved_at', 1,
+    ).catch(() => []))?.[0] || null;
+    if (!owningDraft || !strongIdentityMatch(rootDraft, owningDraft)) return null;
     draft = intakeAsDraft(record, owningDraft);
+    const metrics = questionnaireMetrics(draft);
+    summary = versionSummary({
+      id: versionId,
+      draftId: owningDraft.id,
+      sessionId: record.questionnaire_session_id || owningDraft.session_id,
+      type: 'intake_snapshot',
+      status: record.status,
+      capturedAt: record.created_at_server || record.created_date,
+      answerCount: metrics.answerCount,
+      progressPercent: metrics.progressPercent,
+      meaningful: true,
+      reasons: ['submission_barrier_intake'],
+      readOnly: true,
+      rawAvailable: Object.keys(parseObject(record.raw_responses_json)).length > 0,
+    });
   }
-  return draft ? { summary, draft, submission } : null;
+  return draft && summary ? { summary, draft, submission } : null;
 }
 
 Deno.serve(async (req) => {
@@ -606,10 +711,21 @@ Deno.serve(async (req) => {
         const rootDraft = await base44.asServiceRole.entities.FormDraft.get(String(body.recordId || body.draftId)).catch(() => null);
         if (!rootDraft) return json({ success: false, error: 'Draft not found.' }, 404);
         const catalog = await buildVersionCatalog(base44, rootDraft, mode);
+        const requestedPageSize = Number(body.pageSize || 0);
+        const pageSize = Number.isSafeInteger(requestedPageSize) && requestedPageSize > 0
+          ? Math.min(500, requestedPageSize)
+          : Math.max(1, catalog.versions.length);
+        const requestedPage = Number(body.page || 1);
+        const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+        const offset = (page - 1) * pageSize;
+        const versions = catalog.versions.slice(offset, offset + pageSize);
         return json({
           success: true,
           mode,
-          versions: catalog.versions,
+          versions,
+          page,
+          pageSize,
+          hasMore: offset + versions.length < catalog.versions.length,
           defaultVersionId: catalog.defaultVersionId,
           totalVersions: catalog.totalVersions,
           keyVersionCount: catalog.keyVersionCount,
@@ -711,15 +827,30 @@ Deno.serve(async (req) => {
         delete copyValues.created_by;
         delete copyValues.updated_by;
         const copy = await base44.asServiceRole.entities.FormDraft.create(copyValues);
-        await createQuestionnaireVersion({
-          base44,
-          draft: copy,
-          previous: null,
-          versionType: 'recovery_copy',
-          sourceRecordId: String(resolved.summary.draftId || rootDraft.id),
-          sourceVersionId: String(resolved.summary.id),
-          capturedAt: now,
-        });
+        try {
+          await createQuestionnaireVersion({
+            base44,
+            draft: copy,
+            previous: null,
+            versionType: 'recovery_copy',
+            sourceRecordId: String(resolved.summary.draftId || rootDraft.id),
+            sourceVersionId: String(resolved.summary.id),
+            capturedAt: now,
+            versionKey: `${copy.id}:recovery-copy:${resolved.summary.id}`,
+            mutationMetadata: {
+              mutationId: `recovery-copy:${resolved.summary.id}`,
+              clientInstanceId: 'admin-recovery-copy',
+              clientSequence: 1,
+              baseRevision: 0,
+              changedKeys: Object.keys(parseObject(source.responses_json)),
+              deletedKeys: [],
+              serverTimestamp: now,
+            },
+          });
+        } catch (error) {
+          await base44.asServiceRole.entities.FormDraft.delete(String(copy.id)).catch(() => undefined);
+          throw error;
+        }
         return json({
           success: true,
           draft: withoutDraftAccessHashes(copy),
@@ -867,26 +998,31 @@ Deno.serve(async (req) => {
           updates.normalized_domain = normalizeIdentityValue(updates.domain, 'domain');
         }
 
-        await createQuestionnaireVersion({
+        const now = new Date().toISOString();
+        const mutationId = isNonEmptyString(body.mutationId, 500)
+          ? body.mutationId
+          : `admin-edit:${crypto.randomUUID()}`;
+        const result = await applyDurableDraftMutation({
           base44,
-          draft: previousDraft,
-          previous: previousDraft,
-          versionType: 'autosave',
-          sourceRecordId: String(previousDraft.id),
-          capturedAt: String(previousDraft.last_saved_at || previousDraft.updated_date || new Date().toISOString()),
-          versionKey: `${previousDraft.id}:materialized-before-admin-edit:${previousDraft.last_confirmed_revision || 0}:${previousDraft.updated_date || ''}`,
-        });
-
-        const draft = await base44.asServiceRole.entities.FormDraft.update(body.draftId, updates);
-        await createQuestionnaireVersion({
-          base44,
-          draft,
-          previous: previousDraft,
+          draftId: String(body.draftId),
+          nextValues: {
+            ...updates,
+            last_saved_at: now,
+            last_changed_at: now,
+          },
+          metadata: {
+            mutationId,
+            clientInstanceId: 'admin-draft-recovery',
+            clientSequence: Number(previousDraft.last_confirmed_revision || 0) + 1,
+            baseRevision: Number(previousDraft.last_confirmed_revision || 0),
+            changedKeys: Object.keys(updates),
+            deletedKeys: Object.entries(updates).filter(([, value]) => value === '').map(([key]) => key),
+          },
           versionType: 'admin_edit',
-          sourceRecordId: String(draft.id),
-          capturedAt: String(draft.payload_edited_at || new Date().toISOString()),
+          sourceRecordId: String(previousDraft.id),
         });
-        return json({ success: true, draft: withoutDraftAccessHashes(draft) });
+        if (!result.accepted) return json({ success: false, error: 'The draft changed before this administrative edit could be applied.' }, 409);
+        return json({ success: true, draft: withoutDraftAccessHashes(result.draft), versionId: result.version?.id || '' });
       }
 
       default:

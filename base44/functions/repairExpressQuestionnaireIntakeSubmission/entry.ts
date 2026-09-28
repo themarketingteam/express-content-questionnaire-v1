@@ -6,6 +6,8 @@ import {
   createIdentityFingerprint,
   resolveSubmissionIdentity,
 } from '../../shared/submissionIdentityRecovery.js';
+import { applyDurableDraftMutation } from '../../shared/durableDraftMutation.ts';
+import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -607,7 +609,24 @@ Deno.serve(async (req) => {
       if (sourceType === 'intake') {
         await base44.asServiceRole.entities.FormSubmissionIntake.update(sourceId, aiRepairFields);
       } else {
-        await base44.asServiceRole.entities.FormDraft.update(sourceId, aiRepairFields);
+        const current = await base44.asServiceRole.entities.FormDraft.get(sourceId);
+        const mutation = await applyDurableDraftMutation({
+          base44,
+          draftId: sourceId,
+          nextValues: aiRepairFields,
+          metadata: {
+            mutationId: `ai-repair-only:${identityResolution.attemptId || now}`,
+            clientInstanceId: 'admin-ai-repair',
+            clientSequence: Number(current.last_confirmed_revision || 0) + 1,
+            baseRevision: Number(current.last_confirmed_revision || 0),
+            changedKeys: Object.keys(aiRepairFields),
+            deletedKeys: [],
+          },
+          versionType: 'ai_applied_edit',
+          sourceRecordId: sourceId,
+          allowFinalized: true,
+        });
+        if (!mutation.accepted) throw new Error('The draft changed before the AI repair could be applied.');
       }
 
       return Response.json({
@@ -631,7 +650,24 @@ Deno.serve(async (req) => {
           ai_repair_retry_result_json: JSON.stringify({ ok: false, reason: 'validation_failed', errors: validation.errors }),
         });
       } else {
-        await base44.asServiceRole.entities.FormDraft.update(sourceId, aiRepairFields);
+        const current = await base44.asServiceRole.entities.FormDraft.get(sourceId);
+        const mutation = await applyDurableDraftMutation({
+          base44,
+          draftId: sourceId,
+          nextValues: aiRepairFields,
+          metadata: {
+            mutationId: `ai-repair-validation-failed:${identityResolution.attemptId || now}`,
+            clientInstanceId: 'admin-ai-repair',
+            clientSequence: Number(current.last_confirmed_revision || 0) + 1,
+            baseRevision: Number(current.last_confirmed_revision || 0),
+            changedKeys: Object.keys(aiRepairFields),
+            deletedKeys: [],
+          },
+          versionType: 'ai_applied_edit',
+          sourceRecordId: sourceId,
+          allowFinalized: true,
+        });
+        if (!mutation.accepted) throw new Error('The draft changed before the AI repair result could be retained.');
       }
 
       return Response.json({
@@ -780,10 +816,30 @@ Deno.serve(async (req) => {
         last_retry_at: now,
       });
     } else {
+      const currentDraft = await base44.asServiceRole.entities.FormDraft.get(sourceId);
+      const submittedNext = {
+        ...currentDraft,
+        ...retrySuccessFields,
+        status: 'submitted',
+        final_submission_id: createdId,
+        submitted_at: now,
+      };
+      const submittedVersion = await createQuestionnaireVersion({
+        base44,
+        draft: submittedNext,
+        previous: currentDraft,
+        versionType: 'submitted_snapshot',
+        sourceRecordId: createdId,
+        capturedAt: now,
+        versionKey: `${sourceId}:ai-repair-submitted:${createdId}`,
+      });
+      if (!submittedVersion?.id) throw new Error('AI-repaired submitted history was not retained.');
       await base44.asServiceRole.entities.FormDraft.update(sourceId, {
         ...retrySuccessFields,
         status: 'submitted',
         final_submission_id: createdId,
+        submitted_at: now,
+        last_materialized_version_id: submittedVersion.id,
       });
     }
 

@@ -2,9 +2,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { draftAllowsAccess, withoutDraftAccessHashes } from '../../shared/draftAccess.ts';
 import {
   createQuestionnaireVersion,
-  meaningfulReasons,
   normalizeIdentityValue,
 } from '../../shared/questionnaireVersions.ts';
+import { applyDurableDraftMutation } from '../../shared/durableDraftMutation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -116,6 +116,18 @@ function sanitizeDraft(rawDraft: unknown, sessionId: string): Record<string, str
 function sanitizeRevision(value: unknown): number {
   const numeric = Number(value);
   return Number.isSafeInteger(numeric) && numeric >= 0 ? Math.min(numeric, 2_147_483_647) : 0;
+}
+
+function sanitizeMutationString(value: unknown, maxLength = 500): string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength
+    ? value.trim()
+    : '';
+}
+
+function sanitizeMutationKeys(value: unknown): string[] {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .filter((item): item is string => typeof item === 'string' && item.length > 0 && item.length <= 250))]
+    .sort();
 }
 
 function sanitizeIdentity(rawIdentity: unknown): Record<string, string> {
@@ -305,6 +317,20 @@ Deno.serve(async (req) => {
           ...updates,
         });
       const saved = { ...(existing || {}), ...(savedResult || {}) };
+      const bootstrapVersion = await createQuestionnaireVersion({
+        base44,
+        draft: saved,
+        previous: null,
+        versionType: 'legacy_baseline',
+        additionalMeaningfulReasons: ['server_bootstrap_baseline'],
+        sourceRecordId: String(saved.id),
+        capturedAt: String(saved.last_saved_at || saved.updated_date || now),
+        versionKey: `${saved.id}:server-bootstrap-baseline`,
+        reconstructionLabel: existing
+          ? 'First server-confirmed baseline for an existing draft'
+          : 'Server bootstrap baseline',
+      });
+      if (!bootstrapVersion?.id) throw new Error('The server draft baseline was not retained.');
 
       console.info(JSON.stringify({
         functionName: 'questionnaireDraftData',
@@ -372,22 +398,39 @@ Deno.serve(async (req) => {
       }
       const checkpointType = body.checkpointType === 'explicit_clear' ? 'explicit_clear' : '';
       if (!checkpointType) return json({ success: false, error: 'Unsupported checkpoint type.' }, 400);
-      const checkpointDraft = {
-        ...draft,
-        id: existing.id,
-        status: existing.status || 'draft',
-        last_confirmed_revision: sanitizeRevision(existing.last_confirmed_revision),
-      };
-      const version = await createQuestionnaireVersion({
+      const incomingRevision = sanitizeRevision((body.draft as Record<string, unknown>)?.client_revision);
+      const mutationId = sanitizeMutationString(body.mutationId)
+        || sanitizeMutationString((body.draft as Record<string, unknown>)?.mutation_id)
+        || `${checkpointType}:${incomingRevision}`;
+      const result = await applyDurableDraftMutation({
         base44,
-        draft: checkpointDraft,
-        previous: existing,
+        draftId: String(existing.id),
+        nextValues: {
+          ...draft,
+          status: existing.status || 'draft',
+          last_saved_at: new Date().toISOString(),
+        },
+        metadata: {
+          mutationId,
+          clientInstanceId: sanitizeMutationString(body.clientInstanceId || (body.draft as Record<string, unknown>)?.client_instance_id, 300),
+          clientSequence: sanitizeRevision(body.clientSequence || (body.draft as Record<string, unknown>)?.client_sequence || incomingRevision),
+          baseRevision: sanitizeRevision(body.baseRevision ?? (body.draft as Record<string, unknown>)?.base_revision ?? existing.last_confirmed_revision),
+          changedKeys: sanitizeMutationKeys(body.changedKeys || (() => { try { return JSON.parse(String((body.draft as Record<string, unknown>)?.changed_keys_json || '[]')); } catch { return []; } })()),
+          deletedKeys: sanitizeMutationKeys(body.deletedKeys || (() => { try { return JSON.parse(String((body.draft as Record<string, unknown>)?.deleted_keys_json || '[]')); } catch { return []; } })()),
+        },
         versionType: checkpointType,
         sourceRecordId: String(existing.id),
-        capturedAt: new Date().toISOString(),
-        versionKey: `${existing.id}:${checkpointType}:${crypto.randomUUID()}`,
+        additionalMeaningfulReasons: ['explicit_clear'],
       });
-      return json({ success: true, saved: true, materialized: false, versionId: version?.id || '' });
+      return json({
+        success: true,
+        saved: Boolean(result.accepted),
+        stale: Boolean(result.stale),
+        materialized: Boolean(result.accepted),
+        versionId: result.version?.id || '',
+        draftId: existing.id,
+        lastConfirmedRevision: sanitizeRevision(result.draft?.last_confirmed_revision),
+      });
     }
 
     // A finalized draft is immutable from the public autosave path. Delayed
@@ -406,30 +449,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    const incomingRevision = sanitizeRevision((body.draft as Record<string, unknown>)?.client_revision);
-    const existingRevision = sanitizeRevision(existing?.last_confirmed_revision);
-    const incomingTime = new Date(draft.last_changed_at || draft.last_saved_at || 0).getTime() || 0;
-    const existingTime = new Date(existing?.last_changed_at || existing?.last_saved_at || 0).getTime() || 0;
-    if (existing && ((existingRevision > 0 && incomingRevision <= existingRevision)
-      || (incomingRevision === 0 && incomingTime > 0 && existingTime > incomingTime))) {
-      return json({
-        success: true,
-        saved: false,
-        stale: true,
-        draftId: existing.id,
-        lastSavedAt: existing.last_saved_at || existing.updated_date || '',
-        lastConfirmedRevision: existingRevision,
-      });
+    if (!existing) {
+      return json({ success: false, error: 'The server draft must be bootstrapped before saving.', code: 'bootstrap_required' }, 409);
     }
 
-    const nextDraft = {
+    const incomingRevision = sanitizeRevision((body.draft as Record<string, unknown>)?.client_revision);
+    const existingRevision = sanitizeRevision(existing.last_confirmed_revision);
+
+    const nextDraft: Record<string, unknown> = {
       ...draft,
       normalized_user_id: normalizeIdentityValue(draft.user_id || existing?.user_id),
       normalized_user_email: normalizeIdentityValue(draft.user_email || existing?.user_email, 'email'),
       normalized_business_name: normalizeIdentityValue(draft.business_name || existing?.business_name),
       normalized_domain: normalizeIdentityValue(draft.domain || existing?.domain, 'domain'),
       client_revision: incomingRevision,
-      last_confirmed_revision: incomingRevision,
       persistence_health_status: 'healthy',
       last_save_failure_code: '',
       // A generated recovery link may use the secondary access hash. Preserve
@@ -440,54 +473,49 @@ Deno.serve(async (req) => {
       retention_policy_version: '2026-08-18',
       retention_protected_at: existing?.retention_protected_at || new Date().toISOString(),
     };
-    if (existing) {
-      try {
-        const resetIsMeaningful = meaningfulReasons({
-          previous: existing,
-          next: nextDraft,
-          versionType: 'autosave',
-        }).includes('before_or_after_large_reset');
-        await createQuestionnaireVersion({
-          base44,
-          draft: existing,
-          previous: existing,
-          versionType: 'autosave',
-          additionalMeaningfulReasons: resetIsMeaningful ? ['before_large_reset'] : [],
-          sourceRecordId: String(existing.id),
-          capturedAt: String(existing.last_saved_at || existing.updated_date || new Date().toISOString()),
-          versionKey: `${existing.id}:materialized-before-update:${existingRevision}`,
-        });
-      } catch (versionError) {
-        console.error('Pre-update questionnaire version capture failed', versionError);
-      }
-    }
-    const saved = existing
-      ? await base44.asServiceRole.entities.FormDraft.update(existing.id, nextDraft)
-      : await base44.asServiceRole.entities.FormDraft.create(nextDraft);
-
-    const versionType = saved.status === 'submitted'
+    const versionType = nextDraft.status === 'submitted'
       ? 'submitted_snapshot'
-      : ['submitting', 'submit_attempted', 'submit_failed'].includes(String(saved.status || ''))
-        ? 'submission_checkpoint'
+      : String(nextDraft.status || '') === 'submit_failed'
+        ? 'failed_submission_checkpoint'
+        : ['submitting', 'submit_attempted'].includes(String(nextDraft.status || ''))
+          ? 'submission_checkpoint'
         : 'autosave';
-    try {
-      await createQuestionnaireVersion({
-        base44,
-        draft: saved,
-        previous: existing,
-        versionType,
-        sourceRecordId: String(saved.id),
-        capturedAt: String(saved.last_saved_at || new Date().toISOString()),
+    const mutationId = sanitizeMutationString(body.mutationId)
+      || sanitizeMutationString((body.draft as Record<string, unknown>)?.mutation_id)
+      || `client-revision:${incomingRevision}`;
+    const result = await applyDurableDraftMutation({
+      base44,
+      draftId: String(existing.id),
+      nextValues: nextDraft,
+      metadata: {
+        mutationId,
+        clientInstanceId: sanitizeMutationString(body.clientInstanceId || (body.draft as Record<string, unknown>)?.client_instance_id, 300),
+        clientSequence: sanitizeRevision(body.clientSequence || (body.draft as Record<string, unknown>)?.client_sequence || incomingRevision),
+        baseRevision: sanitizeRevision(body.baseRevision ?? (body.draft as Record<string, unknown>)?.base_revision ?? existingRevision),
+        changedKeys: sanitizeMutationKeys(body.changedKeys || (() => { try { return JSON.parse(String((body.draft as Record<string, unknown>)?.changed_keys_json || '[]')); } catch { return []; } })()),
+        deletedKeys: sanitizeMutationKeys(body.deletedKeys || (() => { try { return JSON.parse(String((body.draft as Record<string, unknown>)?.deleted_keys_json || '[]')); } catch { return []; } })()),
+      },
+      versionType,
+      sourceRecordId: String(existing.id),
+    });
+    const saved = result.draft;
+
+    if (!result.accepted) {
+      return json({
+        success: true,
+        saved: false,
+        stale: true,
+        finalized: Boolean(result.finalized),
+        draftId: existing.id,
+        lastSavedAt: saved?.last_saved_at || saved?.updated_date || '',
+        lastConfirmedRevision: sanitizeRevision(saved?.last_confirmed_revision),
+        draft: withoutDraftAccessHashes(saved),
       });
-    } catch (versionError) {
-      // Never discard the materialized draft because history capture failed.
-      // The failure remains visible in function logs and a later save can retry.
-      console.error('Questionnaire version capture failed', versionError);
     }
 
     console.info(JSON.stringify({
       functionName: 'questionnaireDraftData',
-      deliveryStage: existing ? 'draft_updated' : 'draft_created',
+      deliveryStage: result.duplicate ? 'draft_retry_materialized' : 'draft_versioned_and_materialized',
       identifier: sessionId,
     }));
 
@@ -498,6 +526,9 @@ Deno.serve(async (req) => {
       draftId: saved.id,
       lastSavedAt: saved.last_saved_at || saved.updated_date || nextDraft.last_saved_at,
       lastConfirmedRevision: sanitizeRevision(saved.last_confirmed_revision),
+      mutationId,
+      versionId: result.version?.id || '',
+      draft: withoutDraftAccessHashes(saved),
     });
   } catch (error) {
     console.error('Questionnaire draft request failed', error);

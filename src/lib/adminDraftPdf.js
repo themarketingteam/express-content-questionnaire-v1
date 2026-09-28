@@ -213,6 +213,24 @@ export async function createPdfPayloadFingerprint(input) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export async function createPdfVersionFingerprint({
+  sourceDraftId,
+  questionnaireVersionId,
+  snapshotHash,
+  payloadHash,
+  templateVersion = EXPRESS_PDF_TEMPLATE_VERSION,
+}) {
+  const bytes = new TextEncoder().encode(stableStringify({
+    sourceDraftId: String(sourceDraftId || ""),
+    questionnaireVersionId: String(questionnaireVersionId || "current"),
+    snapshotHash: String(snapshotHash || ""),
+    payloadHash: String(payloadHash || ""),
+    templateVersion,
+  }));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function sortPdfVersions(versions) {
   return [...(versions || [])].sort((left, right) => {
     const versionDifference = Number(right.version_number || 0) - Number(left.version_number || 0);
@@ -222,9 +240,9 @@ export function sortPdfVersions(versions) {
   });
 }
 
-export function selectReusablePdfVersion(versions, payloadHash) {
+export function selectReusablePdfVersion(versions, versionFingerprint) {
   return sortPdfVersions(versions).find((version) => (
-    version.payload_hash === payloadHash
+    version.version_fingerprint === versionFingerprint
     && version.template_version === EXPRESS_PDF_TEMPLATE_VERSION
     && version.storage_available === true
   )) || null;

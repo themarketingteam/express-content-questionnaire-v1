@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   chooseDefaultQuestionnaireVersion,
+  calculateMeaningfulQuestionnaireVersions,
   createQuestionnaireVersionLoadGate,
   filterMeaningfulQuestionnaireVersions,
   isSameQuestionnaireClient,
@@ -28,6 +29,22 @@ test("the most complete version wins when no durable submission exists", () => {
     { id: "complete", type: "autosave", status: "draft", answerCount: 18, progressPercent: 92, capturedAt: "2026-09-27T12:00:00Z" },
   ]);
   assert.equal(selected.id, "complete");
+});
+
+test("key versions use chronological global high-water marks and retain the state before a reset", () => {
+  const calculated = calculateMeaningfulQuestionnaireVersions([
+    { id: "one", sessionId: "s", answerCount: 2, progressPercent: 10, capturedAt: "2026-09-28T10:00:00Z" },
+    { id: "peak", sessionId: "s", answerCount: 12, progressPercent: 80, capturedAt: "2026-09-28T10:10:00Z" },
+    { id: "lower", sessionId: "s", answerCount: 8, progressPercent: 60, capturedAt: "2026-09-28T10:11:00Z" },
+    { id: "not-new-high", sessionId: "s", answerCount: 10, progressPercent: 70, capturedAt: "2026-09-28T10:12:00Z" },
+  ]);
+  const peak = calculated.find((version) => version.id === "peak");
+  const lower = calculated.find((version) => version.id === "lower");
+  const later = calculated.find((version) => version.id === "not-new-high");
+  assert.ok(peak.meaningfulReasons.includes("answer_count_high_water"));
+  assert.ok(peak.meaningfulReasons.includes("before_substantial_deletion"));
+  assert.ok(!lower.meaningfulReasons.includes("answer_count_high_water"));
+  assert.ok(!later.meaningfulReasons.includes("answer_count_high_water"));
 });
 
 test("client grouping accepts only strong deterministic identities", () => {
@@ -101,14 +118,17 @@ test("protected backend implements pagination, isolation, immutable copies, and 
   assert.match(backend, /rootDomain && rootBusiness/);
   assert.match(backend, /recovery_copy_source_version_id/);
   assert.match(entity, /"update": false/);
+  assert.match(entity, /"delete": false/);
   assert.match(draftApi, /existing\.status === 'submitted' \|\| existing\.final_submission_id/);
-  assert.match(draftApi, /incomingRevision <= existingRevision/);
-  assert.match(draftApi, /versionType: 'admin_edit'|checkpointType/);
-  assert.match(draftApi, /additionalMeaningfulReasons: resetIsMeaningful \? \['before_large_reset'\] : \[\]/);
-  assert.match(draftApi, /draft: existing,[\s\S]*?previous: existing/);
+  assert.match(draftApi, /applyDurableDraftMutation/);
+  assert.match(draftApi, /versionType: checkpointType/);
+  assert.match(draftApi, /baseRevision/);
+  assert.match(backend, /applyDurableDraftMutation/);
+  assert.doesNotMatch(backend, /buildVersionCatalog\(base44, rootDraft, 'all'\);\s*const summary/);
   assert.match(submitBackend, /versionType: 'submitted_snapshot'/);
   assert.match(page, /isHistoricalVersion/);
   assert.match(page, /disabled=\{isLoading \|\| isHistoricalVersion\}/);
+  assert.match(page, /readOnly=\{isHistoricalVersion\}/);
   assert.match(selector, /Create Editable Recovery Copy/);
   assert.match(selector, /Read-only historical version/);
   assert.match(styles, /@media \(max-width: 44rem\)[\s\S]*?questionnaire-version-panel__controls/);

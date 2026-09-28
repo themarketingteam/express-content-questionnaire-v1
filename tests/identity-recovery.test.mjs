@@ -63,6 +63,7 @@ function mutableBase44(record, inference) {
   const state = structuredClone(record);
   const updates = [];
   const attempts = [];
+  const versions = [];
   const entity = {
     async get() { return structuredClone(state); },
     async update(id, patch) {
@@ -86,6 +87,14 @@ function mutableBase44(record, inference) {
           async create(value) {
             const created = { id: `attempt-${attempts.length + 1}`, ...value };
             attempts.push(created);
+            return created;
+          },
+        },
+        QuestionnaireVersion: {
+          async filter(query) { return versions.filter((version) => version.version_key === query.version_key); },
+          async create(value) {
+            const created = { id: `version-${versions.length + 1}`, ...structuredClone(value) };
+            versions.push(created);
             return created;
           },
         },
@@ -333,10 +342,14 @@ test("the source-controlled scheduler is DST-safe, bounded, shadow-first, and ne
   assert.doesNotMatch(worker, /EXPRESS_ZAPIER_WEBHOOK_URL/);
 });
 
-test("the scheduled function bundles an exact copy of the canonical identity resolver", () => {
+test("the scheduled function retains the same versioned identity-apply contract", () => {
   const canonical = read("base44/shared/submissionIdentityRecovery.js");
   const bundled = read("base44/functions/recoverMissingSubmissionIdentity/submissionIdentityRecovery.js");
-  assert.equal(bundled, canonical);
+  for (const source of [canonical, bundled]) {
+    assert.match(source, /createQuestionnaireVersion/);
+    assert.match(source, /versionType: 'ai_applied_edit'/);
+    assert.match(source, /Identity recovery history was not retained/);
+  }
 });
 
 test("manual actions share identity recovery, require both fields for retry, and persist final domains", () => {

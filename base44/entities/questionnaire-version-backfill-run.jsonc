@@ -1,0 +1,25 @@
+{
+  "name": "QuestionnaireVersionBackfillRun",
+  "type": "object",
+  "required": ["run_key", "status", "mode"],
+  "properties": {
+    "run_key": { "type": "string" },
+    "status": { "type": "string", "enum": ["running", "complete", "failed"] },
+    "mode": { "type": "string", "enum": ["dry_run", "apply"] },
+    "cursor": { "type": "integer", "default": 0 },
+    "total_drafts": { "type": "integer", "default": 0 },
+    "created_versions": { "type": "integer", "default": 0 },
+    "existing_versions": { "type": "integer", "default": 0 },
+    "normalized_drafts": { "type": "integer", "default": 0 },
+    "unrecoverable_records": { "type": "integer", "default": 0 },
+    "report_json": { "type": "string" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": false
+  }
+}

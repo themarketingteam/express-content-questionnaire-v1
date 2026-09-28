@@ -31,7 +31,12 @@
         "submitted_snapshot",
         "admin_edit",
         "explicit_clear",
-        "recovery_copy"
+        "recovery_copy",
+        "failed_submission_checkpoint",
+        "legacy_baseline",
+        "submission_intake",
+        "reconstructed_candidate",
+        "ai_applied_edit"
       ]
     },
     "status": {
@@ -74,6 +79,35 @@
     "source_version_id": {
       "type": "string"
     },
+    "mutation_id": {
+      "type": "string",
+      "description": "Stable idempotency identifier for the accepted mutation"
+    },
+    "client_instance_id": {
+      "type": "string"
+    },
+    "client_sequence": {
+      "type": "integer",
+      "default": 0
+    },
+    "base_revision": {
+      "type": "integer",
+      "default": 0
+    },
+    "changed_keys_json": {
+      "type": "string"
+    },
+    "deleted_keys_json": {
+      "type": "string"
+    },
+    "authoritative_server_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reconstruction_label": {
+      "type": "string",
+      "description": "Explicit provenance for legacy or reconstructed candidates"
+    },
     "normalized_user_id": {
       "type": "string"
     },
@@ -112,10 +146,6 @@
       }
     },
     "update": false,
-    "delete": {
-      "user_condition": {
-        "role": "admin"
-      }
-    }
+    "delete": false
   }
 }

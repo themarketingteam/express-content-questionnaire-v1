@@ -5,7 +5,6 @@
 
 import {
   buildExpressSubmissionPayload,
-  getInitialExpressFormData,
   safeJsonStringify,
   serializeExpressError
 } from "@/lib/expressQuestionnairePayload";
@@ -71,49 +70,20 @@ export function createFindExistingDraftBySessionId({ draftRecordIdRef }) {
   };
 }
 
-const INITIAL_FORM_DATA = getInitialExpressFormData();
-
 function safeJsonParseLocal(value, fallback = {}) {
   if (!value) return fallback;
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
 /**
- * Determine if a field value should be considered "empty" for merge purposes.
- * Empty values do NOT overwrite existing recovery data.
- */
-function isFieldValueEmpty(key, value) {
-  if (value === null || value === undefined) return true;
-  if (typeof value === "string") {
-    if (value.trim() === "") return true;
-    // The default clientSize is auto-filled, not user-entered
-    if (key === "clientSize" && value === INITIAL_FORM_DATA.clientSize) return true;
-    return false;
-  }
-  if (Array.isArray(value)) return value.length === 0;
-  if (typeof value === "object") {
-    // geographicAreaMeta with only { source: "google" } is a default stub
-    return !Object.entries(value).some(([k, v]) =>
-      k !== "source" && v !== null && v !== undefined && v !== ""
-    );
-  }
-  return false;
-}
-
-/**
- * Per-field merge: new non-empty values override existing; empty values retain
- * the last-known answer. This ensures recovery holds data even after the user
- * clears the form locally or refreshes the page.
+ * Full questionnaire saves overwrite keys that are present, including explicit
+ * empty values. Missing/unloaded keys remain untouched. Immutable versions keep
+ * the previous non-empty state recoverable without lying about the current form.
  */
 function mergeFormResponses(existing, incoming) {
   const merged = { ...existing };
-  for (const key of Object.keys(INITIAL_FORM_DATA)) {
-    const incomingValue = incoming[key];
-    if (!isFieldValueEmpty(key, incomingValue)) {
-      merged[key] = incomingValue;
-    } else if (merged[key] === undefined) {
-      merged[key] = incomingValue;
-    }
+  for (const key of Object.keys(incoming || {})) {
+    merged[key] = incoming[key];
   }
   return merged;
 }
@@ -186,8 +156,8 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       existingDomain = existing.domain || "";
     }
 
-    // Per-field merge: new non-empty values override; empty values retain existing.
-    // This ensures recovery holds answers even after local clear/refresh.
+    // Present keys, including explicit clears, overwrite the materialized state.
+    // The previous complete state remains available in immutable history.
     const mergedResponses = mergeFormResponses(existingResponses, normalizedResponses);
     const mergedBusinessName = businessName || existingBusinessName;
     const mergedDomain = domain || existingDomain;
@@ -254,22 +224,12 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       ...(lastLocalPersistedAt ? { last_local_persisted_at: lastLocalPersistedAt } : {})
     };
 
-    if (persistDraftRecord) {
-      const result = await persistDraftRecord(draftRecord);
-      if (result?.draftId) {
-        draftRecordIdRef.current = result.draftId;
-      }
-      return result;
+    if (!persistDraftRecord) {
+      throw new Error("Secure server draft persistence is required.");
     }
-
-    if (existing?.id) {
-      await entities.FormDraft.update(existing.id, draftRecord);
-    } else {
-      const created = await entities.FormDraft.create(draftRecord);
-      if (created?.id) {
-        draftRecordIdRef.current = created.id;
-      }
-    }
+    const result = await persistDraftRecord(draftRecord);
+    if (result?.draftId) draftRecordIdRef.current = result.draftId;
+    return result;
   };
 }
 

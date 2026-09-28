@@ -9,6 +9,9 @@ const SNAPSHOT_FIELDS = [
   'submitted_at', 'last_changed_at', 'last_saved_at', 'last_non_empty_answers_json',
   'field_history_json', 'last_local_persisted_at', 'client_revision',
   'last_confirmed_revision', 'bootstrap_confirmed_at', 'bootstrap_attempt_count',
+  'last_mutation_id', 'last_materialized_version_id', 'last_client_instance_id',
+  'last_client_sequence', 'last_base_revision', 'last_changed_keys_json',
+  'last_deleted_keys_json', 'authoritative_server_timestamp',
   'persistence_health_status', 'last_persistence_telemetry_at', 'storage_available',
   'url_credential_persisted', 'last_save_failure_code', 'final_submission_id',
   'ai_repair_status', 'ai_repair_attempt_count', 'last_ai_repair_at',
@@ -139,6 +142,8 @@ export async function createQuestionnaireVersion({
   sourceVersionId = '',
   capturedAt = '',
   versionKey = '',
+  mutationMetadata = null,
+  reconstructionLabel = '',
 }: {
   base44: any;
   draft: Record<string, unknown>;
@@ -149,6 +154,16 @@ export async function createQuestionnaireVersion({
   sourceVersionId?: string;
   capturedAt?: string;
   versionKey?: string;
+  mutationMetadata?: {
+    mutationId?: string;
+    clientInstanceId?: string;
+    clientSequence?: number;
+    baseRevision?: number;
+    changedKeys?: string[];
+    deletedKeys?: string[];
+    serverTimestamp?: string;
+  } | null;
+  reconstructionLabel?: string;
 }): Promise<Record<string, unknown> | null> {
   const draftId = String(draft.id || '');
   const sessionId = String(draft.session_id || '');
@@ -188,6 +203,14 @@ export async function createQuestionnaireVersion({
     captured_at: resolvedCapturedAt,
     source_record_id: sourceRecordId || draftId,
     source_version_id: sourceVersionId,
+    mutation_id: String(mutationMetadata?.mutationId || ''),
+    client_instance_id: String(mutationMetadata?.clientInstanceId || ''),
+    client_sequence: Math.max(0, Number(mutationMetadata?.clientSequence || 0) || 0),
+    base_revision: Math.max(0, Number(mutationMetadata?.baseRevision || 0) || 0),
+    changed_keys_json: JSON.stringify(mutationMetadata?.changedKeys || []),
+    deleted_keys_json: JSON.stringify(mutationMetadata?.deletedKeys || []),
+    authoritative_server_timestamp: String(mutationMetadata?.serverTimestamp || resolvedCapturedAt),
+    reconstruction_label: reconstructionLabel,
     normalized_user_id: normalizeIdentityValue(draft.user_id),
     normalized_email: normalizeIdentityValue(draft.user_email, 'email'),
     normalized_business_name: normalizeIdentityValue(draft.business_name),

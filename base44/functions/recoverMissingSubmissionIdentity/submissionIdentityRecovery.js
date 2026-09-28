@@ -1,3 +1,5 @@
+import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
+
 const encoder = new TextEncoder();
 
 export const IDENTITY_RESOLVER_VERSION = 'express-identity-v1';
@@ -788,7 +790,21 @@ export async function resolveSubmissionIdentity({
         : ['business_name', 'business_domain'];
       resolution.appliedFields = identityFields.filter((field) => Object.prototype.hasOwnProperty.call(sourceUpdate.patch, field));
       if (resolution.appliedFields.length > 0) {
+        let version = null;
+        if (recordType === 'draft') {
+          version = await createQuestionnaireVersion({
+            base44,
+            draft: { ...current, ...sourceUpdate.patch },
+            previous: current,
+            versionType: 'ai_applied_edit',
+            sourceRecordId: String(record.id),
+            capturedAt: new Date().toISOString(),
+            versionKey: `${record.id}:identity-auto-apply:${fingerprint}`,
+          });
+          if (!version?.id) throw new Error('Identity recovery history was not retained.');
+        }
         await entity.update(record.id, sourceUpdate.patch);
+        if (version?.id) await entity.update(record.id, { last_materialized_version_id: version.id });
         resolvedPayload = sourceUpdate.payload;
         if (resolution.appliedFields.includes('business_name')) resolution.businessName.decision = 'applied';
         if (resolution.appliedFields.includes('domain') || resolution.appliedFields.includes('business_domain')) resolution.domain.decision = 'applied';
@@ -910,7 +926,21 @@ export async function reviewIdentityResolution({
         field === 'business_name' ? candidate : '',
         field === 'domain' ? candidate : '',
       );
+      let version = null;
+      if (recordType === 'draft') {
+        version = await createQuestionnaireVersion({
+          base44,
+          draft: { ...current, ...sourceUpdate.patch },
+          previous: current,
+          versionType: 'admin_edit',
+          sourceRecordId: String(recordId),
+          capturedAt: new Date().toISOString(),
+          versionKey: `${recordId}:identity-review:${attempt.id}:${field}`,
+        });
+        if (!version?.id) throw new Error('Identity review history was not retained.');
+      }
       await entity.update(recordId, sourceUpdate.patch);
+      if (version?.id) await entity.update(recordId, { last_materialized_version_id: version.id });
       applied = true;
       const refreshed = await entity.get(recordId);
       postFingerprint = await createIdentityFingerprint(recordType, refreshed);

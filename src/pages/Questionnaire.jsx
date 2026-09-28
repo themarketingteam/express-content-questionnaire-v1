@@ -10,6 +10,7 @@ import { createQuestionnaireDraftApi, createSerialDraftSaveQueue } from "@/lib/q
 import {
   attachDraftLifecycleFlush,
   classifyDraftFailure,
+  createDraftMutationEnvelope,
   createKeepaliveDraftSaver,
   retryDraftOperation,
 } from "@/lib/draftSaveReliability";
@@ -206,6 +207,11 @@ export default function Questionnaire() {
   const lastConfirmedRevisionRef = useRef(0);
   const latestPendingDraftRef = useRef(null);
   const storageTelemetrySentRef = useRef(false);
+  const clientInstanceIdRef = useRef(
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
 
   const [draftIdentity] = useState(() => getOrCreateQuestionnaireDraftIdentity());
   const questionnaireSessionId = draftIdentity.sessionId;
@@ -284,10 +290,15 @@ export default function Questionnaire() {
   const findExistingDraftBySessionId = useCallback(async () => remoteDraftRef.current, []);
 
   const persistDraftRecord = useCallback(async (draftRecord) => {
-    const incomingRevision = Number(draftRecord?.client_revision || 0);
+    const mutationRecord = createDraftMutationEnvelope(draftRecord, {
+      clientInstanceId: clientInstanceIdRef.current,
+      baseRevision: lastConfirmedRevisionRef.current,
+      previousDraft: remoteDraftRef.current,
+    });
+    const incomingRevision = Number(mutationRecord?.client_revision || 0);
     if (!latestPendingDraftRef.current
       || incomingRevision >= Number(latestPendingDraftRef.current.client_revision || 0)) {
-      latestPendingDraftRef.current = draftRecord;
+      latestPendingDraftRef.current = mutationRecord;
     }
     const requestVersion = draftRequestVersionRef.current + 1;
     draftRequestVersionRef.current = requestVersion;
@@ -303,7 +314,7 @@ export default function Questionnaire() {
     const performSave = async () => {
       let result;
       try {
-        result = await enqueueDraftSave(draftRecord);
+        result = await enqueueDraftSave(mutationRecord);
       } catch (error) {
         if (requestVersion !== draftRequestVersionRef.current && error && typeof error === "object") {
           error.draftSaveSuperseded = true;
@@ -330,14 +341,14 @@ export default function Questionnaire() {
         return result;
       }
 
-      const savedAt = result.lastSavedAt || draftRecord.last_saved_at || new Date().toISOString();
+      const savedAt = result.lastSavedAt || mutationRecord.last_saved_at || new Date().toISOString();
       const confirmedRevision = Number(result.lastConfirmedRevision ?? incomingRevision);
       lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
       const stillPending = Number(latestPendingDraftRef.current?.client_revision || 0) > lastConfirmedRevisionRef.current;
       if (!stillPending) latestPendingDraftRef.current = null;
       remoteDraftRef.current = {
         ...(remoteDraftRef.current || {}),
-        ...draftRecord,
+        ...mutationRecord,
         id: result.draftId || remoteDraftRef.current?.id || "",
         last_saved_at: savedAt,
         last_confirmed_revision: lastConfirmedRevisionRef.current,
@@ -1406,10 +1417,9 @@ export default function Questionnaire() {
       
       // Save cleared state to draft snapshot
       if (!hasFinalSubmittedRef.current) {
-        // Intentionally do NOT save cleared data to the server.
-        // The recovery draft retains the last-known answers via per-field merge.
-        // Only local state (form, localStorage, cookie) is cleared below.
-        // When the user enters new answers, queueDraftSave merges them in.
+        // The cleared state is materialized only after an immutable pre-clear
+        // history already exists, so the current draft is truthful while the
+        // completed questionnaire remains recoverable from version history.
 
         // Create draft event for destructive action
         createDraftEvent({
@@ -1423,7 +1433,9 @@ export default function Questionnaire() {
           },
         });
 
-        const clearedCheckpoint = buildImmediateDraftRecord({
+        const clearRevision = draftRevisionRef.current + 1;
+        draftRevisionRef.current = clearRevision;
+        const clearedCheckpoint = createDraftMutationEnvelope(buildImmediateDraftRecord({
           sessionId: questionnaireSessionId,
           responses: clearedFormData,
           validationStatus: clearedValidationStatus,
@@ -1434,12 +1446,15 @@ export default function Questionnaire() {
           domain: businessDetailsRef.current.domain,
           currentQuestionId: "",
           lastChangedQuestionId: "",
-          clientRevision: draftRevisionRef.current,
+          clientRevision: clearRevision,
           existingResponses: {},
+        }), {
+          clientInstanceId: clientInstanceIdRef.current,
+          baseRevision: lastConfirmedRevisionRef.current,
+          previousDraft: remoteDraftRef.current,
+          mutationPrefix: "explicit-clear",
         });
-        await draftApi.checkpoint(clearedCheckpoint, "explicit_clear").catch((error) => {
-          console.error("[clear-all] immutable checkpoint failed:", error?.message || error);
-        });
+        await draftApi.checkpoint(clearedCheckpoint, "explicit_clear");
       }
       
       // Save cleared state to localStorage and write marker cookie

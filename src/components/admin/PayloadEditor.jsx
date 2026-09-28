@@ -105,6 +105,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
       const response = await base44.functions.invoke("draftRecoveryData", {
         action: "updateDraft",
         draftId: draft.id,
+        mutationId: crypto.randomUUID(),
         updates: {
           business_name: businessName,
           domain: businessDomain,
@@ -135,6 +136,7 @@ export default function PayloadEditor({ draft, initialPayload, onRefresh, recove
       const updateResponse = await base44.functions.invoke("draftRecoveryData", {
         action: "updateDraft",
         draftId: draft.id,
+        mutationId: crypto.randomUUID(),
         updates: {
           business_name: businessName,
           domain: businessDomain,

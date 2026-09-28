@@ -167,6 +167,9 @@ Deno.serve(async (req) => {
       if (!isPayloadHash(body.payloadHash)) {
         return json({ success: false, error: 'payloadHash is invalid.' }, 400);
       }
+      if (!isPayloadHash(body.versionFingerprint)) {
+        return json({ success: false, error: 'versionFingerprint is invalid.' }, 400);
+      }
       const templateVersion = stringField(body.templateVersion, 100);
       const pdfFilename = stringField(body.pdfFilename, 255);
       if (!templateVersion || !pdfFilename) {
@@ -179,7 +182,7 @@ Deno.serve(async (req) => {
         {
           entity: base44.asServiceRole.entities.FormDraft,
           entityId: draftId,
-          purpose: `pdf:${body.payloadHash}:${templateVersion}`,
+          purpose: `pdf:${body.versionFingerprint}:${templateVersion}`,
           leaseDurationMs: 60_000,
           waitTimeoutMs: 20_000,
         },
@@ -187,7 +190,7 @@ Deno.serve(async (req) => {
           const matches = await base44.asServiceRole.entities.SubmissionPdfVersion.filter(
             {
               draft_id: draftId,
-              payload_hash: body.payloadHash,
+              version_fingerprint: body.versionFingerprint,
               template_version: templateVersion,
             },
             '-version_number',
@@ -204,7 +207,7 @@ Deno.serve(async (req) => {
           let s3ObjectVersionId = '';
           let s3ObjectSha256 = '';
           if (writer.configured) {
-            const objectHash = await sha256Hex(`pdf:${draftId}:${body.payloadHash}:${templateVersion}`);
+            const objectHash = await sha256Hex(`pdf:${draftId}:${body.versionFingerprint}:${templateVersion}`);
             s3ObjectKey = `pdf/v1/${objectHash.slice(0, 2)}/${objectHash}.pdf`;
             const pdfBytes = new Uint8Array(await (file as File).arrayBuffer());
             const upload = await putPrivateObject({
@@ -233,6 +236,10 @@ Deno.serve(async (req) => {
             submission_id: stringField(body.submissionId || draft.final_submission_id, 200),
             submit_attempt_id: stringField(body.submitAttemptId, 200),
             payload_hash: body.payloadHash,
+            source_draft_id: stringField(body.sourceDraftId || draftId, 200),
+            questionnaire_version_id: stringField(body.questionnaireVersionId, 500),
+            snapshot_hash: stringField(body.snapshotHash, 100),
+            version_fingerprint: body.versionFingerprint,
             payload_source: stringField(body.payloadSource, 100) || 'unknown',
             source_updated_at: stringField(body.sourceUpdatedAt, 100) || generatedAt,
             ...(fileUri ? { pdf_file_uri: fileUri } : {}),
@@ -242,7 +249,7 @@ Deno.serve(async (req) => {
               s3_object_sha256: s3ObjectSha256,
             } : {}),
             storage_visibility: 'private',
-            idempotency_key: `${draftId}:${body.payloadHash}:${templateVersion}`.slice(0, 1_000),
+            idempotency_key: `${draftId}:${body.versionFingerprint}:${templateVersion}`.slice(0, 1_000),
             pdf_filename: pdfFilename,
             pdf_byte_size: Number.isFinite(pdfByteSize) && pdfByteSize >= 0
               ? Math.round(pdfByteSize)

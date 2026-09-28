@@ -196,5 +196,7 @@ test("questionnaire wiring locks editing until bootstrap and reports only confir
   assert.match(status, /revision \{lastConfirmedRevision\} confirmed/);
   assert.match(modal, /onBusinessDetailsChange\?\.\(businessName\.trim\(\), cleanDomain\(domain\)\)/);
   assert.match(backend, /body\.action === 'bootstrap'/);
-  assert.match(backend, /last_confirmed_revision: incomingRevision/);
+  assert.match(backend, /applyDurableDraftMutation/);
+  assert.match(backend, /baseRevision/);
+  assert.match(questionnaire, /createDraftMutationEnvelope/);
 });

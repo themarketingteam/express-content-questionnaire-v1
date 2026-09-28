@@ -154,6 +154,35 @@
       "default": 0,
       "description": "Latest client revision confirmed by the Base44 database"
     },
+    "last_mutation_id": {
+      "type": "string",
+      "description": "Last durably accepted questionnaire mutation"
+    },
+    "last_materialized_version_id": {
+      "type": "string",
+      "description": "Immutable QuestionnaireVersion currently materialized by this draft"
+    },
+    "last_client_instance_id": {
+      "type": "string"
+    },
+    "last_client_sequence": {
+      "type": "integer",
+      "default": 0
+    },
+    "last_base_revision": {
+      "type": "integer",
+      "default": 0
+    },
+    "last_changed_keys_json": {
+      "type": "string"
+    },
+    "last_deleted_keys_json": {
+      "type": "string"
+    },
+    "authoritative_server_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
     "bootstrap_confirmed_at": {
       "type": "string",
       "format": "date-time",

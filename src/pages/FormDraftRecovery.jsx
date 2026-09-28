@@ -90,7 +90,7 @@ function Detail({ label, value, mono = false }) {
 
 // ─── DraftAiRepairSection ─────────────────────────────────────────────────────
 
-function DraftAiRepairSection({ draft, liveResolution = null, recoveryGrant = "", onReviewed = null }) {
+function DraftAiRepairSection({ draft, liveResolution = null, recoveryGrant = "", onReviewed = null, readOnly = false }) {
   const [open, setOpen] = useState(false);
   const report = safeJsonParse(draft.ai_repair_report_json, null);
   const repairedPayload = safeJsonParse(draft.ai_repaired_payload_json, null);
@@ -138,6 +138,7 @@ function DraftAiRepairSection({ draft, liveResolution = null, recoveryGrant = ""
               resolution={identityResolution}
               recoveryGrant={recoveryGrant}
               onReviewed={onReviewed}
+              disabled={readOnly}
             />
           )}
 
@@ -282,6 +283,8 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [selectedVersionDetail, setSelectedVersionDetail] = useState(null);
   const [selectedVersionLoading, setSelectedVersionLoading] = useState(false);
+  const [selectedVersionError, setSelectedVersionError] = useState("");
+  const [selectedVersionAttempt, setSelectedVersionAttempt] = useState(0);
   const [copyVersionLoading, setCopyVersionLoading] = useState(false);
   const draftRecoveryLinkRequestRef = useRef(null);
   const versionCatalogLoadGateRef = useRef(null);
@@ -289,7 +292,8 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     versionCatalogLoadGateRef.current = createQuestionnaireVersionLoadGate();
   }
   const activeDraft = fullDraft || draftSummary;
-  const selectedVersion = versionCatalog?.versions?.find(version => version.id === selectedVersionId) || null;
+  const catalogSelectedVersion = versionCatalog?.versions?.find(version => version.id === selectedVersionId) || null;
+  const selectedVersion = selectedVersionDetail?.version || catalogSelectedVersion;
   const isHistoricalVersion = Boolean(selectedVersion?.readOnly);
   const draft = selectedVersionDetail?.draft || activeDraft;
   const payloadEditorId = `payload-editor-${activeDraft.id}`;
@@ -346,6 +350,8 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     if (!expanded || !fullDraft || !selectedVersionId) return;
     let active = true;
     setSelectedVersionLoading(true);
+    setSelectedVersionDetail(null);
+    setSelectedVersionError("");
     withQuestionnaireVersionRequestTimeout(base44.functions.invoke("draftRecoveryData", {
       action: "get_version",
       recordId: draftSummary.id,
@@ -354,17 +360,19 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     })).then((response) => {
       const data = response?.data || response;
       if (!data?.success || !data?.draft) throw new Error(data?.error || "The selected version could not be loaded.");
-      if (active) setSelectedVersionDetail({ draft: data.draft, submission: data.submission || null });
+      if (active) setSelectedVersionDetail({ draft: data.draft, submission: data.submission || null, version: data.version || null });
     }).catch((error) => {
       if (active) {
         setSelectedVersionDetail(null);
-        toast.error(getBackendErrorMessage(error, "The selected version could not be loaded."));
+        const message = getBackendErrorMessage(error, "The selected version could not be loaded.");
+        setSelectedVersionError(message);
+        toast.error(message);
       }
     }).finally(() => {
       if (active) setSelectedVersionLoading(false);
     });
     return () => { active = false; };
-  }, [draftSummary.id, expanded, fullDraft, recoveryGrant, selectedVersionId]);
+  }, [draftSummary.id, expanded, fullDraft, recoveryGrant, selectedVersionId, selectedVersionAttempt]);
 
   useEffect(() => {
     if (isHistoricalVersion) setPayloadEditorOpen(false);
@@ -674,6 +682,11 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             <div className="draft-recovery-brand__loading" role="status">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading selected questionnaire version…
             </div>
+          ) : selectedVersionError ? (
+            <div className="draft-recovery-brand__detail-error" role="alert">
+              <span><AlertTriangle className="w-4 h-4" /> {selectedVersionError}</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => setSelectedVersionAttempt(value => value + 1)}>Retry</Button>
+            </div>
           ) : (
             <>
           <div className="brand-detail-grid">
@@ -872,6 +885,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             draft={draft}
             liveResolution={liveIdentityResolution}
             recoveryGrant={recoveryGrant}
+            readOnly={isHistoricalVersion}
             onReviewed={() => {
               onRefresh?.();
               loadDetails();

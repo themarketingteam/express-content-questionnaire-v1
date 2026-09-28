@@ -2,6 +2,53 @@ function wait(delayMs) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function parseObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function emptyAnswer(value) {
+  if (Array.isArray(value)) return value.length === 0;
+  if (value && typeof value === "object") return Object.values(value).every(emptyAnswer);
+  return value === "" || value === null || value === undefined;
+}
+
+export function createDraftMutationEnvelope(draft, {
+  clientInstanceId = "",
+  baseRevision = 0,
+  previousDraft = null,
+  mutationPrefix = "save",
+} = {}) {
+  const sequence = Math.max(0, Number(draft?.client_revision || 0) || 0);
+  const currentResponses = parseObject(draft?.responses_json);
+  const previousResponses = parseObject(previousDraft?.responses_json);
+  const keys = [...new Set([...Object.keys(previousResponses), ...Object.keys(currentResponses)])].sort();
+  const changedKeys = keys.filter((key) => (
+    JSON.stringify(previousResponses[key]) !== JSON.stringify(currentResponses[key])
+  ));
+  const deletedKeys = changedKeys.filter((key) => (
+    Object.prototype.hasOwnProperty.call(currentResponses, key)
+    && !emptyAnswer(previousResponses[key])
+    && emptyAnswer(currentResponses[key])
+  ));
+  const instance = String(clientInstanceId || "anonymous-client");
+  return {
+    ...draft,
+    mutation_id: `${mutationPrefix}:${instance}:${sequence}`,
+    client_instance_id: instance,
+    client_sequence: sequence,
+    base_revision: Math.max(0, Number(baseRevision || 0) || 0),
+    changed_keys_json: JSON.stringify(changedKeys),
+    deleted_keys_json: JSON.stringify(deletedKeys),
+  };
+}
+
 export function classifyDraftFailure(error) {
   const status = Number(error?.status || error?.response?.status || 0);
   const message = String(error?.message || "").toLowerCase();

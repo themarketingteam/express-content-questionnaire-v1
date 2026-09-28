@@ -12,6 +12,7 @@
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
+import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -303,32 +304,43 @@ async function processIntake(base44, intake) {
 
 async function markDraftAutoRepairFailed(base44, sessionId, reason) {
   if (!sessionId) return;
-  try {
-    const drafts = await base44.asServiceRole.entities.FormDraft.filter(
-      { session_id: sessionId }, '-last_saved_at', 1
-    );
-    if (drafts && drafts.length > 0) {
-      await base44.asServiceRole.entities.FormDraft.update(drafts[0].id, {
-        status: 'auto_repair_failed',
-        save_error: `Auto repair failed: ${reason}`,
-      });
-    }
-  } catch { /* best effort */ }
+  const drafts = await base44.asServiceRole.entities.FormDraft.filter(
+    { session_id: sessionId }, '-last_saved_at', 1
+  );
+  if (drafts && drafts.length > 0) {
+    const current = drafts[0];
+    const next = { ...current, status: 'auto_repair_failed', save_error: `Auto repair failed: ${reason}` };
+    const version = await createQuestionnaireVersion({
+      base44, draft: next, previous: current,
+      versionType: 'failed_submission_checkpoint', sourceRecordId: String(current.id),
+      capturedAt: nowIso(), versionKey: `${current.id}:auto-repair-failed:${String(reason).slice(0, 120)}`,
+    });
+    if (!version?.id) throw new Error('Auto-repair failure history was not retained.');
+    await base44.asServiceRole.entities.FormDraft.update(current.id, {
+      status: next.status, save_error: next.save_error, last_materialized_version_id: version.id,
+    });
+  }
 }
 
 async function markDraftSubmitted(base44, sessionId, submissionId) {
   if (!sessionId) return;
-  try {
-    const drafts = await base44.asServiceRole.entities.FormDraft.filter(
-      { session_id: sessionId }, '-last_saved_at', 1
-    );
-    if (drafts && drafts.length > 0) {
-      await base44.asServiceRole.entities.FormDraft.update(drafts[0].id, {
-        status: 'submitted',
-        final_submission_id: submissionId,
-      });
-    }
-  } catch { /* best effort */ }
+  const drafts = await base44.asServiceRole.entities.FormDraft.filter(
+    { session_id: sessionId }, '-last_saved_at', 1
+  );
+  if (drafts && drafts.length > 0) {
+    const current = drafts[0];
+    const next = { ...current, status: 'submitted', final_submission_id: submissionId, submitted_at: nowIso() };
+    const version = await createQuestionnaireVersion({
+      base44, draft: next, previous: current,
+      versionType: 'submitted_snapshot', sourceRecordId: String(submissionId),
+      capturedAt: next.submitted_at, versionKey: `${current.id}:submitted:${submissionId}`,
+    });
+    if (!version?.id) throw new Error('Auto-repair submitted history was not retained.');
+    await base44.asServiceRole.entities.FormDraft.update(current.id, {
+      status: next.status, final_submission_id: submissionId, submitted_at: next.submitted_at,
+      last_materialized_version_id: version.id,
+    });
+  }
 }
 
 Deno.serve(async (req) => {
