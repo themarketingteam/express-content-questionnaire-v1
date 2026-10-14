@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  findQuestionnaireIdentityConflict,
   parseQuestionnaireLaunchIntent,
 } from "../src/lib/questionnaireLaunchIntent.js";
 import {
@@ -28,6 +29,26 @@ test("newClient accepts domainName and creates a stable request id", () => {
   assert.equal(intent.businessName, "Acme IT");
   assert.equal(intent.domain, "acme.example");
   assert.equal(intent.newClientRequestId, "request-1234567890-abcdef");
+});
+
+test("frontend detects a reused draft URL carrying a different client identity", () => {
+  assert.deepEqual(
+    findQuestionnaireIdentityConflict(
+      { business_name: "Acme IT, LLC", domain: "https://www.acme.example/" },
+      { business_name: "Different Client", domain: "different.example" },
+    ),
+    {
+      businessName: { existing: "Acme IT, LLC", incoming: "Different Client" },
+      domain: { existing: "https://www.acme.example/", incoming: "different.example" },
+    },
+  );
+  assert.equal(
+    findQuestionnaireIdentityConflict(
+      { business_name: "Acme IT, LLC", domain: "https://www.acme.example/" },
+      { business_name: "Acme IT LLC", domain: "acme.example" },
+    ),
+    null,
+  );
 });
 
 test("explicit new-client launch ignores an old browser identity and is stable across a rerender", () => {

@@ -12,6 +12,35 @@ function clean(value) {
   return String(value || "").trim();
 }
 
+function normalizeIdentityValue(value, kind = "text") {
+  const cleaned = clean(value).toLowerCase();
+  if (kind === "domain") {
+    return cleaned
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/[/?#].*$/, "")
+      .replace(/\.$/, "");
+  }
+  return cleaned.replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+export function findQuestionnaireIdentityConflict(existing = {}, incoming = {}) {
+  const checks = [
+    ["businessName", existing.business_name || existing.businessName, incoming.business_name || incoming.businessName, "text"],
+    ["domain", existing.domain, incoming.domain, "domain"],
+  ];
+  const conflicts = {};
+  for (const [field, existingValue, incomingValue, kind] of checks) {
+    const current = clean(existingValue);
+    const next = clean(incomingValue);
+    if (!current || !next) continue;
+    if (normalizeIdentityValue(current, kind) !== normalizeIdentityValue(next, kind)) {
+      conflicts[field] = { existing: current, incoming: next };
+    }
+  }
+  return Object.keys(conflicts).length > 0 ? conflicts : null;
+}
+
 export function createNewClientRequestId(cryptoApi = globalThis.crypto) {
   if (typeof cryptoApi?.randomUUID === "function") return cryptoApi.randomUUID();
   if (!cryptoApi?.getRandomValues) throw new Error("Secure browser randomness is required.");

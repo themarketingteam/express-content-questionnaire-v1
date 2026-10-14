@@ -10,6 +10,7 @@ import { createQuestionnaireDraftApi, createLatestDraftSaveQueue } from "@/lib/q
 import {
   consumeNewClientLaunchFlags,
   ensureNewClientRequestInUrl,
+  findQuestionnaireIdentityConflict,
   navigateToNewClient,
   parseQuestionnaireLaunchIntent,
   removeIncomingIdentityParameters,
@@ -798,10 +799,15 @@ export default function Questionnaire() {
 
       if (!active || !bootstrapResult) return;
 
-      if (bootstrapResult.identityConflict) {
+      const detectedIdentityConflict = bootstrapResult.identityConflict || (
+        !launchIntent.newClient
+          ? findQuestionnaireIdentityConflict(remoteDraft || {}, bootstrapIdentity)
+          : null
+      );
+      if (detectedIdentityConflict) {
         remoteDraftRef.current = bootstrapResult.draft || null;
         draftRecordIdRef.current = bootstrapResult.draftId || "";
-        setIdentityConflict(bootstrapResult.identityConflict);
+        setIdentityConflict(detectedIdentityConflict);
         setDraftSaveStatus({
           state: "identity_conflict",
           pendingLocalChanges: false,
