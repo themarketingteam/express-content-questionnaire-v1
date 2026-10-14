@@ -50,13 +50,27 @@ export function createQuestionnaireDraftApi({ invoke, sessionId, accessKey, requ
       return request({ action: "bootstrap", identity, ...capabilities, attempt });
     },
     async bootstrapNewClient(identity = {}, newClientRequestId, capabilities = {}, attempt = 1) {
-      return request({
-        action: "bootstrap_new_client",
-        identity,
-        newClientRequestId,
-        ...capabilities,
-        attempt,
-      });
+      try {
+        return await request({
+          action: "bootstrap_new_client",
+          identity,
+          newClientRequestId,
+          ...capabilities,
+          attempt,
+        });
+      } catch (error) {
+        const details = /** @type {any} */ (error);
+        const serverMessage = String(details.response?.data?.error || details.message || "");
+        const rollingDeploymentFallback = Number(details.status || details.response?.status || 0) === 400
+          && /unsupported action/i.test(serverMessage);
+        if (!rollingDeploymentFallback) throw error;
+
+        // Older anonymous function routes may briefly lag the deployed backend.
+        // The identity has already been rotated and persisted in the URL, so the
+        // established bootstrap action still creates an isolated, retry-safe draft.
+        const result = await request({ action: "bootstrap", identity, ...capabilities, attempt });
+        return { ...result, newClient: true, rollingDeploymentFallback: true };
+      }
     },
     async load() {
       const data = await request({ action: "load" });

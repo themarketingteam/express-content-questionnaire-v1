@@ -9,7 +9,7 @@ import {
   getOrCreateQuestionnaireDraftIdentity,
   readNewClientRequestFromHash,
 } from "../src/lib/questionnaireDraftIdentity.js";
-import { createLatestDraftSaveQueue } from "../src/lib/questionnaireDraftApi.js";
+import { createLatestDraftSaveQueue, createQuestionnaireDraftApi } from "../src/lib/questionnaireDraftApi.js";
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -79,6 +79,26 @@ test("draft save queue keeps the in-flight save and coalesces queued changes to 
   releaseFirst();
   await Promise.all([first, second, third]);
   assert.deepEqual(saved, [1, 3]);
+});
+
+test("new-client bootstrap safely falls back during a rolling public-function deployment", async () => {
+  const actions = [];
+  const api = createQuestionnaireDraftApi({
+    sessionId: "fallback_session_123456789012345",
+    accessKey: "fallback_access_key_123456789012345678901234",
+    invoke: async (_name, body) => {
+      actions.push(body.action);
+      if (body.action === "bootstrap_new_client") {
+        throw Object.assign(new Error("Request failed"), {
+          response: { status: 400, data: { error: "Unsupported action." } },
+        });
+      }
+      return { data: { success: true, bootstrapConfirmed: true, draftId: "draft-fallback", draft: { id: "draft-fallback" } } };
+    },
+  });
+  const result = await api.bootstrapNewClient({}, "request_123456789012345", {}, 1);
+  assert.deepEqual(actions, ["bootstrap_new_client", "bootstrap"]);
+  assert.equal(result.rollingDeploymentFallback, true);
 });
 
 test("backend enforces server-first new-client bootstrap, identity conflicts, and fingerprinted submit dedupe", async () => {
