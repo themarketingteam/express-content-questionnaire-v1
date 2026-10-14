@@ -193,6 +193,20 @@
       "default": 0,
       "description": "Client-reported bootstrap attempt number for the latest successful bootstrap"
     },
+    "new_client_request_id_hash": {
+      "type": "string",
+      "description": "SHA-256 digest used to make explicit new-client launches idempotent without retaining the upstream request identifier"
+    },
+    "draft_origin": {
+      "type": "string",
+      "enum": ["existing_browser", "new_client_url", "manual_reset", "recovery_link"],
+      "description": "How this independent client draft was created"
+    },
+    "identity_confirmed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When a business name or domain was explicitly attached to this client draft"
+    },
     "persistence_health_status": {
       "type": "string",
       "enum": ["healthy", "retrying", "retry_exhausted"],

@@ -49,6 +49,15 @@ export function createQuestionnaireDraftApi({ invoke, sessionId, accessKey, requ
     async bootstrap(identity = {}, capabilities = {}, attempt = 1) {
       return request({ action: "bootstrap", identity, ...capabilities, attempt });
     },
+    async bootstrapNewClient(identity = {}, newClientRequestId, capabilities = {}, attempt = 1) {
+      return request({
+        action: "bootstrap_new_client",
+        identity,
+        newClientRequestId,
+        ...capabilities,
+        attempt,
+      });
+    },
     async load() {
       const data = await request({ action: "load" });
       return data.draft || null;
@@ -74,4 +83,39 @@ export function createSerialDraftSaveQueue(saveDraft) {
     saveChain = pendingSave;
     return pendingSave;
   };
+}
+
+export function createLatestDraftSaveQueue(saveDraft) {
+  let running = false;
+  let queued = null;
+  let queuedWaiters = [];
+
+  const drain = async (draft, waiters) => {
+    running = true;
+    try {
+      const result = await saveDraft(draft);
+      for (const waiter of waiters) waiter.resolve(result);
+    } catch (error) {
+      for (const waiter of waiters) waiter.reject(error);
+    } finally {
+      if (queued) {
+        const next = queued;
+        const nextWaiters = queuedWaiters;
+        queued = null;
+        queuedWaiters = [];
+        void drain(next, nextWaiters);
+      } else {
+        running = false;
+      }
+    }
+  };
+
+  return (draft) => new Promise((resolve, reject) => {
+    if (!running) {
+      void drain(draft, [{ resolve, reject }]);
+      return;
+    }
+    queued = draft;
+    queuedWaiters.push({ resolve, reject });
+  });
 }

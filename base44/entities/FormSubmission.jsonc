@@ -157,6 +157,14 @@
       "type": "string",
       "description": "Client submit attempt id used for idempotency and diagnostics"
     },
+    "submission_fingerprint": {
+      "type": "string",
+      "description": "SHA-256 digest of normalized client identity and the complete raw response snapshot used for exact idempotency"
+    },
+    "identity_fingerprint": {
+      "type": "string",
+      "description": "SHA-256 digest of normalized business name and domain used to prevent cross-client session deduplication"
+    },
     "zapier_delivery_status": {
       "type": "string",
       "enum": [

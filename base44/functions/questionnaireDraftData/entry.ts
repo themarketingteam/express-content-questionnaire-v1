@@ -19,6 +19,7 @@ const json = (body: Record<string, unknown>, status = 200) =>
 const encoder = new TextEncoder();
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{20,160}$/;
 const ACCESS_KEY_PATTERN = /^[A-Za-z0-9_-]{32,160}$/;
+const NEW_CLIENT_REQUEST_PATTERN = /^[A-Za-z0-9_-]{16,200}$/;
 const TELEMETRY_EVENT_TYPES = new Set([
   'bootstrap_failed',
   'bootstrap_recovered',
@@ -74,6 +75,29 @@ function bytesToHex(bytes: Uint8Array): string {
 async function hashAccessKey(accessKey: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(accessKey));
   return bytesToHex(new Uint8Array(digest));
+}
+
+async function hashOpaqueValue(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function identityConflict(existing: Record<string, unknown> | null, identity: Record<string, string>) {
+  if (!existing) return null;
+  const checks = [
+    ['business_name', 'businessName', 'text'],
+    ['domain', 'domain', 'domain'],
+  ] as const;
+  const conflicts: Record<string, { existing: string; incoming: string }> = {};
+  for (const [field, responseField, kind] of checks) {
+    const current = String(existing[field] || '').trim();
+    const incoming = String(identity[field] || '').trim();
+    if (!current || !incoming) continue;
+    if (normalizeIdentityValue(current, kind) !== normalizeIdentityValue(incoming, kind)) {
+      conflicts[responseField] = { existing: current, incoming };
+    }
+  }
+  return Object.keys(conflicts).length > 0 ? conflicts : null;
 }
 
 function sanitizeDraft(rawDraft: unknown, sessionId: string): Record<string, string> | null {
@@ -256,6 +280,100 @@ Deno.serve(async (req) => {
     );
     const existing = newestRecord(matches || []);
 
+    if (body.action === 'bootstrap_new_client') {
+      const requestId = typeof body.newClientRequestId === 'string' ? body.newClientRequestId.trim() : '';
+      if (!NEW_CLIENT_REQUEST_PATTERN.test(requestId)) {
+        return json({ success: false, error: 'A valid new-client request identifier is required.', code: 'invalid_new_client_request' }, 400);
+      }
+      const requestHash = await hashOpaqueValue(requestId);
+      const priorMatches = await base44.asServiceRole.entities.FormDraft.filter(
+        { new_client_request_id_hash: requestHash },
+        '-created_date',
+        2,
+      );
+      const prior = newestRecord(priorMatches || []);
+      if (prior) {
+        if (!draftAllowsAccess(prior, accessKeyHash)) {
+          return json({ success: false, error: 'Draft access was denied.', code: 'access_denied' }, 403);
+        }
+        return json({
+          success: true,
+          bootstrapConfirmed: true,
+          created: false,
+          newClient: true,
+          draftId: prior.id,
+          lastSavedAt: prior.last_saved_at || prior.updated_date || '',
+          lastConfirmedRevision: sanitizeRevision(prior.last_confirmed_revision),
+          draft: withoutDraftAccessHashes(prior),
+        });
+      }
+      if (existing) {
+        return json({ success: false, error: 'The generated client session is already in use.', code: 'new_client_session_conflict' }, 409);
+      }
+
+      const now = new Date().toISOString();
+      const identity = sanitizeIdentity(body.identity);
+      const created = await base44.asServiceRole.entities.FormDraft.create({
+        session_id: sessionId,
+        status: 'draft',
+        responses_json: '{}',
+        validation_status_json: '{}',
+        touched_questions_json: '{}',
+        expanded_questions_json: '{}',
+        metadata_json: '{}',
+        userdata_json: '{}',
+        mapped_payload_json: '{}',
+        draft_metadata_json: JSON.stringify({
+          app: 'express_questionnaire',
+          source: body.draftOrigin === 'manual_reset' ? 'manual_new_client' : 'url_new_client',
+          schema_version: '4',
+        }),
+        client_revision: 0,
+        last_confirmed_revision: 0,
+        last_changed_at: now,
+        last_saved_at: now,
+        draft_access_key_hash: accessKeyHash,
+        new_client_request_id_hash: requestHash,
+        draft_origin: body.draftOrigin === 'manual_reset' ? 'manual_reset' : 'new_client_url',
+        identity_confirmed_at: identity.business_name || identity.domain ? now : '',
+        bootstrap_confirmed_at: now,
+        bootstrap_attempt_count: Math.min(100, Math.max(1, sanitizeRevision(body.attempt) || 1)),
+        persistence_health_status: 'healthy',
+        storage_available: body.storageAvailable !== false,
+        url_credential_persisted: body.urlCredentialPersisted !== false,
+        retention_policy: 'indefinite_until_manual_deletion',
+        retention_policy_version: '2026-08-18',
+        retention_protected_at: now,
+        normalized_user_id: normalizeIdentityValue(identity.user_id || ''),
+        normalized_user_email: normalizeIdentityValue(identity.user_email || '', 'email'),
+        normalized_business_name: normalizeIdentityValue(identity.business_name || ''),
+        normalized_domain: normalizeIdentityValue(identity.domain || '', 'domain'),
+        ...identity,
+      });
+      const baseline = await createQuestionnaireVersion({
+        base44,
+        draft: created,
+        previous: null,
+        versionType: 'legacy_baseline',
+        additionalMeaningfulReasons: ['new_client_server_bootstrap'],
+        sourceRecordId: String(created.id),
+        capturedAt: now,
+        versionKey: `${created.id}:new-client-bootstrap`,
+        reconstructionLabel: 'New client server bootstrap',
+      });
+      if (!baseline?.id) throw new Error('The new-client server baseline was not retained.');
+      return json({
+        success: true,
+        bootstrapConfirmed: true,
+        created: true,
+        newClient: true,
+        draftId: created.id,
+        lastSavedAt: created.last_saved_at || now,
+        lastConfirmedRevision: 0,
+        draft: withoutDraftAccessHashes(created),
+      });
+    }
+
     if (body.action === 'bootstrap') {
       if (existing && hasScopedAccess(existing) && !draftAllowsAccess(existing, accessKeyHash)) {
         console.warn(JSON.stringify({
@@ -268,6 +386,19 @@ Deno.serve(async (req) => {
 
       const now = new Date().toISOString();
       const identity = sanitizeIdentity(body.identity);
+      const conflicts = identityConflict(existing, identity);
+      if (conflicts) {
+        return json({
+          success: true,
+          bootstrapConfirmed: true,
+          created: false,
+          draftId: existing?.id,
+          lastSavedAt: existing?.last_saved_at || existing?.updated_date || '',
+          lastConfirmedRevision: sanitizeRevision(existing?.last_confirmed_revision),
+          identityConflict: conflicts,
+          draft: withoutDraftAccessHashes(existing),
+        });
+      }
       const attempt = Math.min(100, Math.max(1, sanitizeRevision(body.attempt) || 1));
       const updates: Record<string, unknown> = {
         draft_access_key_hash: existing?.draft_access_key_hash || accessKeyHash,
@@ -279,9 +410,13 @@ Deno.serve(async (req) => {
         retention_policy: 'indefinite_until_manual_deletion',
         retention_policy_version: '2026-08-18',
         retention_protected_at: existing?.retention_protected_at || now,
+        draft_origin: existing?.draft_origin || 'existing_browser',
       };
       for (const [field, value] of Object.entries(identity)) {
         if (!existing?.[field]) updates[field] = value;
+      }
+      if (!existing?.identity_confirmed_at && (identity.business_name || identity.domain)) {
+        updates.identity_confirmed_at = now;
       }
       const resolvedUserId = String(existing?.user_id || identity.user_id || '');
       const resolvedEmail = String(existing?.user_email || identity.user_email || '');
@@ -453,6 +588,19 @@ Deno.serve(async (req) => {
       return json({ success: false, error: 'The server draft must be bootstrapped before saving.', code: 'bootstrap_required' }, 409);
     }
 
+    const saveIdentityConflicts = identityConflict(existing, {
+      business_name: draft.business_name || '',
+      domain: draft.domain || '',
+    });
+    if (saveIdentityConflicts) {
+      return json({
+        success: false,
+        error: 'This draft is already connected to a different client identity.',
+        code: 'identity_conflict',
+        identityConflict: saveIdentityConflicts,
+      }, 409);
+    }
+
     const incomingRevision = sanitizeRevision((body.draft as Record<string, unknown>)?.client_revision);
     const existingRevision = sanitizeRevision(existing.last_confirmed_revision);
 
@@ -472,6 +620,9 @@ Deno.serve(async (req) => {
       retention_policy: 'indefinite_until_manual_deletion',
       retention_policy_version: '2026-08-18',
       retention_protected_at: existing?.retention_protected_at || new Date().toISOString(),
+      draft_origin: existing?.draft_origin || 'existing_browser',
+      identity_confirmed_at: existing?.identity_confirmed_at
+        || ((draft.business_name || draft.domain) ? new Date().toISOString() : ''),
     };
     const versionType = nextDraft.status === 'submitted'
       ? 'submitted_snapshot'

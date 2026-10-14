@@ -2,11 +2,18 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { base44, getBase44FunctionEndpoint } from "@/api/base44Client";
 import { getOrCreateQuestionnaireDraftIdentity, clearQuestionnaireSessionId } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
-import { EXPRESS_COOKIE_KEY, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions, saveStateToLocalStorage, loadStateFromLocalStorage, writeStateMarkerCookie, clearStateFromLocalStorage } from "@/lib/expressPersistedState";
-import { clearExpressQuestionnaireLocalState, createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
+import { EXPRESS_COOKIE_KEY, EXPRESS_LS_KEY_GLOBAL, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions, saveStateToLocalStorage, loadStateFromLocalStorage, writeStateMarkerCookie, clearStateFromLocalStorage } from "@/lib/expressPersistedState";
+import { createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
 import { buildDraftEventRecord } from "@/lib/draftEvents";
 import { buildImmediateDraftRecord, createSaveDraftSnapshot, writeDraftFailureBackup } from "@/lib/draftPersistence";
-import { createQuestionnaireDraftApi, createSerialDraftSaveQueue } from "@/lib/questionnaireDraftApi";
+import { createQuestionnaireDraftApi, createLatestDraftSaveQueue } from "@/lib/questionnaireDraftApi";
+import {
+  consumeNewClientLaunchFlags,
+  ensureNewClientRequestInUrl,
+  navigateToNewClient,
+  parseQuestionnaireLaunchIntent,
+  removeIncomingIdentityParameters,
+} from "@/lib/questionnaireLaunchIntent";
 import {
   attachDraftLifecycleFlush,
   classifyDraftFailure,
@@ -50,6 +57,7 @@ import ThankYouModal from "../components/questionnaire/ThankYouModal";
 import ValidationGuideModal from "../components/questionnaire/ValidationGuideModal";
 import ExpressDataValidator from "@/components/questionnaire/ExpressDataValidator";
 import DestructiveActionConfirmModal from "@/components/questionnaire/DestructiveActionConfirmModal";
+import { ClientIdentityConflictModal, NewClientIdentityModal } from "@/components/questionnaire/ClientIdentityBoundaryModal";
 import { Info } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { useExpressAnswerHistory } from "@/lib/hooks/useExpressAnswerHistory";
@@ -115,6 +123,9 @@ export default function Questionnaire() {
   const [isSubmitValidatingText, setIsSubmitValidatingText] = useState(false);
   const [submitAttemptedWithIncomplete, setSubmitAttemptedWithIncomplete] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [showNewClientConfirm, setShowNewClientConfirm] = useState(false);
+  const [showNewClientIdentity, setShowNewClientIdentity] = useState(false);
+  const [identityConflict, setIdentityConflict] = useState(null);
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [isDraftHydrating, setIsDraftHydrating] = useState(true);
   const [draftSaveStatus, setDraftSaveStatus] = useState(/** @type {{ state: string, lastServerSavedAt?: string, lastLocalSavedAt?: string, pendingLocalChanges?: boolean, lastError?: string, pendingRevision?: number, lastConfirmedRevision?: number }} */ ({ state: "initializing" }));
@@ -207,24 +218,32 @@ export default function Questionnaire() {
   const lastConfirmedRevisionRef = useRef(0);
   const latestPendingDraftRef = useRef(null);
   const storageTelemetrySentRef = useRef(false);
+  const telemetryLastSentRef = useRef(new Map());
   const clientInstanceIdRef = useRef(
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
 
-  const [draftIdentity] = useState(() => getOrCreateQuestionnaireDraftIdentity());
+  const [launchIntent] = useState(() => {
+    const intent = parseQuestionnaireLaunchIntent(window.location.search);
+    ensureNewClientRequestInUrl(intent);
+    return intent;
+  });
+  const [draftIdentity] = useState(() => getOrCreateQuestionnaireDraftIdentity({
+    forceNew: launchIntent.newClient,
+    newClientRequestId: launchIntent.newClientRequestId,
+  }));
   const questionnaireSessionId = draftIdentity.sessionId;
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const businessNameParam = urlParams.get("businessName") || urlParams.get("business_name") || urlParams.get("name") || "";
-  const domainParam = urlParams.get("domain") || urlParams.get("businessDomain") || urlParams.get("business_domain") || "";
+  const businessNameParam = launchIntent.businessName;
+  const domainParam = launchIntent.domain;
   const urlCredentials = {
     businessName: businessNameParam,
     domain: domainParam,
-    userId: urlParams.get("userId") || "",
-    userEmail: urlParams.get("userEmail") || "",
-    userName: urlParams.get("userName") || "",
+    userId: launchIntent.userId,
+    userEmail: launchIntent.userEmail,
+    userName: launchIntent.userName,
   };
   const [knownBusinessDetails, setKnownBusinessDetails] = useState({
     businessName: businessNameParam,
@@ -249,11 +268,18 @@ export default function Questionnaire() {
 
   const reportPersistenceTelemetry = useCallback((eventType, extra = {}) => {
     if (!draftBootstrapReadyRef.current) return Promise.resolve();
+    const now = Date.now();
+    const signature = `${eventType}:${extra.failureCode || ""}`;
+    const previous = telemetryLastSentRef.current.get(signature) || 0;
+    if (now - previous < 30000 && !["retry_exhausted", "save_rejected"].includes(eventType)) {
+      return Promise.resolve();
+    }
+    telemetryLastSentRef.current.set(signature, now);
     return draftApi.telemetry(eventType, telemetryPayload(extra)).catch(() => undefined);
   }, [draftApi, telemetryPayload]);
 
   const enqueueDraftSave = useMemo(
-    () => createSerialDraftSaveQueue((draftRecord) => retryDraftOperation(
+    () => createLatestDraftSaveQueue((draftRecord) => retryDraftOperation(
       () => draftApi.save(draftRecord),
       {
         onRetry: ({ attempt, code }) => {
@@ -567,15 +593,17 @@ export default function Questionnaire() {
     return () => window.clearInterval(retryTimer);
   }, [retryLatestDraft]);
 
-  const handleBusinessDetailsChange = useCallback((businessName, domain) => {
+  const handleBusinessDetailsChange = useCallback(async (businessName, domain) => {
     const nextDetails = {
       businessName: String(businessName || "").trim(),
       domain: String(domain || "").trim(),
     };
+    const current = businessDetailsRef.current;
+    if (current.businessName === nextDetails.businessName && current.domain === nextDetails.domain) return;
     businessDetailsRef.current = nextDetails;
     setKnownBusinessDetails(nextDetails);
     if (draftBootstrapReadyRef.current && isHydratedRef.current && (nextDetails.businessName || nextDetails.domain)) {
-      void saveDraftNow(nextDetails).catch(() => undefined);
+      await saveDraftNow(nextDetails);
     }
   }, [saveDraftNow]);
 
@@ -668,7 +696,9 @@ export default function Questionnaire() {
     const hydrateDraft = async () => {
       let localResult = null;
       let localSource = null;
-      const lsResult = loadStateFromLocalStorage(questionnaireSessionId);
+      const lsResult = launchIntent.newClient
+        ? { state: null, source: null }
+        : loadStateFromLocalStorage(questionnaireSessionId);
       const localStateSessionId = lsResult.state?.questionnaireSessionId || "";
       const localStateMatchesSession = !localStateSessionId
         || localStateSessionId === questionnaireSessionId;
@@ -686,7 +716,7 @@ export default function Questionnaire() {
         localSource = lsResult.source;
       }
 
-      if (!localResult) {
+      if (!localResult && !launchIntent.newClient) {
         const saved = getCookie(STORAGE_KEY);
         const cookieResult = parsePersistedStateCookie(saved);
         const cookieSessionId = cookieResult.state?.questionnaireSessionId || "";
@@ -718,10 +748,19 @@ export default function Questionnaire() {
           lastError: bootstrapHadFailure ? previous.lastError : "",
         }));
         try {
-          bootstrapResult = await draftApi.bootstrap(bootstrapIdentity, {
+          const capabilities = {
             storageAvailable: draftIdentity.storageAvailable,
             urlCredentialPersisted: draftIdentity.urlCredentialPersisted,
-          }, bootstrapAttempt);
+            draftOrigin: launchIntent.promptIdentity ? "manual_reset" : "new_client_url",
+          };
+          bootstrapResult = launchIntent.newClient
+            ? await draftApi.bootstrapNewClient(
+              bootstrapIdentity,
+              launchIntent.newClientRequestId,
+              capabilities,
+              bootstrapAttempt,
+            )
+            : await draftApi.bootstrap(bootstrapIdentity, capabilities, bootstrapAttempt);
           if (!bootstrapResult.bootstrapConfirmed || !bootstrapResult.draftId) {
             throw Object.assign(new Error("The recovery draft bootstrap response was incomplete."), {
               code: "bootstrap_unconfirmed",
@@ -758,6 +797,19 @@ export default function Questionnaire() {
       }
 
       if (!active || !bootstrapResult) return;
+
+      if (bootstrapResult.identityConflict) {
+        remoteDraftRef.current = bootstrapResult.draft || null;
+        draftRecordIdRef.current = bootstrapResult.draftId || "";
+        setIdentityConflict(bootstrapResult.identityConflict);
+        setDraftSaveStatus({
+          state: "identity_conflict",
+          pendingLocalChanges: false,
+          lastConfirmedRevision: Number(bootstrapResult.lastConfirmedRevision || 0),
+          lastError: "identity_conflict",
+        });
+        return;
+      }
 
       remoteDraftRef.current = remoteDraft;
       draftRecordIdRef.current = bootstrapResult.draftId || remoteDraft?.id || "";
@@ -819,6 +871,17 @@ export default function Questionnaire() {
       draftBootstrapReadyRef.current = true;
       isHydratedRef.current = true;
       setIsDraftHydrating(false);
+      if (launchIntent.newClient) {
+        try {
+          localStorage.removeItem(EXPRESS_LS_KEY_GLOBAL);
+          localStorage.removeItem("express_questionnaire_active_submit_attempt");
+        } catch {
+          // Storage-denied browsers are supported by the server draft.
+        }
+        deleteCookie(STORAGE_KEY);
+        consumeNewClientLaunchFlags();
+        if (launchIntent.promptIdentity) setShowNewClientIdentity(true);
+      }
       setDraftSaveStatus({
         state: selected.source === "local"
           ? (draftIdentity.storageAvailable ? "changes_pending" : "storage_blocked_pending")
@@ -1231,9 +1294,14 @@ export default function Questionnaire() {
         }),
         textValidation.getAllFieldStatuses(),
       );
-      
-      // Save updated validation status to draft — use modal inputs for business name/domain
-      await saveDraftSnapshot({
+
+      // Validation has finished. A slow draft checkpoint must never leave the UI
+      // claiming that answers are still being checked or prevent final submit.
+      setIsSubmitValidatingText(false);
+
+      // The server submission endpoint writes an authoritative checkpoint before
+      // creating a submission. This client-side checkpoint is therefore best effort.
+      void saveDraftSnapshot({
         sessionId: questionnaireSessionId,
         responses: rawFormData,
         validationStatus: finalValidationStatus,
@@ -1249,12 +1317,13 @@ export default function Questionnaire() {
         status: "draft",
         submitError: "",
         finalSubmissionId: "",
+      }).catch((error) => {
+        console.warn("[submit] pre-submit draft checkpoint deferred:", error?.message || error);
       });
       
       // Check for blocking issues
       if (validationResult.blockingIssues.length > 0) {
         setSubmitValidationIssues(validationResult.blockingIssues);
-        setIsSubmitValidatingText(false);
         setIsSubmitting(false);
         submitInFlightRef.current = false;
         clearActiveSubmitAttempt(submitAttemptId);
@@ -1292,8 +1361,6 @@ export default function Questionnaire() {
           passedAt: new Date().toISOString(),
         },
       });
-      
-      setIsSubmitValidatingText(false);
       
       const result = await submitExpressQuestionnaire({
         businessName,
@@ -1520,32 +1587,26 @@ export default function Questionnaire() {
     setIsRetryingSubmit(false);
   }, [isRetryingSubmit, isSubmitting, lastSubmitContext]);
 
-  const handleResetLocalState = () => {
-    // Use centralized reset utility
-    const result = clearExpressQuestionnaireLocalState({
-      clearSession: true,
-      clearSubmitAttempt: true,
-      clearFailedBackups: false,
-    });
-    
-    // Log result in development
-    if (import.meta.env.DEV) {
-      console.log('[reset] Local state cleared:', result);
-    }
-    
-    // Reload page after reset
-    window.location.reload();
-  };
+  const handleLocalStateRecovery = () => setShowNewClientConfirm(true);
 
-  const handleLocalStateRecovery = () => {
-    const confirmed = window.confirm(
-      'This will clear locally saved questionnaire answers and recovery session data in this browser only. Server-side drafts and submissions will not be deleted. Continue?'
-    );
-    
-    if (!confirmed) return;
-    
-    handleResetLocalState();
-  };
+  const startFreshClient = useCallback(() => {
+    setShowNewClientConfirm(false);
+    navigateToNewClient({ promptIdentity: true });
+  }, []);
+
+  const startFreshClientFromConflict = useCallback(() => {
+    navigateToNewClient({
+      identity: {
+        businessName: identityConflict?.businessName?.incoming || businessNameParam,
+        domain: identityConflict?.domain?.incoming || domainParam,
+      },
+    });
+  }, [businessNameParam, domainParam, identityConflict]);
+
+  const continueExistingClient = useCallback(() => {
+    removeIncomingIdentityParameters();
+    window.location.reload();
+  }, []);
 
   const handleBeforeReset = ({ error, errorInfo }) => {
     // Write diagnostic backup before reset using centralized utility
@@ -2371,6 +2432,41 @@ export default function Questionnaire() {
         isWorking={isClearingAll}
         requireTypedConfirmation={false}
       />
+
+      <DestructiveActionConfirmModal
+        isOpen={showNewClientConfirm}
+        title="Start a completely new client?"
+        description="This creates an entirely new client card and a separate blank server draft. It does not delete the current client or their saved answers. To clear answers while staying with this client, cancel and use Clear All Answers beside the Submit button."
+        confirmLabel="Create New Client & Start Fresh"
+        cancelLabel="Cancel"
+        onConfirm={startFreshClient}
+        onCancel={() => setShowNewClientConfirm(false)}
+        requireTypedConfirmation={false}
+      />
+
+      {identityConflict && (
+        <ClientIdentityConflictModal
+          conflict={identityConflict}
+          onStartNew={startFreshClientFromConflict}
+          onContinueExisting={continueExistingClient}
+          onCancel={() => {
+            if (window.history.length > 1) window.history.back();
+            else continueExistingClient();
+          }}
+        />
+      )}
+
+      {showNewClientIdentity && (
+        <NewClientIdentityModal
+          initialBusinessName={businessNameParam}
+          initialDomain={domainParam}
+          onSave={async (businessName, domain) => {
+            await handleBusinessDetailsChange(businessName, domain);
+            setShowNewClientIdentity(false);
+          }}
+          onSkip={() => setShowNewClientIdentity(false)}
+        />
+      )}
 
       <Toaster richColors position="top-center" />
     </div>

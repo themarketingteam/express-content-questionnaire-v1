@@ -4,6 +4,7 @@ const HASH_SESSION_KEY = "draft";
 const HASH_ACCESS_KEY = "key";
 const LEGACY_HASH_SESSION_KEY = "draft_session";
 const LEGACY_HASH_ACCESS_KEY = "draft_key";
+const HASH_NEW_CLIENT_REQUEST_KEY = "new_client_request";
 
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{20,160}$/;
 const ACCESS_KEY_PATTERN = /^[A-Za-z0-9_-]{32,160}$/;
@@ -32,12 +33,19 @@ export function readDraftIdentityFromHash(hash = "") {
   return { sessionId, accessKey };
 }
 
-export function buildDraftIdentityHash(hash, identity) {
+export function readNewClientRequestFromHash(hash = "") {
+  const params = new URLSearchParams(String(hash).replace(/^#/, ""));
+  return params.get(HASH_NEW_CLIENT_REQUEST_KEY) || "";
+}
+
+export function buildDraftIdentityHash(hash, identity, newClientRequestId = "") {
   const params = new URLSearchParams(String(hash || "").replace(/^#/, ""));
   params.delete(LEGACY_HASH_SESSION_KEY);
   params.delete(LEGACY_HASH_ACCESS_KEY);
   params.set(HASH_SESSION_KEY, identity.sessionId);
   params.set(HASH_ACCESS_KEY, identity.accessKey);
+  if (newClientRequestId) params.set(HASH_NEW_CLIENT_REQUEST_KEY, newClientRequestId);
+  else params.delete(HASH_NEW_CLIENT_REQUEST_KEY);
   return `#${params.toString()}`;
 }
 
@@ -47,24 +55,28 @@ export function getOrCreateQuestionnaireDraftIdentity(options = {}) {
     location = globalThis.location,
     history = globalThis.history,
     cryptoApi = globalThis.crypto,
+    forceNew = false,
+    newClientRequestId = "",
   } = /** @type {any} */ (options);
   let storageTarget = storage;
   if (storageTarget === undefined) {
     try { storageTarget = globalThis.localStorage; }
     catch { storageTarget = null; }
   }
-  const hashIdentity = readDraftIdentityFromHash(location?.hash || "");
+  const hashRequestId = readNewClientRequestFromHash(location?.hash || "");
+  const mayReuseHash = !forceNew || (newClientRequestId && hashRequestId === newClientRequestId);
+  const hashIdentity = mayReuseHash ? readDraftIdentityFromHash(location?.hash || "") : null;
   let sessionId = hashIdentity?.sessionId || "";
   let accessKey = hashIdentity?.accessKey || "";
   let storageAvailable = true;
   let urlCredentialPersisted = Boolean(hashIdentity);
 
   try {
-    if (!sessionId) {
+    if (!forceNew && !sessionId) {
       const storedSessionId = storageTarget?.getItem(SESSION_STORAGE_KEY) || "";
       if (SESSION_PATTERN.test(storedSessionId)) sessionId = storedSessionId;
     }
-    if (!accessKey) {
+    if (!forceNew && !accessKey) {
       const storedAccessKey = storageTarget?.getItem(ACCESS_KEY_STORAGE_KEY) || "";
       if (ACCESS_KEY_PATTERN.test(storedAccessKey)) accessKey = storedAccessKey;
     }
@@ -88,14 +100,22 @@ export function getOrCreateQuestionnaireDraftIdentity(options = {}) {
 
   if (location && history?.replaceState) {
     try {
-      const nextHash = buildDraftIdentityHash(location.hash, { sessionId, accessKey });
+      const nextHash = buildDraftIdentityHash(
+        location.hash,
+        { sessionId, accessKey },
+        forceNew ? newClientRequestId : hashRequestId,
+      );
       if (nextHash !== location.hash) {
         history.replaceState(history.state ?? null, "", `${location.pathname || ""}${location.search || ""}${nextHash}`);
       }
       urlCredentialPersisted = readDraftIdentityFromHash(location.hash)?.accessKey === accessKey;
     } catch {
       try {
-        location.hash = buildDraftIdentityHash(location.hash, { sessionId, accessKey });
+        location.hash = buildDraftIdentityHash(
+          location.hash,
+          { sessionId, accessKey },
+          forceNew ? newClientRequestId : hashRequestId,
+        );
         urlCredentialPersisted = readDraftIdentityFromHash(location.hash)?.accessKey === accessKey;
       } catch {
         urlCredentialPersisted = false;
@@ -124,6 +144,7 @@ export function clearQuestionnaireDraftIdentity({
     params.delete(HASH_ACCESS_KEY);
     params.delete(LEGACY_HASH_SESSION_KEY);
     params.delete(LEGACY_HASH_ACCESS_KEY);
+    params.delete(HASH_NEW_CLIENT_REQUEST_KEY);
     const nextHash = params.toString() ? `#${params.toString()}` : "";
     history.replaceState(history.state ?? null, "", `${location.pathname || ""}${location.search || ""}${nextHash}`);
   }

@@ -106,10 +106,12 @@ function isRetryableFallbackError(error) {
 // Normalize error for safe serialization
 function normalizeFallbackError(error) {
   const serialized = serializeExpressError(error);
+  const responseData = error?.response?.data;
   return {
-    message: error?.message || "Fallback invocation failed",
-    failureKind: error?.failureKind || "unknown",
-    status: error?.status ?? null,
+    message: responseData?.error?.message || responseData?.error || error?.message || "Fallback invocation failed",
+    code: responseData?.code || error?.code || "",
+    failureKind: error?.failureKind || (error?.response?.status === 409 ? "validation" : "unknown"),
+    status: error?.status ?? error?.response?.status ?? null,
     serialized,
   };
 }
@@ -186,8 +188,11 @@ export async function invokeExpressSubmissionFallback(body, options = {}) {
         failureKind: "unknown",
       });
     } catch (err) {
-      lastError = /** @type {Error & { failureKind?: string }} */ (err);
-      lastError.failureKind = err?.failureKind || "unknown";
+      lastError = /** @type {Error & { failureKind?: string, status?: number | null, code?: string, response?: { status?: number, data?: any } }} */ (err);
+      lastError.status = err?.status ?? err?.response?.status ?? null;
+      lastError.code = err?.response?.data?.code || err?.code || "";
+      lastError.failureKind = err?.failureKind || (lastError.status === 409 ? "validation" : "unknown");
+      if (err?.response?.data?.error?.message) lastError.message = err.response.data.error.message;
 
       // Retry only if retryable and attempts remain
       if (isRetryableFallbackError(err) && attempt < attempts) {

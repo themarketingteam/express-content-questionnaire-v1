@@ -194,7 +194,9 @@ test("questionnaire wiring locks editing until bootstrap and reports only confir
   assert.match(questionnaire, /window\.setInterval[\s\S]*retryLatestDraft/);
   assert.match(status, /Changes waiting for server confirmation/);
   assert.match(status, /revision \{lastConfirmedRevision\} confirmed/);
-  assert.match(modal, /onBusinessDetailsChange\?\.\(businessName\.trim\(\), cleanDomain\(domain\)\)/);
+  assert.match(modal, /lastEmittedIdentityRef/);
+  assert.match(modal, /signature === lastEmittedIdentityRef\.current/);
+  assert.match(modal, /onBusinessDetailsChange\?\.\(nextIdentity\.businessName, nextIdentity\.domain\)/);
   assert.match(backend, /body\.action === 'bootstrap'/);
   assert.match(backend, /applyDurableDraftMutation/);
   assert.match(backend, /baseRevision/);

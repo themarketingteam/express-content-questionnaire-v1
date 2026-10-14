@@ -31,6 +31,59 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeIdentity(value: unknown, kind = 'text') {
+  let normalized = String(value || '').trim().toLowerCase();
+  if (kind === 'domain') normalized = normalized.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  return normalized.replace(/\s+/g, ' ');
+}
+
+function canonicalize(value: any): any {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce((result: Record<string, any>, key) => {
+    result[key] = canonicalize(value[key]);
+    return result;
+  }, {} as Record<string, any>);
+}
+
+async function sha256Json(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalize(value)));
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function buildSubmissionFingerprints({ businessName, businessDomain, rawResponses }: any) {
+  const identity = {
+    business_name: normalizeIdentity(businessName),
+    business_domain: normalizeIdentity(businessDomain, 'domain'),
+  };
+  return {
+    identityFingerprint: await sha256Json(identity),
+    submissionFingerprint: await sha256Json({ identity, raw_responses: rawResponses || {} }),
+  };
+}
+
+async function existingSubmissionMatches(existing: any, incoming: any): Promise<boolean> {
+  const existingIdentityFingerprint = existing.identity_fingerprint || await sha256Json({
+    business_name: normalizeIdentity(existing.business_name),
+    business_domain: normalizeIdentity(existing.business_domain, 'domain'),
+  });
+  let existingSubmissionFingerprint = existing.submission_fingerprint || '';
+  if (!existingSubmissionFingerprint && existing.raw_responses_json) {
+    try {
+      existingSubmissionFingerprint = (await buildSubmissionFingerprints({
+        businessName: existing.business_name,
+        businessDomain: existing.business_domain,
+        rawResponses: JSON.parse(existing.raw_responses_json),
+      })).submissionFingerprint;
+    } catch {
+      existingSubmissionFingerprint = '';
+    }
+  }
+  return existingIdentityFingerprint === incoming.identityFingerprint
+    && existingSubmissionFingerprint === incoming.submissionFingerprint;
+}
+
 function classifyError(error) {
   if (!error) return 'unknown';
   const msg = (error.message || '').toLowerCase();
@@ -121,6 +174,8 @@ function mapExpressPayloadToFormSubmissionRecord(
     ideal_client:             ud.ideal_client          ?? meta.ideal_client         ?? null,
     questionnaire_session_id: questionnaireSessionId   ?? meta.questionnaire_session_id ?? '',
     submit_attempt_id:        submitAttemptId          ?? meta.submit_attempt_id    ?? '',
+    submission_fingerprint:   '',
+    identity_fingerprint:     '',
     raw_responses_json:       safeJsonStringify(rawResponseSnapshot ?? {}),
     transformed_payload_json: safeJsonStringify(payload ?? {}),
     zapier_delivery_status:   'not_attempted',
@@ -309,6 +364,11 @@ Deno.serve(async (req) => {
       'questionnaire_submit_fallback';
 
     const rawResponseSnapshot = rawResponses ?? responseSnapshot ?? {};
+    const incomingFingerprints = await buildSubmissionFingerprints({
+      businessName,
+      businessDomain,
+      rawResponses: rawResponseSnapshot,
+    });
     const draftSnapshot = buildDraftSnapshot({
       businessName,
       businessDomain,
@@ -327,6 +387,20 @@ Deno.serve(async (req) => {
         purpose: `submission:${questionnaireSessionId}:${submitAttemptId || 'session'}`,
         initialSnapshot: draftSnapshot,
         operation: async (coordinatorDraft) => {
+        const draftBusiness = normalizeIdentity(coordinatorDraft.business_name);
+        const draftDomain = normalizeIdentity(coordinatorDraft.domain, 'domain');
+        const incomingBusiness = normalizeIdentity(businessName);
+        const incomingDomain = normalizeIdentity(businessDomain, 'domain');
+        if ((draftBusiness && incomingBusiness && draftBusiness !== incomingBusiness)
+          || (draftDomain && incomingDomain && draftDomain !== incomingDomain)) {
+          return Response.json({
+            success: false,
+            received: false,
+            usedFallback: true,
+            code: 'draft_identity_conflict',
+            error: { message: 'This browser draft belongs to a different client. Start a new client draft before submitting.' },
+          }, { status: 409, headers: corsHeaders });
+        }
         // Persist the complete incoming snapshot before any validation or create
         // attempt. Anonymous and authenticated clients therefore have the same
         // server-side recovery guarantee.
@@ -410,36 +484,58 @@ Deno.serve(async (req) => {
       }, { headers: corsHeaders });
     }
 
-    // Idempotency: check for existing submission by session id
-    let existingSubmissionId = null;
-    try {
-      const existing = await base44.asServiceRole.entities.FormSubmission.filter(
-        { questionnaire_session_id: questionnaireSessionId }, '-created_date', 1
-      );
-      if (existing && existing.length > 0) {
-        existingSubmissionId = existing[0].id;
-      }
-    } catch {
-      // filter may not be supported - continue
-    }
-
-    // Also check by submit_attempt_id if available
-    if (!existingSubmissionId && submitAttemptId) {
+    // A submit-attempt receipt is the primary idempotency key. Session-level
+    // dedupe is accepted only when both identity and payload fingerprints match.
+    let existingSubmission = null;
+    if (submitAttemptId) {
       try {
         const existingByAttempt = await base44.asServiceRole.entities.FormSubmission.filter(
           { submit_attempt_id: submitAttemptId }, '-created_date', 1
         );
         if (existingByAttempt && existingByAttempt.length > 0) {
-          existingSubmissionId = existingByAttempt[0].id;
+          existingSubmission = existingByAttempt[0];
         }
       } catch {
         // filter may not be supported - continue
       }
     }
 
-    if (existingSubmissionId) {
+    if (!existingSubmission) {
+      try {
+        const existingBySession = await base44.asServiceRole.entities.FormSubmission.filter(
+          { questionnaire_session_id: questionnaireSessionId }, '-created_date', 1
+        );
+        if (existingBySession && existingBySession.length > 0) existingSubmission = existingBySession[0];
+      } catch {
+        // filter may not be supported - continue
+      }
+    }
+
+    if (existingSubmission) {
+      const exactMatch = await existingSubmissionMatches(existingSubmission, incomingFingerprints);
+      if (!exactMatch) {
+        const conflictAt = nowIso();
+        await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+          status: 'submit_failed',
+          submit_error: JSON.stringify({
+            code: 'submission_identity_conflict',
+            message: 'This draft session already belongs to a different submitted client or payload.',
+          }),
+          last_saved_at: conflictAt,
+        }).catch(() => null);
+        return Response.json({
+          success: false,
+          received: true,
+          usedFallback: true,
+          code: 'submission_identity_conflict',
+          error: { message: 'This draft is connected to a different submitted client. Start a new client draft and submit again.' },
+        }, { status: 409, headers: corsHeaders });
+      }
+      const existingSubmissionId = existingSubmission.id;
       await base44.asServiceRole.entities.FormSubmission.update(existingSubmissionId, {
         linked_draft_id: coordinatorDraft.id,
+        submission_fingerprint: incomingFingerprints.submissionFingerprint,
+        identity_fingerprint: incomingFingerprints.identityFingerprint,
         retention_policy: 'indefinite_until_manual_deletion',
         retention_policy_version: '2026-08-18',
         retention_protected_at: nowIso(),
@@ -494,6 +590,8 @@ Deno.serve(async (req) => {
       submitAttemptId,
       rawResponseSnapshot,
     );
+    record.submission_fingerprint = incomingFingerprints.submissionFingerprint;
+    record.identity_fingerprint = incomingFingerprints.identityFingerprint;
     if (!record.user_email && userEmail) record.user_email = truncate(userEmail) || '';
 
     let submission = null;

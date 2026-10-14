@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { X, CheckCircle, AlertCircle, Download, Loader2, Copy } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -47,6 +47,10 @@ export default function ConfirmModal({
   const [domain, setDomain] = useState(initialDomain || "");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isCopyingRecovery, setIsCopyingRecovery] = useState(false);
+  const lastEmittedIdentityRef = useRef(JSON.stringify({
+    businessName: String(initialBusinessName || "").trim(),
+    domain: cleanDomain(initialDomain || ""),
+  }));
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -63,8 +67,15 @@ export default function ConfirmModal({
   }, [onCancel, isSubmitting]);
 
   useEffect(() => {
+    const nextIdentity = {
+      businessName: businessName.trim(),
+      domain: cleanDomain(domain),
+    };
+    const signature = JSON.stringify(nextIdentity);
+    if (signature === lastEmittedIdentityRef.current) return undefined;
     const saveIdentityTimer = window.setTimeout(() => {
-      onBusinessDetailsChange?.(businessName.trim(), cleanDomain(domain));
+      lastEmittedIdentityRef.current = signature;
+      Promise.resolve(onBusinessDetailsChange?.(nextIdentity.businessName, nextIdentity.domain)).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(saveIdentityTimer);
   }, [businessName, domain, onBusinessDetailsChange]);
