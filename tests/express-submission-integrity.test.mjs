@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import vm from "node:vm";
 import test from "node:test";
 import { inspectExpressSubmissionIntegrity } from "../base44/shared/expressSubmissionIntegrity.js";
-import { buildExpressSubmissionPayload, getInitialExpressFormData } from "../src/lib/expressQuestionnairePayload.js";
+import { buildExpressSubmissionPayload, getInitialExpressFormData, mapExpressPayloadToFormSubmissionRecord } from "../src/lib/expressQuestionnairePayload.js";
 
 function completeAnswers() {
   return {
@@ -95,10 +95,10 @@ test("missing or unrecognized raw snapshots never claim verified preservation", 
   }
 });
 
-async function backendHarness({ failRetention = false } = {}) {
+async function backendHarness({ failRetention = false, existingSubmission = null } = {}) {
   const source = await readFile(new URL("../base44/functions/submitExpressQuestionnaireFallback/entry.ts", import.meta.url), "utf8");
   const executable = stripTypeScriptTypes(source.replace(/^import .*;\n/gm, ""));
-  const captures = { intakes: [], checkpointWrites: 0, finalWrites: 0, initialSnapshot: null };
+  const captures = { intakes: [], checkpointWrites: 0, finalWrites: 0, finalUpdates: 0, initialSnapshot: null };
   const draft = { id: "draft-1", business_name: "Synthetic integrity test", domain: "example.test", responses_json: "original-checkpoint", mapped_payload_json: "original-payload" };
   let handler;
   vm.runInNewContext(executable, {
@@ -107,8 +107,16 @@ async function backendHarness({ failRetention = false } = {}) {
     Deno: { serve(value) { handler = value; } },
     createClientFromRequest() {
       return { asServiceRole: { entities: {
-        FormDraft: { update() { captures.checkpointWrites += 1; throw new Error("Unexpected checkpoint overwrite"); } },
-        FormSubmission: { create() { captures.finalWrites += 1; throw new Error("Unexpected final creation"); } },
+        FormDraft: { update(_id, value) {
+          captures.checkpointWrites += 1;
+          if (!existingSubmission) throw new Error("Unexpected checkpoint overwrite");
+          return Promise.resolve({ ...draft, ...value });
+        } },
+        FormSubmission: {
+          filter() { return existingSubmission ? [existingSubmission] : []; },
+          update() { captures.finalUpdates += 1; return Promise.resolve(existingSubmission); },
+          create() { captures.finalWrites += 1; throw new Error("Unexpected final creation"); },
+        },
         FormSubmissionIntake: {
           filter() { return []; },
           create(value) {
@@ -123,7 +131,11 @@ async function backendHarness({ failRetention = false } = {}) {
       captures.initialSnapshot = initialSnapshot;
       return operation(draft);
     },
-    createQuestionnaireVersion() { captures.checkpointWrites += 1; throw new Error("Unexpected checkpoint overwrite"); },
+    createQuestionnaireVersion() {
+      captures.checkpointWrites += 1;
+      if (!existingSubmission) throw new Error("Unexpected checkpoint overwrite");
+      return { id: `version-${captures.checkpointWrites}` };
+    },
   });
   return { captures, draft, send: async (raw, payload) => {
     const response = await handler(new Request("https://example.test/functions/submit", {
@@ -163,5 +175,62 @@ test("backend still rejects partial delivery when rejection retention fails or r
   assert.equal(result.body.error.reason, "raw_snapshot_unavailable");
   assert.equal(result.body.intakeId, null);
   assert.equal(harness.captures.checkpointWrites, 0);
+  assert.equal(harness.captures.finalWrites, 0);
+});
+
+function storedSubmission(raw, payload) {
+  return {
+    ...mapExpressPayloadToFormSubmissionRecord(payload),
+    id: "existing-submission-1",
+    raw_responses_json: JSON.stringify(raw),
+    transformed_payload_json: JSON.stringify(payload),
+  };
+}
+
+test("deduplication rejects corrupted stored payload or normalized answers without modifying the historical row", async () => {
+  const raw = completeAnswers();
+  const payload = build(raw);
+  const mutations = [
+    (record) => {
+      const savedPayload = JSON.parse(record.transformed_payload_json);
+      savedPayload.userdata.service_offerings = [];
+      record.transformed_payload_json = JSON.stringify(savedPayload);
+    },
+    (record) => { record.service_offerings = []; },
+    (record) => { record.transformed_payload_json = ""; },
+    (record) => { record.transformed_payload_json = "malformed-json"; },
+    (record) => { record.ideal_client = "A shortened answer"; },
+  ];
+  for (const mutate of mutations) {
+    const existingSubmission = storedSubmission(raw, payload);
+    mutate(existingSubmission);
+    const original = structuredClone(existingSubmission);
+    const harness = await backendHarness({ existingSubmission });
+    const result = await harness.send(raw, payload);
+    assert.equal(result.status, 409);
+    assert.equal(result.body.code, "existing_submission_integrity_mismatch");
+    assert.equal(result.body.success, false);
+    assert.equal(result.body.received, false);
+    assert.equal(result.body.submissionCreated, false);
+    assert.equal(result.body.zapierSent, false);
+    assert.equal(result.body.submissionId, undefined);
+    assert.equal(harness.captures.finalUpdates, 0);
+    assert.equal(harness.captures.finalWrites, 0);
+    assert.equal(harness.captures.intakes.length, 0);
+    assert.deepEqual(existingSubmission, original);
+  }
+});
+
+test("deduplication accepts an intact saved submission including array-stored company goals", async () => {
+  const raw = completeAnswers();
+  const payload = build(raw);
+  const existingSubmission = storedSubmission(raw, payload);
+  assert.deepEqual(existingSubmission.company_goals, [raw.companyGoals]);
+  const harness = await backendHarness({ existingSubmission });
+  const result = await harness.send(raw, payload);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.success, true);
+  assert.equal(result.body.alreadySubmitted, true);
+  assert.equal(result.body.submissionId, existingSubmission.id);
   assert.equal(harness.captures.finalWrites, 0);
 });

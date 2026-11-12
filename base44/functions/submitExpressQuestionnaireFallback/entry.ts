@@ -439,11 +439,13 @@ Deno.serve(async (req) => {
                 intakeReason: 'payload_integrity_mismatch',
                 businessName, businessDomain, userEmail, userId, submitAttemptId,
                 primaryError: integrityError,
+                fallbackError: null,
                 transformedPayload,
                 rawResponses: rawResponseSnapshot,
                 diagnostics: { payloadIntegrity },
                 source,
                 createdAtClient,
+                linkedSubmissionId: null,
               }),
               active_investigation: true,
               retention_policy: 'indefinite_until_manual_deletion',
@@ -594,6 +596,44 @@ Deno.serve(async (req) => {
           usedFallback: true,
           code: 'submission_identity_conflict',
           error: { message: 'This draft is connected to a different submitted client. Start a new client draft and submit again.' },
+        }, { status: 409, headers: corsHeaders });
+      }
+      // A matching raw fingerprint proves this is the same attempt, but does
+      // not prove the stored final record retained those answers. Historical
+      // payload-repair bugs could persist complete raw JSON alongside empty
+      // normalized fields. Never acknowledge that damaged row as a receipt.
+      let storedTransformedPayload = null;
+      try {
+        storedTransformedPayload = JSON.parse(existingSubmission.transformed_payload_json || 'null');
+      } catch {
+        // Missing or malformed stored evidence must fail closed below.
+      }
+      const storedPayloadIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, storedTransformedPayload);
+      const storedRecordIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, {
+        userdata: {
+          ...existingSubmission,
+          // FormSubmission stores this scalar questionnaire answer as an array.
+          company_goals: Array.isArray(existingSubmission.company_goals)
+            ? existingSubmission.company_goals.join(', ')
+            : existingSubmission.company_goals,
+        },
+      });
+      if (!storedPayloadIntegrity.ok || !storedRecordIntegrity.ok) {
+        return Response.json({
+          success: false,
+          received: false,
+          submissionCreated: false,
+          usedFallback: true,
+          zapierSent: false,
+          code: 'existing_submission_integrity_mismatch',
+          error: {
+            code: 'existing_submission_integrity_mismatch',
+            message: 'An earlier saved submission is missing captured answers. Your complete answers are retained in the recovery checkpoint. Please contact support before retrying delivery.',
+            mismatchedFields: [...new Set([
+              ...storedPayloadIntegrity.mismatchedFields,
+              ...storedRecordIntegrity.mismatchedFields,
+            ])],
+          },
         }, { status: 409, headers: corsHeaders });
       }
       const existingSubmissionId = existingSubmission.id;

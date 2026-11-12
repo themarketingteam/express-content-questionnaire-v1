@@ -17,11 +17,14 @@ const hooks = registerHooks({
     if (url === sdkUrl) return {
       format: "module", shortCircuit: true,
       source: `
-        export const state = { calls: [], corruptBeforeDelivery: false };
+        export const state = { calls: [], corruptBeforeDelivery: false, rejectExisting: false };
         export const base44 = {
           functions: { invoke: async (name, body) => {
             state.calls.push({ name, body: structuredClone(body) });
             if (name === 'submitExpressQuestionnaireFallback') {
+              if (state.rejectExisting) throw Object.assign(new Error('Conflict'), {
+                response: {status: 409, data: {code:'existing_submission_integrity_mismatch', error:{message:'Saved answer integrity conflict'}}}
+              });
               if (state.corruptBeforeDelivery) body.transformedPayload.userdata.service_offerings = [];
               return { data: { success: true, submissionCreated: true, submissionId: 'synthetic-submission' } };
             }
@@ -102,13 +105,44 @@ test("answer loss detected at the delivery boundary prevents sending and final s
   state.calls = [];
   state.corruptBeforeDelivery = true;
   let succeeded = false;
+  const saved = [];
+  let failure;
   try {
     await assert.rejects(submitExpressQuestionnaire(request(completeAnswers(), {
       onFinalSubmitSuccess: () => { succeeded = true; },
-    })), /could not safely prepare all/i);
+      onFinalSubmitFailure: details => { failure = details; },
+      saveDraftNow: async snapshot => saved.push(structuredClone(snapshot)),
+    })), error => {
+      assert.match(error.message, /could not safely prepare all/i);
+      assert.equal(error.failureKind, "integrity");
+      assert.equal(error.serializedError.code, "payload_integrity_mismatch");
+      return true;
+    });
     assert.equal(state.calls.some(call => call.name === "sendExpressToZapier"), false);
     assert.equal(succeeded, false);
+    assert.equal(saved.at(-1).status, "submit_failed");
+    assert.equal(saved.some(snapshot => snapshot.status === "auto_repair_pending"), false);
+    assert.deepEqual(saved.at(-1).responsesSnapshot, completeAnswers());
+    assert.equal(JSON.parse(saved.at(-1).submitError).code, "payload_integrity_mismatch");
+    assert.equal(failure.error.code, "payload_integrity_mismatch");
   } finally {
     state.corruptBeforeDelivery = false;
+  }
+});
+
+test("a damaged existing submission stays out of automatic repair and delivery", async () => {
+  state.calls = [];
+  state.rejectExisting = true;
+  const saved = [];
+  try {
+    await assert.rejects(submitExpressQuestionnaire(request(completeAnswers(), {
+      saveDraftNow: async snapshot => saved.push(structuredClone(snapshot)),
+    })), /contact support/i);
+    assert.equal(state.calls.filter(call => call.name === "submitExpressQuestionnaireFallback").length, 1);
+    assert.equal(state.calls.some(call => call.name === "sendExpressToZapier"), false);
+    assert.equal(saved.at(-1).status, "submit_failed");
+    assert.deepEqual(saved.at(-1).responsesSnapshot, completeAnswers());
+  } finally {
+    state.rejectExisting = false;
   }
 });

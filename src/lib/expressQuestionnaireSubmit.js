@@ -695,6 +695,7 @@ export async function submitExpressQuestionnaire(args) {
     // Zapier delivery: send after successful save/fallback
     let zapierSent = false;
     let zapierError = null;
+    let deliveryFailureCode = "";
     let zapierResult = { ok: false, error: null };
     
     try {
@@ -709,7 +710,11 @@ export async function submitExpressQuestionnaire(args) {
       }
     } catch (zapierErr) {
       zapierError = zapierErr.message || 'Zapier delivery failed';
-      zapierResult = { ok: false, error: zapierError };
+      deliveryFailureCode = typeof zapierErr.code === "string" ? zapierErr.code : "";
+      zapierResult = {
+        ok: false,
+        error: deliveryFailureCode ? { message: zapierError, code: deliveryFailureCode } : zapierError,
+      };
     }
     
     // Best-effort persist Zapier status to FormSubmission or FormSubmissionIntake
@@ -727,14 +732,19 @@ export async function submitExpressQuestionnaire(args) {
       const deliveryMessage = typeof zapierError === "string"
         ? zapierError
         : (zapierError?.message || "Zapier did not accept the Express submission.");
-      const serializedDeliveryError = serializeExpressError({
-        message: deliveryMessage,
-        status: zapierResult.zapierStatus,
-      });
+      const deliveryIntegrityRejected = deliveryFailureCode === "payload_integrity_mismatch";
+      const failureStage = deliveryIntegrityRejected ? "submit_integrity_failed" : "zapier_failed";
+      const serializedDeliveryError = {
+        ...serializeExpressError({
+          message: deliveryMessage,
+          status: zapierResult.zapierStatus,
+        }),
+        ...(deliveryFailureCode ? { code: deliveryFailureCode } : {}),
+      };
       await safeDraftSave({
         saveDraftNow,
         draftData: {
-          status: "auto_repair_pending",
+          status: deliveryIntegrityRejected ? "submit_failed" : "auto_repair_pending",
           submitError: safeJsonStringify(serializedDeliveryError || {}),
           responsesSnapshot: responseSnapshot,
           validationStatusSnapshot: validationStatus || {},
@@ -747,11 +757,11 @@ export async function submitExpressQuestionnaire(args) {
         businessName,
         domain,
         responses: responseSnapshot,
-        transformedPayload,
+        transformedPayload: deliveryIntegrityRejected ? null : transformedPayload,
         validationStatus,
         touchedQuestions,
         expandedQuestions,
-        stage: "zapier_failed",
+        stage: failureStage,
       });
       writeLocalFailedSubmissionBackup({
         sessionId: questionnaireSessionId,
@@ -759,12 +769,12 @@ export async function submitExpressQuestionnaire(args) {
         businessName,
         domain,
         responses: responseSnapshot,
-        transformedPayload,
+        transformedPayload: deliveryIntegrityRejected ? null : transformedPayload,
         validationStatus: validationStatus || {},
         touchedQuestions: touchedQuestions || {},
         expandedQuestions: expandedQuestions || {},
-        stage: "zapier_failed",
-        error: { message: deliveryMessage },
+        stage: failureStage,
+        error: serializedDeliveryError,
         diagnostics: {
           submissionId: submitResult.submissionId || null,
           intakeId: submitResult.intakeId || null,
@@ -774,9 +784,9 @@ export async function submitExpressQuestionnaire(args) {
         },
       });
       const failureDetails = {
-        error: { message: deliveryMessage },
+        error: serializedDeliveryError,
         recoveryCode,
-        failureKind: "delivery",
+        failureKind: deliveryIntegrityRejected ? "integrity" : "delivery",
         intakeId: submitResult.intakeId || null,
         intakeCaptured: hasDurableSubmissionReceipt(submitResult),
         sessionId: questionnaireSessionId,
@@ -788,8 +798,8 @@ export async function submitExpressQuestionnaire(args) {
         userMessage: `${deliveryMessage} Recovery code: ${recoveryCode}`,
         safeMessage: deliveryMessage,
         recoveryCode,
-        failureKind: "delivery",
-        stage: "zapier_failed",
+        failureKind: deliveryIntegrityRejected ? "integrity" : "delivery",
+        stage: failureStage,
         serializedError: serializedDeliveryError,
         intakeId: submitResult.intakeId || null,
         sessionId: questionnaireSessionId,
@@ -903,8 +913,14 @@ export async function submitExpressQuestionnaire(args) {
 
   const intakeCaptured = wasSubmissionIntakeCaptured(submitResult);
 
-  // Save draft status — always use auto_repair_pending since data was captured
-  const draftFailStatus = "auto_repair_pending";
+  // Integrity conflicts need review; automated delivery must not bypass the
+  // guard by replaying a historically damaged submission.
+  const failureCode = submitResult.error && "code" in submitResult.error ? submitResult.error.code : "";
+  const integrityRejected = ["payload_integrity_mismatch", "existing_submission_integrity_mismatch"].includes(failureCode);
+  const draftFailStatus = integrityRejected ? "submit_failed" : "auto_repair_pending";
+  const failureMessage = integrityRejected
+    ? "We detected missing answers in a submission record and stopped delivery. Please contact support with your recovery code so the complete saved answers can be recovered."
+    : "We could not confirm your submission. Your answers are still saved in this browser.";
 
   await safeDraftSave({
     saveDraftNow,
@@ -990,14 +1006,14 @@ export async function submitExpressQuestionnaire(args) {
       intakeCaptured: false,
       sessionId: questionnaireSessionId,
       submitAttemptId,
-      safeMessage: "We could not confirm your submission. Your answers are still saved in this browser.",
+      safeMessage: failureMessage,
     });
   }
 
   // Throw SubmitFlowError
   throw new SubmitFlowError({
-    userMessage: `We could not confirm your submission was received. Please copy the recovery details and try again. Recovery code: ${recoveryCode}`,
-    safeMessage: "We could not confirm your submission. Your answers are still saved in this browser.",
+    userMessage: `${failureMessage} Recovery code: ${recoveryCode}`,
+    safeMessage: failureMessage,
     recoveryCode,
     failureKind: submitResult.failureKind || "unknown",
     stage: "submit_failed",
