@@ -110,7 +110,7 @@ function normalizeFallbackError(error) {
   return {
     message: responseData?.error?.message || responseData?.error || error?.message || "Fallback invocation failed",
     code: responseData?.code || error?.code || "",
-    failureKind: error?.failureKind || (error?.response?.status === 409 ? "validation" : "unknown"),
+    failureKind: error?.failureKind || ([409, 422].includes(error?.response?.status) ? "validation" : "unknown"),
     status: error?.status ?? error?.response?.status ?? null,
     serialized,
   };
@@ -191,7 +191,7 @@ export async function invokeExpressSubmissionFallback(body, options = {}) {
       lastError = /** @type {Error & { failureKind?: string, status?: number | null, code?: string, response?: { status?: number, data?: any } }} */ (err);
       lastError.status = err?.status ?? err?.response?.status ?? null;
       lastError.code = err?.response?.data?.code || err?.code || "";
-      lastError.failureKind = err?.failureKind || (lastError.status === 409 ? "validation" : "unknown");
+      lastError.failureKind = err?.failureKind || ([409, 422].includes(lastError.status) ? "validation" : "unknown");
       if (err?.response?.data?.error?.message) lastError.message = err.response.data.error.message;
 
       // Retry only if retryable and attempts remain

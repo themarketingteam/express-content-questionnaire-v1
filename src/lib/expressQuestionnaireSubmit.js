@@ -16,6 +16,7 @@ import {
 } from "@/lib/expressSubmissionResilience";
 import { sendExpressZapierSafe, buildExpressZapierPayload } from "@/lib/expressZapierDelivery";
 import { writeLocalFailedSubmissionBackup } from "@/lib/localRecoveryBackup";
+import { requireExpressSubmissionIntegrity, SUBMISSION_INTEGRITY_MESSAGE } from "@/lib/expressSubmissionIntegrity";
 import {
   hasDurableSubmissionReceipt,
   isFinalSubmissionConfirmed,
@@ -209,7 +210,7 @@ export async function submitExpressQuestionnaire(args) {
   const timestamp = new Date().toISOString();
 
   // Step 1: Create response snapshot
-  const responseSnapshot = { ...responses };
+  const responseSnapshot = structuredClone(responses || {});
 
   // Step 2: Record submit_started event
   if (createDraftEvent) {
@@ -463,6 +464,49 @@ export async function submitExpressQuestionnaire(args) {
     payloadRepairResult.warnings.push(repairErr?.message || "Repair step threw unexpectedly");
   }
 
+  // Compare against the captured answers, not just the payload's field types.
+  // A correctly typed empty array is still data loss when an answer was selected.
+  try {
+    requireExpressSubmissionIntegrity(responseSnapshot, transformedPayload);
+  } catch (error) {
+    const integrityError = {
+      code: "payload_integrity_mismatch",
+      message: SUBMISSION_INTEGRITY_MESSAGE,
+      mismatchedFields: error.mismatchedFields || [],
+    };
+    await safeDraftSave({
+      saveDraftNow,
+      draftData: {
+        status: "submit_failed",
+        submitError: safeJsonStringify(integrityError),
+        responsesSnapshot: responseSnapshot,
+        validationStatusSnapshot: validationStatus || {},
+        touchedQuestionsSnapshot: touchedQuestions || {},
+        expandedQuestionsSnapshot: expandedQuestions || {},
+        submitAttemptId,
+      },
+      questionnaireSessionId, submitAttemptId, businessName, domain,
+      responses: responseSnapshot, transformedPayload: null,
+      validationStatus, touchedQuestions, expandedQuestions,
+      stage: "submit_integrity_failed",
+    });
+    writeLocalFailedSubmissionBackup({
+      sessionId: questionnaireSessionId, submitAttemptId, businessName, domain,
+      responses: responseSnapshot, transformedPayload: null,
+      validationStatus: validationStatus || {},
+      touchedQuestions: touchedQuestions || {},
+      expandedQuestions: expandedQuestions || {},
+      stage: "submit_integrity_failed", error: integrityError,
+      diagnostics: { mismatchedFields: integrityError.mismatchedFields },
+    });
+    throw new SubmitFlowError({
+      userMessage: SUBMISSION_INTEGRITY_MESSAGE,
+      safeMessage: SUBMISSION_INTEGRITY_MESSAGE,
+      recoveryCode, failureKind: "integrity", stage: "submit_integrity_failed",
+      serializedError: integrityError, intakeId: null, sessionId: questionnaireSessionId, submitAttemptId,
+    });
+  }
+
   // Step 6b: Validate repaired payload
   const payloadValidation = validateExpressSubmissionPayload(transformedPayload);
   if (!payloadValidation.ok) {
@@ -655,6 +699,7 @@ export async function submitExpressQuestionnaire(args) {
     
     try {
       const zapierPayload = buildExpressZapierPayload(transformedPayload);
+      requireExpressSubmissionIntegrity(responseSnapshot, zapierPayload);
       zapierResult = await sendExpressZapierSafe(zapierPayload);
       
       if (zapierResult.ok) {

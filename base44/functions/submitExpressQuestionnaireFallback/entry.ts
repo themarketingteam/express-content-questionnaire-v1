@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
+import { inspectExpressSubmissionIntegrity } from '../../shared/expressSubmissionIntegrity.js';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -364,6 +365,10 @@ Deno.serve(async (req) => {
       'questionnaire_submit_fallback';
 
     const rawResponseSnapshot = rawResponses ?? responseSnapshot ?? {};
+    const finalPayloadCandidate = !transformFailed && !validationFailed
+      && transformedPayload && transformedPayload.metadata && transformedPayload.userdata;
+    const payloadIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, transformedPayload);
+    const integrityRejected = finalPayloadCandidate && !payloadIntegrity.ok;
     const incomingFingerprints = await buildSubmissionFingerprints({
       businessName,
       businessDomain,
@@ -385,7 +390,14 @@ Deno.serve(async (req) => {
         base44,
         sessionId: questionnaireSessionId,
         purpose: `submission:${questionnaireSessionId}:${submitAttemptId || 'session'}`,
-        initialSnapshot: draftSnapshot,
+        // A rejected payload must not seed a new coordinator with partial answers.
+        initialSnapshot: integrityRejected ? {
+          ...draftSnapshot,
+          mapped_payload_json: '',
+          userdata_json: '',
+          metadata_json: '',
+          status: 'submit_failed',
+        } : draftSnapshot,
         operation: async (coordinatorDraft) => {
         const draftBusiness = normalizeIdentity(coordinatorDraft.business_name);
         const draftDomain = normalizeIdentity(coordinatorDraft.domain, 'domain');
@@ -400,6 +412,59 @@ Deno.serve(async (req) => {
             code: 'draft_identity_conflict',
             error: { message: 'This browser draft belongs to a different client. Start a new client draft before submitting.' },
           }, { status: 409, headers: corsHeaders });
+        }
+        if (integrityRejected) {
+          const integrityError = {
+            code: 'payload_integrity_mismatch',
+            failureKind: 'validation',
+            message: 'The submission payload did not preserve the captured answers. Nothing was submitted. Please reload the form and try again.',
+            reason: payloadIntegrity.reason,
+            mismatchedFields: payloadIntegrity.mismatchedFields,
+          };
+          // Retain this rejected attempt separately. Do not replace a good
+          // checkpoint/intake or enqueue the partial JSON for automated delivery.
+          let rejectedIntakeId = null;
+          try {
+            const previousRejections = submitAttemptId
+              ? await base44.asServiceRole.entities.FormSubmissionIntake.filter({
+                questionnaire_session_id: questionnaireSessionId,
+                submit_attempt_id: submitAttemptId,
+                intake_reason: 'payload_integrity_mismatch',
+              }, '-created_date', 1)
+              : [];
+            const rejectedIntake = previousRejections?.[0] || await base44.asServiceRole.entities.FormSubmissionIntake.create({
+              questionnaire_session_id: questionnaireSessionId,
+              ...buildIntakePayload({
+                status: 'received_intake',
+                intakeReason: 'payload_integrity_mismatch',
+                businessName, businessDomain, userEmail, userId, submitAttemptId,
+                primaryError: integrityError,
+                transformedPayload,
+                rawResponses: rawResponseSnapshot,
+                diagnostics: { payloadIntegrity },
+                source,
+                createdAtClient,
+              }),
+              active_investigation: true,
+              retention_policy: 'indefinite_until_manual_deletion',
+              retention_policy_version: '2026-08-18',
+              retention_protected_at: nowIso(),
+            });
+            rejectedIntakeId = rejectedIntake?.id || null;
+          } catch {
+            // Failure to retain diagnostics cannot authorize a partial submission.
+            console.error(JSON.stringify({ functionName: 'submitExpressQuestionnaireFallback', stage: 'integrity_rejection_retention_failed' }));
+          }
+          return Response.json({
+            success: false,
+            received: false,
+            submissionCreated: false,
+            usedFallback: true,
+            zapierSent: false,
+            code: 'payload_integrity_mismatch',
+            intakeId: rejectedIntakeId,
+            error: integrityError,
+          }, { status: 422, headers: corsHeaders });
         }
         // Persist the complete incoming snapshot before any validation or create
         // attempt. Anonymous and authenticated clients therefore have the same

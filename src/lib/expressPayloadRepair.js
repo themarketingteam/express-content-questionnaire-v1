@@ -48,28 +48,26 @@ function isUnsafeValue(v) {
   return false;
 }
 
-function stripUnsafe(value, seen = new WeakSet()) {
+function stripUnsafe(value, ancestors = new WeakSet()) {
   if (isUnsafeValue(value)) return undefined;
   if (value === null || typeof value !== "object") return value;
-  if (seen.has(value)) return undefined; // circular
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return value.map((v) => stripUnsafe(v, seen)).filter((v) => v !== undefined);
+  // A repeated reference in another branch is valid data, not a cycle. The
+  // raw answer snapshot and endpoint payload intentionally share answer arrays.
+  if (ancestors.has(value)) return undefined;
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((v) => stripUnsafe(v, ancestors)).filter((v) => v !== undefined);
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const cleaned = stripUnsafe(v, ancestors);
+      if (cleaned !== undefined) out[k] = cleaned;
+    }
+    return out;
+  } finally {
+    ancestors.delete(value);
   }
-  const out = {};
-  for (const [k, v] of Object.entries(value)) {
-    const cleaned = stripUnsafe(v, seen);
-    if (cleaned !== undefined) out[k] = cleaned;
-  }
-  return out;
-}
-
-function truncateString(value, warnings, path) {
-  if (typeof value === "string" && value.length > MAX_STRING_LENGTH) {
-    warnings.push(`${path} truncated from ${value.length} to ${MAX_STRING_LENGTH} characters`);
-    return value.slice(0, MAX_STRING_LENGTH);
-  }
-  return value;
 }
 
 function normalizeArrayField(value) {
@@ -190,9 +188,9 @@ export function repairExpressSubmissionPayload(payload, context = {}) {
       track(`userdata.${field}`, JSON.stringify(ud[field]), JSON.stringify(fixed), "normalized to string");
       ud[field] = fixed;
     }
-    // Truncate very long strings
+    // Preserve the full answer. Length diagnostics must never discard content.
     if (typeof ud[field] === "string" && ud[field].length > MAX_STRING_LENGTH) {
-      ud[field] = truncateString(ud[field], warnings, `userdata.${field}`);
+      warnings.push(`userdata.${field} contains ${ud[field].length} characters; the complete answer was preserved`);
     }
   }
 
