@@ -1,3 +1,4 @@
+import { ORGANIZER_QUESTIONS, validateOrganizedSubmission, validatePageStructure, projectOrganizedPages, samePageStructure, validateExpressOrganizerLimits } from './pageOrganizerContract.js';
 // Shared by the browser and backend. Return field names only: answer values
 // must never become diagnostic messages or telemetry.
 const ANSWER_FIELDS = [
@@ -5,6 +6,7 @@ const ANSWER_FIELDS = [
   ["itCompanyTypeOther", "it_company_type_other", "string"],
   ["serviceOfferings", "service_offerings", "array"],
   ["serviceOfferingsOther", "service_offerings_other", "string"],
+  ["serviceOfferingsStructure", "service_offerings_structure", "structure"],
   ["differentiation", "differentiation", "string"],
   ["geographicAreas", "geographic_areas", "string"],
   ["geographicAreaMeta", "geographic_area_meta", "geo"],
@@ -16,6 +18,7 @@ const ANSWER_FIELDS = [
   ["brandToneOther", "brand_tone_other", "string"],
   ["targetIndustries", "target_industries", "array"],
   ["targetIndustriesOther", "target_industries_other", "string"],
+  ["targetIndustriesStructure", "target_industries_structure", "structure"],
   ["clientSize", "client_size", "string"],
   ["clientChallenges", "client_challenges", "array"],
   ["clientChallengesOther", "client_challenges_other", "string"],
@@ -37,6 +40,7 @@ function isBlank(value) {
 }
 
 function normalizeSource(value, kind) {
+  if (kind === "structure") return { value, valid: validatePageStructure(value).ok };
   if (isBlank(value)) return { value: kind === "array" ? [] : (kind === "geo" ? {} : ""), valid: true };
   if (kind === "geo") {
     if (!isObject(value)) return { value: {}, valid: false };
@@ -92,9 +96,26 @@ export function inspectExpressSubmissionIntegrity(rawResponses, payload) {
   if (fields.length === 0) return result;
   result.available = true;
   const userdata = isObject(payload) && isObject(payload.userdata) ? payload.userdata : {};
+  const expectedResponses = { ...rawResponses };
+  for (const question of ORGANIZER_QUESTIONS) {
+    if (!Object.hasOwn(rawResponses, question.responseKey) || !validatePageStructure(rawResponses[question.responseKey]).ok) continue;
+    const projection = projectOrganizedPages(rawResponses[question.responseKey]);
+    expectedResponses[question.rawField] = projection.selections;
+    expectedResponses[question.otherField] = projection.other;
+  }
+  const organizerValidation = validateOrganizedSubmission({ payload, responses: rawResponses });
+  const organizerLimits = validateExpressOrganizerLimits(payload);
+  if (!organizerValidation.ok || !organizerLimits.ok) {
+    for (const question of ORGANIZER_QUESTIONS) {
+      if (Object.hasOwn(rawResponses, question.responseKey) || Object.hasOwn(userdata, question.structureField)) {
+        result.mismatchedFields.push(`userdata.${question.structureField}`);
+      }
+    }
+    if (!result.mismatchedFields.length) result.mismatchedFields.push('metadata.questionnaire_payload_version');
+  }
   const geo = normalizeSource(rawResponses.geographicAreaMeta, "geo").value;
   for (const [rawField, payloadField, kind] of fields) {
-    let expected = normalizeSource(rawResponses[rawField], kind);
+    let expected = normalizeSource(expectedResponses[rawField], kind);
     if (rawField === "geographicAreas" && isObject(geo) && geo.source === "google" && geo.place_id && geo.label) {
       expected = { value: geo.label, valid: true };
     }
@@ -103,8 +124,9 @@ export function inspectExpressSubmissionIntegrity(rawResponses, payload) {
     if (expected.valid && isBlank(expected.value)) continue;
     const path = `userdata.${payloadField}`;
     result.checkedFields.push(path);
-    if (!expected.valid || !equalValue(expected.value, userdata[payloadField])) result.mismatchedFields.push(path);
+    if (!expected.valid || !(kind === "structure" ? samePageStructure(expected.value, userdata[payloadField]) : equalValue(expected.value, userdata[payloadField]))) result.mismatchedFields.push(path);
   }
+  result.mismatchedFields = [...new Set(result.mismatchedFields)];
   result.ok = result.mismatchedFields.length === 0;
   result.reason = result.ok ? "preserved" : "answer_mismatch";
   return result;

@@ -1,3 +1,4 @@
+import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateOrganizedPayload, restoreOrganizedProjections, samePageStructure, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
@@ -85,6 +86,8 @@ function sanitizeGeoMeta(raw) {
 // ─── Deterministic Repair ────────────────────────────────────────────────────
 
 function deterministicRepair(payload, context = {}) {
+  const hasOrganizer = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure;
+  if (hasOrganizer && !validateOrganizedPayload(payload).ok) return { payload, changedPaths: [], warnings: ['Page organization requires manual review.'], repaired: false };
   const changedPaths = [];
   const warnings = [];
 
@@ -171,7 +174,7 @@ function deterministicRepair(payload, context = {}) {
   }
 
   return {
-    payload: { metadata: meta, userdata: ud },
+    payload: hasOrganizer ? restoreOrganizedProjections({ metadata: meta, userdata: ud }) : { metadata: meta, userdata: ud },
     changedPaths,
     warnings,
     repaired: changedPaths.length > 0,
@@ -186,7 +189,7 @@ function cleanDomain(domain) {
 }
 
 function validatePayload(payload, { requireBusinessName = true, requireDomain = false } = {}) {
-  const errors = [];
+  const errors = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure ? [...validateExpressOrganizerLimits(payload).errors] : [];
   const warnings = [];
 
   if (!isPlainObject(payload)) { errors.push('payload must be a plain object'); return { ok: false, errors, warnings }; }
@@ -222,6 +225,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta);
 
   const record = {
+    ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: meta.business_name || '',
     business_domain: cleanDomain(meta.businessDomain || meta.business_domain || ''),
     user_email: meta.user_email || ud.user_email || '',
@@ -271,6 +275,7 @@ function buildZapierPayload(payload) {
   const ud = payload?.userdata || {};
   return {
     metadata: {
+      ...(meta.questionnaire_payload_version !== undefined ? { questionnaire_payload_version: meta.questionnaire_payload_version } : {}),
       business_name: meta.business_name || "",
       businessDomain: cleanDomain(meta.businessDomain || meta.business_domain || ""),
       submission_datetime: meta.submission_datetime || nowIso(),
@@ -549,7 +554,7 @@ Deno.serve(async (req) => {
     let aiReport = null;
 
     // Step 2: Call AI agent if deterministic repair couldn't produce a valid payload
-    if (!structuralValidation.ok) {
+    if (!structuralValidation.ok && !((identityPayload?.metadata?.questionnaire_payload_version !== undefined || identityPayload?.userdata?.service_offerings_structure || identityPayload?.userdata?.target_industries_structure) && !validateOrganizedPayload(identityPayload).ok)) {
       try {
         aiReport = await callRepairAgent(base44, {
           sourceRecord: source.record,
@@ -560,6 +565,9 @@ Deno.serve(async (req) => {
 
         if (aiReport && aiReport.repaired_payload && isPlainObject(aiReport.repaired_payload)) {
           // Run one more deterministic pass on the AI result for safety
+          for (const field of ['service_offerings_structure', 'target_industries_structure']) {
+            if (Object.prototype.hasOwnProperty.call(identityPayload?.userdata || {}, field) && !samePageStructure(identityPayload.userdata[field], aiReport.repaired_payload?.userdata?.[field])) throw new Error('AI repair cannot change saved page organization.');
+          }
           const aiDeterministicPass = deterministicRepair(aiReport.repaired_payload, repairContext);
           finalPayload = aiDeterministicPass.payload;
           allChangedPaths = [...allChangedPaths, ...(aiReport.changed_paths || []), ...aiDeterministicPass.changedPaths];
@@ -689,7 +697,13 @@ Deno.serve(async (req) => {
       base44,
       sessionId: sessionId || `repair:${submitAttemptId || sourceId}`,
       purpose: `submission-repair:${sessionId || submitAttemptId || sourceId}`,
-      operation: async () => {
+      operation: async (coordinatorDraft) => {
+      let currentResponses: Record<string, unknown> = {};
+      try { const serializedResponses = coordinatorDraft?.responses_json; if (typeof serializedResponses === 'string') currentResponses = JSON.parse(serializedResponses); } catch { /* Legacy snapshots can be unavailable. */ }
+      if (currentResponses.serviceOfferingsStructure || currentResponses.targetIndustriesStructure) {
+        const organizerGuard = validateOrganizedSubmission({ payload: finalPayload, responses: currentResponses });
+        if (!organizerGuard.ok) throw Object.assign(new Error(organizerGuard.errors.join(' ')), { code: organizerGuard.code, status: organizerGuard.status });
+      }
 
     // The client or another administrator may have edited the questionnaire
     // while AI/search providers were running. Never submit a stale snapshot.
@@ -914,6 +928,10 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
+    const organizerError = error as { code?: string; status?: number; message?: string };
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+      return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, { status: organizerError.status === 409 ? 409 : 400, headers: corsHeaders });
+    }
     return Response.json(
       { ok: false, error: safeError(error).message },
       { status: 500, headers: corsHeaders }

@@ -2,6 +2,29 @@ function wait(delayMs) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+const safeClientSequence = (value) => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
+
+/** Keep request IDs monotonic without equating them to server revisions. */
+export function synchronizeClientSequence(counter, ...observedRevisions) {
+  counter.current = Math.max(safeClientSequence(counter.current), ...observedRevisions.map(safeClientSequence));
+  return counter.current;
+}
+
+/** Reserve before awaiting persistence; late acknowledgments cannot rewind it. */
+export function reserveClientSequence(counter, ...observedRevisions) {
+  const current = synchronizeClientSequence(counter, ...observedRevisions);
+  if (current >= Number.MAX_SAFE_INTEGER) throw new Error('The local draft request counter is exhausted. Reload before saving.');
+  counter.current = current + 1;
+  return counter.current;
+}
+
+export function hasPendingClientMutation(pendingDraft, acknowledgedDraft, clientInstanceId) {
+  if (!pendingDraft) return false;
+  if (String(acknowledgedDraft?.last_client_instance_id || '') !== String(clientInstanceId)) return true;
+  return safeClientSequence(pendingDraft.client_sequence ?? pendingDraft.client_revision)
+    > safeClientSequence(acknowledgedDraft?.last_client_sequence);
+}
+
 function parseObject(value) {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;
   if (typeof value !== "string" || !value) return {};
@@ -54,6 +77,7 @@ export function classifyDraftFailure(error) {
   const message = String(error?.message || "").toLowerCase();
   if (status === 400) return { code: "invalid_request", retryable: false };
   if (status === 401 || status === 403) return { code: "access_denied", retryable: false };
+  if (status === 409) return { code: "revision_conflict", retryable: false };
   if (status === 408 || status === 425 || status === 429 || status >= 500) {
     return { code: `http_${status}`, retryable: true };
   }

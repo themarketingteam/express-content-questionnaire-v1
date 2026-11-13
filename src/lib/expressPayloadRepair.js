@@ -1,3 +1,4 @@
+import { validateOrganizedPayload, restoreOrganizedProjections, validateExpressOrganizerLimits } from '../../base44/shared/pageOrganizerContract.js';
 /**
  * Deterministic payload repair and validation for Express questionnaire submissions.
  * Does not invoke AI — runs synchronously in the browser before the submit path.
@@ -93,6 +94,7 @@ function normalizeScalarField(value) {
  * @returns {{ payload: object, changedPaths: Array, warnings: Array, repaired: boolean }}
  */
 export function repairExpressSubmissionPayload(payload, context = {}) {
+  const originalOrganizerValidation = validateOrganizedPayload(payload);
   const changedPaths = [];
   const warnings = [];
 
@@ -214,7 +216,7 @@ export function repairExpressSubmissionPayload(payload, context = {}) {
   }
 
   return {
-    payload: repairedPayload,
+    payload: originalOrganizerValidation.ok ? restoreOrganizedProjections(repairedPayload) : repairedPayload,
     changedPaths,
     warnings,
     repaired: changedPaths.length > 0,
@@ -227,7 +229,7 @@ export function repairExpressSubmissionPayload(payload, context = {}) {
  * @returns {{ ok: boolean, errors: string[], warnings: string[] }}
  */
 export function validateExpressSubmissionPayload(payload) {
-  const errors = [];
+  const errors = [...validateExpressOrganizerLimits(payload).errors];
   const warnings = [];
 
   if (!isPlainObject(payload)) {

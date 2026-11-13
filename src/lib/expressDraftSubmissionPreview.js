@@ -9,6 +9,8 @@
 import {
   buildExpressSubmissionPayload,
 } from "./expressQuestionnairePayload.js";
+import { retainMappedPageStructures } from './pageOrganizerDisplay.js';
+import { validateOrganizedPayload } from '../../base44/shared/pageOrganizerContract.js';
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
@@ -40,7 +42,7 @@ function normalizeCanonicalPayload(raw, overrides = {}) {
   const ensureString = (v) => (v == null ? "" : String(v));
   const ensureObject = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 
-  return {
+  return retainMappedPageStructures(raw, {
     metadata: {
       business_name: ensureString(overrides.business_name ?? md.business_name),
       businessDomain: ensureString(overrides.businessDomain ?? md.businessDomain ?? md.business_domain ?? ""),
@@ -72,7 +74,7 @@ function normalizeCanonicalPayload(raw, overrides = {}) {
       client_outcomes_other: ensureString(ud.client_outcomes_other),
       ideal_client: ensureString(ud.ideal_client),
     },
-  };
+  });
 }
 
 /**
@@ -125,7 +127,8 @@ export function buildExpressDraftSubmissionPreview(draft, _options = {}) {
       missingRequiredFields.push("business_name");
     }
 
-    return { ok: true, payload, source: "mapped_payload_json", warnings, validationErrors, missingRequiredFields };
+    validationErrors.push(...validateOrganizedPayload(payload).errors);
+    return { ok: validationErrors.length === 0, payload, source: "mapped_payload_json", warnings, validationErrors, missingRequiredFields };
   }
 
   if (draft.mapped_payload_json && !mappedRaw) {
@@ -160,8 +163,10 @@ export function buildExpressDraftSubmissionPreview(draft, _options = {}) {
         missingRequiredFields.push("business_name");
       }
 
+      validationErrors.push(...validateOrganizedPayload(payload).errors);
+
       return {
-        ok: true,
+        ok: validationErrors.length === 0,
         payload,
         source: "reconstructed_from_responses_json",
         warnings,

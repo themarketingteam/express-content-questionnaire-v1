@@ -1,3 +1,4 @@
+import { ORGANIZER_QUESTIONS, guardOrganizedDraftMutation, projectOrganizedPages, preserveOrganizedMappedPayload, validateOrganizedSubmission } from './pageOrganizerContract.js';
 import { withEntityLease } from './entityLease.ts';
 import { createQuestionnaireVersion, snapshotFromDraft } from './questionnaireVersions.ts';
 
@@ -114,6 +115,10 @@ export async function applyDurableDraftMutation({
       if (String(current.last_materialized_version_id || '') !== String(existingVersion.id)) {
         const retainedSnapshot = parseSnapshot(existingVersion.snapshot_json);
         if (!retainedSnapshot) throw new Error('The retained mutation snapshot is unreadable.');
+        const currentResponses = parseSnapshot(current.responses_json) || {};
+        if (ORGANIZER_QUESTIONS.some((question) => Object.hasOwn(currentResponses, question.responseKey)) && safeInteger(retainedSnapshot.last_confirmed_revision) < currentRevision) {
+          return { accepted: false, duplicate: true, stale: true, draft: current, version: existingVersion };
+        }
         current = await draftEntity.update(draftId, {
           ...withoutEntityMetadata(retainedSnapshot),
           last_mutation_id: mutationId,
@@ -153,6 +158,27 @@ export async function applyDurableDraftMutation({
       return { accepted: false, duplicate: false, stale: true, draft: current };
     }
 
+    const currentResponses = parseSnapshot(current.responses_json) || {};
+    const incomingResponses = Object.hasOwn(nextValues, 'responses_json') ? (parseSnapshot(nextValues.responses_json) || {}) : currentResponses;
+    if (ORGANIZER_QUESTIONS.some((question) => Object.hasOwn(currentResponses, question.responseKey) || Object.hasOwn(incomingResponses, question.responseKey))) {
+      const actualOrganizerKeys = ORGANIZER_QUESTIONS.flatMap((question) => [question.responseKey, question.rawField, question.otherField])
+        .filter((key) => Object.hasOwn(incomingResponses, key) && JSON.stringify(currentResponses[key]) !== JSON.stringify(incomingResponses[key]));
+      const guard = guardOrganizedDraftMutation({ currentResponses, incomingResponses, changedKeys: [...new Set([...changedKeys, ...actualOrganizerKeys])], deletedKeys, baseRevision, currentRevision });
+      if (!guard.ok) throw Object.assign(new Error(guard.errors.join(' ')), { code: guard.code, status: guard.status });
+      const protectedResponses = { ...incomingResponses };
+      for (const question of ORGANIZER_QUESTIONS) {
+        if (!Object.hasOwn(protectedResponses, question.responseKey) && Object.hasOwn(currentResponses, question.responseKey)) protectedResponses[question.responseKey] = currentResponses[question.responseKey];
+        if (Object.hasOwn(protectedResponses, question.responseKey)) {
+          const projection = projectOrganizedPages(protectedResponses[question.responseKey]);
+          protectedResponses[question.rawField] = projection.selections;
+          protectedResponses[question.otherField] = projection.other;
+        }
+      }
+      const mapped = preserveOrganizedMappedPayload(parseSnapshot(nextValues.mapped_payload_json ?? current.mapped_payload_json) || {}, protectedResponses);
+      const submissionGuard = validateOrganizedSubmission({ payload: mapped, responses: protectedResponses });
+      if (!submissionGuard.ok) throw Object.assign(new Error(submissionGuard.errors.join(' ')), { code: submissionGuard.code, status: submissionGuard.status });
+      nextValues = { ...nextValues, responses_json: JSON.stringify(protectedResponses), mapped_payload_json: JSON.stringify(mapped), metadata_json: JSON.stringify(mapped.metadata || {}), userdata_json: JSON.stringify(mapped.userdata || {}) };
+    }
     const nextRevision = Math.max(currentRevision + 1, clientSequence || 0);
     const nextDraft = {
       ...current,

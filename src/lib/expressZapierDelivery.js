@@ -1,3 +1,4 @@
+import { validateOrganizedPayload } from '../../base44/shared/pageOrganizerContract.js';
 import { base44 } from "@/api/base44Client";
 import { serializeExpressError } from "@/lib/expressQuestionnairePayload";
 
@@ -34,6 +35,9 @@ export function buildExpressZapierPayload(transformedPayload) {
     throw new Error('Invalid transformed payload: missing metadata or userdata');
   }
 
+  const organizerValidation = validateOrganizedPayload(transformedPayload);
+  if (!organizerValidation.ok) throw new Error(organizerValidation.errors.join(' '));
+
   // Clean business domain using existing helper
   const cleanDomain = (domain) => {
     if (!domain) return "";
@@ -50,6 +54,7 @@ export function buildExpressZapierPayload(transformedPayload) {
 
   return {
     metadata: {
+      ...(transformedPayload.metadata.questionnaire_payload_version !== undefined ? { questionnaire_payload_version: transformedPayload.metadata.questionnaire_payload_version } : {}),
       business_name: transformedPayload.metadata.business_name || "",
       businessDomain: cleanedDomain,
       business_domain: cleanedDomain,

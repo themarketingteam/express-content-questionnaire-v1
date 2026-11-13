@@ -21,6 +21,9 @@ import {
   createDraftMutationEnvelope,
   createKeepaliveDraftSaver,
   retryDraftOperation,
+  reserveClientSequence,
+  synchronizeClientSequence,
+  hasPendingClientMutation,
 } from "@/lib/draftSaveReliability";
 import {
   buildPersistedStateFromRemoteDraft,
@@ -47,7 +50,13 @@ import IncompleteQuestionSummary from "@/components/questionnaire/IncompleteQues
 import { buildIncompleteQuestionSummary, getFirstBlockingQuestionId, hasBlockingIncompleteItems } from "@/lib/incompleteQuestionSummary";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckboxQuestion from "../components/questionnaire/CheckboxQuestion";
-import CategorizedCheckboxQuestion from "../components/questionnaire/CategorizedCheckboxQuestion";
+import PageOrganizerSection from "../components/questionnaire/PageOrganizerSection";
+import {
+  EXPRESS_SERVICE_OPTIONS, EXPRESS_SERVICE_OPTIONS_GROUPED,
+  EXPRESS_INDUSTRY_OPTIONS, EXPRESS_INDUSTRY_OPTIONS_GROUPED, EXPRESS_LEGACY_INDUSTRY_OPTIONS,
+} from "@/components/questionnaire/pageOrganizerCatalog";
+import { normalizeExpressPageOrganizerFormData, countExpressPageSelections } from "@/lib/expressPageOrganizer";
+import { validatePageStructure } from "@/lib/pageOrganizerModel";
 import RadioQuestion from "../components/questionnaire/RadioQuestion";
 import TextAreaQuestion from "../components/questionnaire/TextAreaQuestion";
 import GeographicQuestion from "../components/questionnaire/GeographicQuestion";
@@ -67,6 +76,7 @@ import RecoverLastAnswerNotice from "@/components/questionnaire/RecoverLastAnswe
 import SubmitRecoveryCard from "@/components/questionnaire/SubmitRecoveryCard";
 import ExpressDraftSaveStatus from "@/components/questionnaire/ExpressDraftSaveStatus";
 import { HELPER_COPY } from "@/lib/questionnaireHelperCopy";
+import { assertCurrentOrganizerSnapshot, getOrganizerBrowserStorage, parseOrganizerResponses, prepareOrganizerWireDraft, preserveOrganizerRecoveryCopy, preserveUnchangedOrganizerQuestions, readOrganizerBaseRevision, readOrganizerRecoveryArchive, reconcileOrganizerAcknowledgement, reconcileOrganizerHydration, reconcilePendingOrganizerDraft, rememberOrganizerBaseRevision } from "@/lib/expressOrganizerRecovery";
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
 
@@ -91,13 +101,13 @@ const deleteCookie = (name) => {
 
 const FIELD_TO_QUESTION = {
   itCompanyType: "1", itCompanyTypeOther: "1",
-  serviceOfferings: "2", serviceOfferingsOther: "2",
+  serviceOfferings: "2", serviceOfferingsOther: "2", serviceOfferingsStructure: "2",
   differentiation: "3",
   geographicAreas: "4", geographicAreaMeta: "4",
   pricingPackaging: "5", pricingPackagingOther: "5",
   companyGoals: "6", companyGoalsOther: "6",
   brandTone: "7", brandToneOther: "7",
-  targetIndustries: "8", targetIndustriesOther: "8",
+  targetIndustries: "8", targetIndustriesOther: "8", targetIndustriesStructure: "8",
   clientSize: "9",
   clientChallenges: "10", clientChallengesOther: "10",
   clientOutcomes: "11", clientOutcomesOther: "11",
@@ -149,13 +159,6 @@ export default function Questionnaire() {
       return selected > 0 || hasOther;
     };
 
-    const hasMinimumAnswer = (field, otherField, minRequired) => {
-      const selected = (formData[field] || []).length;
-      const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
-      const total = selected + (hasOther ? 1 : 0);
-      return total >= minRequired;
-    };
-
     const hasRadioAnswer = (field, otherField) => {
       const selected = (formData[field] || "").trim().length > 0;
       const hasOther = (otherField && (formData[otherField] || "").trim().length > 0);
@@ -166,13 +169,23 @@ export default function Questionnaire() {
 
     switch(questionNum) {
       case 1: return hasAnswer("itCompanyType", "itCompanyTypeOther");
-      case 2: return hasMinimumAnswer("serviceOfferings", "serviceOfferingsOther", 3);
+      case 2: {
+        const tree = formData.serviceOfferingsStructure;
+        if (Object.hasOwn(formData, "serviceOfferingsStructure") && !validatePageStructure(tree).ok) return false;
+        const count = countExpressPageSelections(formData, "serviceOfferings");
+        return count >= 3 && count <= 6;
+      }
       case 3: return hasText(formData.differentiation);
       case 4: return hasText(formData.geographicAreas);
       case 5: return hasRadioAnswer("pricingPackaging", "pricingPackagingOther");
       case 6: return hasRadioAnswer("companyGoals", "companyGoalsOther");
       case 7: return hasRadioAnswer("brandTone", "brandToneOther");
-      case 8: return hasAnswer("targetIndustries", "targetIndustriesOther");
+      case 8: {
+        const tree = formData.targetIndustriesStructure;
+        if (Object.hasOwn(formData, "targetIndustriesStructure") && !validatePageStructure(tree).ok) return false;
+        const count = countExpressPageSelections(formData, "targetIndustries");
+        return count >= 1 && count <= 3;
+      }
       case 9: return hasText(formData.clientSize);
       case 10: return hasAnswer("clientChallenges", "clientChallengesOther");
       case 11: return hasAnswer("clientOutcomes", "clientOutcomesOther");
@@ -217,6 +230,10 @@ export default function Questionnaire() {
   const draftBootstrapReadyRef = useRef(false);
   const draftRevisionRef = useRef(0);
   const lastConfirmedRevisionRef = useRef(0);
+  const latestOrganizerFormRef = useRef(formData);
+  const lockedOrganizerQuestionsRef = useRef(new Set());
+  const [organizerRecoveryNotice, setOrganizerRecoveryNotice] = useState(null);
+  useEffect(() => { latestOrganizerFormRef.current = formData; }, [formData]);
   const latestPendingDraftRef = useRef(null);
   const storageTelemetrySentRef = useRef(false);
   const telemetryLastSentRef = useRef(new Map());
@@ -250,6 +267,14 @@ export default function Questionnaire() {
     businessName: businessNameParam,
     domain: domainParam,
   });
+  useEffect(() => {
+    if (!import.meta.env.VITE_LOCAL_PREVIEW) return;
+    window.dispatchEvent(new CustomEvent("express-local-snapshot", { detail: {
+      formData,
+      businessName: knownBusinessDetails.businessName || businessNameParam,
+      domain: knownBusinessDetails.domain || domainParam,
+    } }));
+  }, [formData, knownBusinessDetails, businessNameParam, domainParam]);
   const businessDetailsRef = useRef({ businessName: businessNameParam, domain: domainParam });
 
   const draftApi = useMemo(() => createQuestionnaireDraftApi({
@@ -279,9 +304,51 @@ export default function Questionnaire() {
     return draftApi.telemetry(eventType, telemetryPayload(extra)).catch(() => undefined);
   }, [draftApi, telemetryPayload]);
 
+  const preserveOrganizerConflict = useCallback((conflict) => {
+    if (!conflict) return;
+    conflict.questionIds.forEach((id) => lockedOrganizerQuestionsRef.current.add(id));
+    const preserved = preserveOrganizerRecoveryCopy(getOrganizerBrowserStorage(), questionnaireSessionId, conflict);
+    setOrganizerRecoveryNotice({ ...preserved, requiresReload: true });
+  }, [questionnaireSessionId]);
+
+  const reconcileAuthoritativeOrganizerDraft = useCallback((serverDraft, sentDraft) => {
+    if (!serverDraft?.responses_json) throw Object.assign(new Error('The current server draft could not be loaded. Reload before saving.'), { status: 409, code: 'ORGANIZER_SERVER_SNAPSHOT_REQUIRED' });
+    const serverRevision = Number(serverDraft.last_confirmed_revision || 0);
+    if (serverRevision < lastConfirmedRevisionRef.current) return;
+    const serverFormData = parseOrganizerResponses(serverDraft.responses_json);
+    const reconciliation = reconcileOrganizerAcknowledgement({ currentFormData: latestOrganizerFormRef.current, sentFormData: parseOrganizerResponses(sentDraft?.responses_json), serverFormData });
+    if (reconciliation.conflict) {
+      preserveOrganizerConflict({ ...reconciliation.conflict, baseRevision: lastConfirmedRevisionRef.current, serverRevision });
+    }
+    if (reconciliation.questionIds.length) {
+      latestOrganizerFormRef.current = /** @type {typeof formData} */ (reconciliation.formData);
+      setFormData(/** @type {typeof formData} */ (reconciliation.formData));
+      latestPendingDraftRef.current = reconcilePendingOrganizerDraft(latestPendingDraftRef.current, serverFormData, reconciliation.questionIds);
+    }
+    // The authoritative tree and pending-copy archive precede revision advancement.
+    remoteDraftRef.current = serverDraft;
+    lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, serverRevision);
+    synchronizeClientSequence(draftRevisionRef, serverRevision, serverDraft.client_revision);
+    return reconciliation;
+  }, [preserveOrganizerConflict]);
+
+  const assertOrganizerDraftCurrent = useCallback((draftRecord) => {
+    try { assertCurrentOrganizerSnapshot(parseOrganizerResponses(draftRecord.responses_json), parseOrganizerResponses(remoteDraftRef.current?.responses_json), lockedOrganizerQuestionsRef.current); }
+    catch (error) {
+      preserveOrganizerConflict({ questionIds: error.questionIds || [], formData: parseOrganizerResponses(draftRecord.responses_json), reason: 'queued_stale_organizer_snapshot', baseRevision: draftRecord.base_revision, serverRevision: lastConfirmedRevisionRef.current });
+      throw error;
+    }
+  }, [preserveOrganizerConflict]);
+
   const enqueueDraftSave = useMemo(
-    () => createLatestDraftSaveQueue((draftRecord) => retryDraftOperation(
-      () => draftApi.save(draftRecord),
+    () => createLatestDraftSaveQueue(async (draftRecord) => {
+      assertOrganizerDraftCurrent(draftRecord);
+      const result = await retryDraftOperation(
+      () => {
+        assertOrganizerDraftCurrent(draftRecord);
+        const wireDraft = prepareOrganizerWireDraft(draftRecord, parseOrganizerResponses(remoteDraftRef.current?.responses_json), lockedOrganizerQuestionsRef.current, lastConfirmedRevisionRef.current);
+        return draftApi.save(wireDraft);
+      },
       {
         onRetry: ({ attempt, code }) => {
           setDraftSaveStatus((previous) => ({
@@ -310,8 +377,12 @@ export default function Questionnaire() {
           });
         },
       },
-    )),
-    [draftApi, reportPersistenceTelemetry]
+    );
+      // Acknowledge inside the serial queue, before its next captured save starts.
+      reconcileAuthoritativeOrganizerDraft(result.draft || await draftApi.load(), draftRecord);
+      return result;
+    }),
+    [assertOrganizerDraftCurrent, draftApi, reconcileAuthoritativeOrganizerDraft, reportPersistenceTelemetry]
   );
 
   const findExistingDraftBySessionId = useCallback(async () => remoteDraftRef.current, []);
@@ -343,6 +414,10 @@ export default function Questionnaire() {
       try {
         result = await enqueueDraftSave(mutationRecord);
       } catch (error) {
+        if (Number(error?.status || error?.response?.status) === 409) {
+          try { reconcileAuthoritativeOrganizerDraft(await draftApi.load(), mutationRecord); }
+          catch { /* The original failed save and browser recovery copy remain available. */ }
+        }
         if (requestVersion !== draftRequestVersionRef.current && error && typeof error === "object") {
           error.draftSaveSuperseded = true;
         }
@@ -352,10 +427,10 @@ export default function Questionnaire() {
 
       if (result.stale) {
         const currentDraft = await draftApi.load();
-        remoteDraftRef.current = currentDraft;
+        reconcileAuthoritativeOrganizerDraft(currentDraft, mutationRecord);
         const confirmedRevision = Number(currentDraft?.last_confirmed_revision || result.lastConfirmedRevision || 0);
         lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
-        const stillPending = Number(latestPendingDraftRef.current?.client_revision || 0) > lastConfirmedRevisionRef.current;
+        const stillPending = hasPendingClientMutation(latestPendingDraftRef.current, currentDraft, clientInstanceIdRef.current);
         if (!stillPending) latestPendingDraftRef.current = null;
         setDraftSaveStatus({
           state: stillPending ? "changes_pending" : "saved_server",
@@ -369,13 +444,15 @@ export default function Questionnaire() {
       }
 
       const savedAt = result.lastSavedAt || mutationRecord.last_saved_at || new Date().toISOString();
-      const confirmedRevision = Number(result.lastConfirmedRevision ?? incomingRevision);
+      const authoritativeDraft = result.draft || await draftApi.load();
+      reconcileAuthoritativeOrganizerDraft(authoritativeDraft, mutationRecord);
+      const confirmedRevision = Number(result.lastConfirmedRevision ?? authoritativeDraft.last_confirmed_revision ?? lastConfirmedRevisionRef.current);
       lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
-      const stillPending = Number(latestPendingDraftRef.current?.client_revision || 0) > lastConfirmedRevisionRef.current;
+      const stillPending = Number(latestPendingDraftRef.current?.client_revision || 0) > incomingRevision;
       if (!stillPending) latestPendingDraftRef.current = null;
       remoteDraftRef.current = {
         ...(remoteDraftRef.current || {}),
-        ...mutationRecord,
+        ...authoritativeDraft,
         id: result.draftId || remoteDraftRef.current?.id || "",
         last_saved_at: savedAt,
         last_confirmed_revision: lastConfirmedRevisionRef.current,
@@ -392,7 +469,7 @@ export default function Questionnaire() {
     };
 
     return performSave();
-  }, [draftApi, draftIdentity.storageAvailable, enqueueDraftSave]);
+  }, [draftApi, draftIdentity.storageAvailable, enqueueDraftSave, reconcileAuthoritativeOrganizerDraft]);
 
   const saveDraftSnapshot = useCallback(
     createSaveDraftSnapshot({
@@ -418,8 +495,7 @@ export default function Questionnaire() {
       domain: modalDomain,
     } = /** @type {any} */ (options);
     if (!draftBootstrapReadyRef.current || (!isHydratedRef.current && !responsesSnapshot)) return;
-    const clientRevision = draftRevisionRef.current + 1;
-    draftRevisionRef.current = clientRevision;
+    const clientRevision = reserveClientSequence(draftRevisionRef);
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
     );
@@ -447,14 +523,16 @@ export default function Questionnaire() {
   const queueDraftSave = useCallback((changedQuestionId, nextFormData, historySnapshot) => {
     if (hasFinalSubmittedRef.current) return;
     if (!isHydratedRef.current || !draftBootstrapReadyRef.current) return;
+    // Delayed text checks may carry an old full form; preserve current page trees.
+    nextFormData = preserveUnchangedOrganizerQuestions(nextFormData, latestOrganizerFormRef.current, changedQuestionId);
+    latestOrganizerFormRef.current = nextFormData;
     lastChangedQuestionIdRef.current = String(changedQuestionId || "");
-    const clientRevision = draftRevisionRef.current + 1;
-    draftRevisionRef.current = clientRevision;
+    const clientRevision = reserveClientSequence(draftRevisionRef);
     const expandedSnap = Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
     );
     const validationStatus = textValidation.getAllFieldStatuses();
-    latestPendingDraftRef.current = buildImmediateDraftRecord({
+    latestPendingDraftRef.current = createDraftMutationEnvelope(buildImmediateDraftRecord({
       sessionId: questionnaireSessionId,
       responses: nextFormData,
       validationStatus,
@@ -472,6 +550,10 @@ export default function Questionnaire() {
         try { return JSON.parse(remoteDraftRef.current?.responses_json || "{}"); }
         catch { return {}; }
       })(),
+    }), {
+      clientInstanceId: clientInstanceIdRef.current,
+      baseRevision: lastConfirmedRevisionRef.current,
+      previousDraft: remoteDraftRef.current,
     });
     setDraftSaveStatus((previous) => ({
       ...previous,
@@ -563,10 +645,15 @@ export default function Questionnaire() {
       : null,
     flushDraft: async (draftRecord) => {
       try {
-        const result = await keepaliveDraftSave(draftRecord);
-        const confirmedRevision = Number(result.lastConfirmedRevision ?? draftRecord.client_revision ?? 0);
+        assertOrganizerDraftCurrent(draftRecord);
+        const wireDraft = prepareOrganizerWireDraft(draftRecord, parseOrganizerResponses(remoteDraftRef.current?.responses_json), lockedOrganizerQuestionsRef.current, lastConfirmedRevisionRef.current);
+        const result = await keepaliveDraftSave(wireDraft);
+        const authoritativeDraft = result.draft || await draftApi.load();
+        reconcileAuthoritativeOrganizerDraft(authoritativeDraft, draftRecord);
+        if (result.stale || result.saved === false) throw Object.assign(new Error('The local draft changed before its pending save completed. Reload and review your saved answers.'), { status: 409 });
+        const confirmedRevision = Number(result.lastConfirmedRevision ?? authoritativeDraft.last_confirmed_revision ?? lastConfirmedRevisionRef.current);
         lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, confirmedRevision);
-        if (Number(latestPendingDraftRef.current?.client_revision || 0) <= lastConfirmedRevisionRef.current) {
+        if (Number(latestPendingDraftRef.current?.client_revision || 0) <= Number(draftRecord.client_revision || 0)) {
           latestPendingDraftRef.current = null;
         }
       } catch (error) {
@@ -585,7 +672,7 @@ export default function Questionnaire() {
     onLifecycleEvent: (eventType) => {
       void reportPersistenceTelemetry(eventType);
     },
-  }), [keepaliveDraftSave, reportPersistenceTelemetry, retryLatestDraft]);
+  }), [assertOrganizerDraftCurrent, draftApi, keepaliveDraftSave, reconcileAuthoritativeOrganizerDraft, reportPersistenceTelemetry, retryLatestDraft]);
 
   useEffect(() => {
     const retryTimer = window.setInterval(() => {
@@ -621,6 +708,7 @@ export default function Questionnaire() {
     itCompanyTypeOther: { id: "1", type: "checkbox" },
     serviceOfferings: { id: "2", type: "categorized_checkbox" },
     serviceOfferingsOther: { id: "2", type: "categorized_checkbox" },
+    serviceOfferingsStructure: { id: "2", type: "page_organizer" },
     differentiation: { id: "3", type: "textarea" },
     geographicAreas: { id: "4", type: "geographic" },
     geographicAreaMeta: { id: "4", type: "geographic" },
@@ -632,6 +720,7 @@ export default function Questionnaire() {
     brandToneOther: { id: "7", type: "radio" },
     targetIndustries: { id: "8", type: "checkbox" },
     targetIndustriesOther: { id: "8", type: "checkbox" },
+    targetIndustriesStructure: { id: "8", type: "page_organizer" },
     clientSize: { id: "9", type: "numeric_range" },
     clientChallenges: { id: "10", type: "checkbox" },
     clientChallengesOther: { id: "10", type: "checkbox" },
@@ -680,6 +769,7 @@ export default function Questionnaire() {
   // Set the questionnaire favicon. Browser titles are managed centrally so
   // every route follows the same "Express | Page Name" convention.
   useEffect(() => {
+    if (import.meta.env.VITE_LOCAL_PREVIEW) return;
     const link = /** @type {HTMLLinkElement} */ (document.querySelector("link[rel*='icon']") || document.createElement('link'));
     link.type = 'image/png';
     link.rel = 'icon';
@@ -821,7 +911,7 @@ export default function Questionnaire() {
       draftRecordIdRef.current = bootstrapResult.draftId || remoteDraft?.id || "";
       const remoteRevision = Number(bootstrapResult.lastConfirmedRevision || remoteDraft?.last_confirmed_revision || 0);
       lastConfirmedRevisionRef.current = remoteRevision;
-      draftRevisionRef.current = remoteRevision;
+      synchronizeClientSequence(draftRevisionRef, remoteRevision, remoteDraft?.client_revision);
       businessDetailsRef.current = {
         businessName: remoteDraft?.business_name || businessNameParam,
         domain: remoteDraft?.domain || domainParam,
@@ -829,9 +919,19 @@ export default function Questionnaire() {
       setKnownBusinessDetails(businessDetailsRef.current);
       const remoteState = buildPersistedStateFromRemoteDraft(remoteDraft, questionnaireSessionId);
       const selected = selectNewestPersistedState(localResult?.state || null, remoteState);
-      const restoredState = selected.state;
+      const reconciledHydration = reconcileOrganizerHydration({
+        selectedState: selected.state, localState: localResult?.state || null, remoteState,
+        knownBaseRevision: readOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, localResult?.state), serverRevision: remoteRevision,
+      });
+      const restoredState = reconciledHydration.state;
+      if (reconciledHydration.conflict) preserveOrganizerConflict(reconciledHydration.conflict);
+      else {
+        const archive = readOrganizerRecoveryArchive(getOrganizerBrowserStorage(), questionnaireSessionId);
+        if (archive) setOrganizerRecoveryNotice({ archive, storageSaved: true, requiresReload: false });
+      }
 
       if (restoredState?.formData) {
+        latestOrganizerFormRef.current = restoredState.formData;
         setFormData((previous) => ({ ...previous, ...restoredState.formData }));
 
         if (restoredState.validationStatus && typeof restoredState.validationStatus === "object") {
@@ -852,6 +952,7 @@ export default function Questionnaire() {
 
         // Repopulate browser storage after a server recovery so subsequent reloads are instant.
         const storageResult = saveStateToLocalStorage(restoredState, questionnaireSessionId);
+        rememberOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, restoredState, remoteRevision);
         writeStateMarkerCookie(questionnaireSessionId, restoredState.savedAt);
         if (!storageResult.confirmed) storageTelemetrySentRef.current = false;
       }
@@ -914,6 +1015,7 @@ export default function Questionnaire() {
 
       // Upload a newer browser snapshot (including legacy cookie data) immediately.
       if (restoredState && selected.source === "local") {
+        const hydrationSequence = reserveClientSequence(draftRevisionRef);
         try {
           await saveDraftSnapshot({
             sessionId: questionnaireSessionId,
@@ -933,16 +1035,15 @@ export default function Questionnaire() {
             lastNonEmptyAnswers: remoteHistory || answerHistory.lastNonEmptyAnswers,
             fieldHistory: answerHistory.fieldHistory,
             lastLocalPersistedAt: restoredState.savedAt || new Date().toISOString(),
-            clientRevision: remoteRevision + 1,
+            clientRevision: hydrationSequence,
           });
-          draftRevisionRef.current = remoteRevision + 1;
         } catch (error) {
           if (!active) return;
           setDraftSaveStatus({
             state: navigator.onLine === false ? "offline_server_pending" : "retry_exhausted",
             lastLocalSavedAt: restoredState.savedAt || "",
             pendingLocalChanges: true,
-            pendingRevision: remoteRevision + 1,
+            pendingRevision: hydrationSequence,
             lastConfirmedRevision: remoteRevision,
             lastError: error?.message || "Secure draft save failed",
           });
@@ -981,6 +1082,7 @@ export default function Questionnaire() {
       });
       
       const storageResult = saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      rememberOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, persistedState, lastConfirmedRevisionRef.current);
       // Write a small marker cookie for legacy compatibility (no form data)
       writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
       if (!storageResult.confirmed) {
@@ -1018,6 +1120,7 @@ export default function Questionnaire() {
         questionnaireSessionId,
       });
       saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      rememberOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, persistedState, lastConfirmedRevisionRef.current);
       writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
       
       // Local draft backup on unload
@@ -1112,6 +1215,22 @@ export default function Questionnaire() {
       return next;
     });
   }, [queueDraftSave, questionnaireSessionId, answerHistory]);
+
+  const updateOrganizedPages = useCallback((field, structure) => {
+    const questionId = field === "serviceOfferings" ? "2" : "8";
+    if (lockedOrganizerQuestionsRef.current.has(questionId)) { toast.error('This page organization changed in another tab. Reload before editing it; your recovery copy is preserved.'); return; }
+    const structureField = `${field}Structure`;
+    setTouchedQuestions((previous) => ({ ...previous, [questionId]: true }));
+    setFormData((previous) => {
+      const next = /** @type {typeof previous} */ (normalizeExpressPageOrganizerFormData({ ...previous, [structureField]: structure }));
+      const nextHistory = answerHistory.recordFieldChange(structureField, previous[structureField], structure, {
+        source: "selection", questionId,
+      });
+      queueDraftSave(questionId, next, nextHistory);
+      return next;
+    });
+    queueDraftEvent({ eventType: "selection_changed", questionId, questionType: "page_organizer", value: structure });
+  }, [answerHistory, queueDraftSave]);
 
   const handleQuestionClick = (questionNum) => {
     let isOpening;
@@ -1308,6 +1427,7 @@ export default function Questionnaire() {
       // The server submission endpoint writes an authoritative checkpoint before
       // creating a submission. This client-side checkpoint is therefore best effort.
       void saveDraftSnapshot({
+        clientRevision: reserveClientSequence(draftRevisionRef),
         sessionId: questionnaireSessionId,
         responses: rawFormData,
         validationStatus: finalValidationStatus,
@@ -1465,11 +1585,16 @@ export default function Questionnaire() {
   }, [isSubmitting, formData, touchedQuestions, openQuestions, questionnaireSessionId, urlCredentials, domainParam, saveDraftNow, createDraftEvent]);
 
   const performClearAllAnswers = useCallback(async () => {
+    if (lockedOrganizerQuestionsRef.current.size) { toast.error('Reload the current page organization before clearing these answers. Your recovery copy is preserved.'); return; }
+    if (draftSaveTimeoutRef.current) { clearTimeout(draftSaveTimeoutRef.current); draftSaveTimeoutRef.current = null; }
     setIsClearingAll(true);
     
     try {
       // Create cleared state values
       const clearedFormData = getInitialExpressFormData();
+      for (const key of ["serviceOfferingsStructure", "targetIndustriesStructure"]) {
+        if (Object.hasOwn(formData, key)) clearedFormData[key] = { format: "page-tree-v1", pages: [] };
+      }
       const clearedValidationStatus = /** @type {Record<string, import("@/lib/expressPersistedState").ValidationStatus>} */ ({});
       const clearedTouchedQuestions = /** @type {Record<string, boolean>} */ ({});
       const clearedExpandedQuestions = getDefaultExpandedQuestions();
@@ -1506,8 +1631,7 @@ export default function Questionnaire() {
           },
         });
 
-        const clearRevision = draftRevisionRef.current + 1;
-        draftRevisionRef.current = clearRevision;
+        const clearRevision = reserveClientSequence(draftRevisionRef);
         const clearedCheckpoint = createDraftMutationEnvelope(buildImmediateDraftRecord({
           sessionId: questionnaireSessionId,
           responses: clearedFormData,
@@ -1527,7 +1651,16 @@ export default function Questionnaire() {
           previousDraft: remoteDraftRef.current,
           mutationPrefix: "explicit-clear",
         });
-        await draftApi.checkpoint(clearedCheckpoint, "explicit_clear");
+        const checkpointResult = await draftApi.checkpoint(clearedCheckpoint, "explicit_clear");
+        const authoritativeDraft = checkpointResult.draft || await draftApi.load();
+        reconcileAuthoritativeOrganizerDraft(authoritativeDraft, clearedCheckpoint);
+        if (checkpointResult.stale || checkpointResult.saved === false) throw Object.assign(new Error('The server draft changed before the clear completed. Reload and review the current answers.'), { status: 409 });
+        const revision = Number(checkpointResult.lastConfirmedRevision ?? authoritativeDraft?.last_confirmed_revision ?? 0);
+        lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, revision);
+        remoteDraftRef.current = authoritativeDraft;
+        latestOrganizerFormRef.current = clearedFormData;
+        latestPendingDraftRef.current = null;
+        setDraftSaveStatus((previous) => ({ ...previous, state: 'saved_server', pendingLocalChanges: false, lastConfirmedRevision: revision, lastServerSavedAt: authoritativeDraft?.last_saved_at || new Date().toISOString(), lastError: '' }));
       }
       
       // Save cleared state to localStorage and write marker cookie
@@ -1539,6 +1672,7 @@ export default function Questionnaire() {
         questionnaireSessionId,
       });
       saveStateToLocalStorage(persistedState, questionnaireSessionId);
+      rememberOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, persistedState, lastConfirmedRevisionRef.current);
       writeStateMarkerCookie(questionnaireSessionId, persistedState.savedAt);
       
       toast.success("All answers cleared");
@@ -1549,7 +1683,7 @@ export default function Questionnaire() {
       setIsClearingAll(false);
       setShowClearAllConfirm(false);
     }
-  }, [createDraftEvent, draftApi, questionnaireSessionId, textValidation, urlCredentials]);
+  }, [createDraftEvent, draftApi, formData, questionnaireSessionId, reconcileAuthoritativeOrganizerDraft, textValidation, urlCredentials]);
 
   // Silent reset after full successful submission (no confirmation modal)
   const resetQuestionnaireStateAfterFullSuccess = useCallback(() => {
@@ -1760,7 +1894,7 @@ export default function Questionnaire() {
       />
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         <header className="shadow-sm" style={{
-                      backgroundImage: 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
+                      backgroundImage: import.meta.env.VITE_LOCAL_PREVIEW ? 'linear-gradient(110deg, #122947, #176BB7)' : 'url(https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6913611c0ea0f6b631343af8/724c89c4d_banner.jpg)',
                       backgroundSize: 'cover',
                       backgroundPosition: 'center'
                     }}>
@@ -1826,6 +1960,19 @@ export default function Questionnaire() {
           <ExpressDraftSaveStatus saveStatus={draftSaveStatus} />
         </div>
 
+        {organizerRecoveryNotice && <aside role="status" className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Page organization recovery copy preserved</p>
+          <p className="mt-1">The current server pages are shown. A different browser copy was kept separately for review.{organizerRecoveryNotice.requiresReload ? ' Reload before editing the affected service or industry pages.' : ''}</p>
+          {!organizerRecoveryNotice.storageSaved && <p className="mt-1 font-medium">Browser storage is unavailable. Download this copy before closing the page.</p>}
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button type="button" className="min-h-10 rounded border border-amber-700 px-3 py-2 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700" onClick={() => {
+              const url = URL.createObjectURL(new Blob([JSON.stringify(organizerRecoveryNotice.archive, null, 2)], { type: 'application/json' }));
+              const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'express-page-organization-recovery.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}>Download recovery copy</button>
+            {organizerRecoveryNotice.requiresReload && <button type="button" className="min-h-10 rounded border border-amber-700 px-3 py-2 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700" onClick={() => window.location.reload()}>Reload current pages</button>}
+          </div>
+        </aside>}
+
         <form
           onSubmit={handleSubmit}
           aria-busy={isDraftHydrating}
@@ -1865,40 +2012,22 @@ export default function Questionnaire() {
 
             <div ref={el => questionRefs.current[2] = el}>
               <div className="flex items-start justify-between gap-4 mb-3">
-                <CategorizedCheckboxQuestion
+                <PageOrganizerSection
                   questionNumber={2}
+                  readOnly={lockedOrganizerQuestionsRef.current.has("2")}
                   title="What are your primary service offerings?"
-                  hint="Select at least 3 core services. Maximum 6 selections."
-                  categories={[
-                  {
-                    name: "CLOUD & INFRASTRUCTURE",
-                    options: ["Cloud Services", "Hybrid Cloud Services", "Internet Services", "Microsoft 365", "Private Cloud Services", "Structured Cabling"]
-                  },
-                  {
-                    name: "COMPLIANCE",
-                    options: ["CMMC Compliance", "FTC Compliance", "HIPAA Compliance", "IT Compliance", "NIST Framework Compliance", "PCI Compliance", "SOC2 Compliance"]
-                  },
-                  {
-                    name: "IT SERVICES",
-                    options: ["Co-Managed IT", "Hourly IT Support", "IT Consulting", "IT Help Desk", "Managed IT", "Outsourced IT Help Desk"]
-                  },
-                  {
-                    name: "SECURITY",
-                    options: ["Cybersecurity", "Ransomware Removal", "Security Awareness Training", "Video Surveillance Solutions"]
-                  },
-                  {
-                    name: "HARDWARE & RECOVERY",
-                    options: ["Data Backup & Recovery", "Disaster Recovery Planning", "Hardware as a Service", "Printer & Office Machine", "VoIP Phone Systems"]
-                  }
-                ]}
-                selected={formData.serviceOfferings}
-                onToggle={(value) => updateArrayField("serviceOfferings", value, 6, "serviceOfferingsOther")}
-                otherValue={formData.serviceOfferingsOther}
-                onOtherChange={(value) => updateField("serviceOfferingsOther", value)}
-                limit={6}
-                onInfoClick={() => setInfoModalData(HELPER_COPY.q2)}
-                isOpen={openQuestions.includes(2)}
-                onClick={() => handleQuestionClick(2)}
+                  hint="Choose 3–6 service pages, including custom pages. Organize them into two levels below."
+                  options={EXPRESS_SERVICE_OPTIONS}
+                  optionGroups={EXPRESS_SERVICE_OPTIONS_GROUPED}
+                  value={formData.serviceOfferings}
+                  otherValue={formData.serviceOfferingsOther}
+                  structure={Object.hasOwn(formData, "serviceOfferingsStructure") ? formData.serviceOfferingsStructure : undefined}
+                  onChange={(structure) => updateOrganizedPages("serviceOfferings", structure)}
+                  min={3}
+                  max={6}
+                  onInfoClick={() => setInfoModalData(HELPER_COPY.q2)}
+                  isOpen={openQuestions.includes(2)}
+                  onClick={() => handleQuestionClick(2)}
                 />
                 <QuestionValidationBadge status={getQuestionDisplayStatus("2")} compact />
               </div>
@@ -2099,33 +2228,20 @@ export default function Questionnaire() {
 
             <div ref={el => questionRefs.current[8] = el}>
               <div className="flex items-start justify-between gap-4 mb-3">
-                <CheckboxQuestion
+                <PageOrganizerSection
                   questionNumber={8}
+                  readOnly={lockedOrganizerQuestionsRef.current.has("8")}
                   title="What types of businesses do you primarily serve?"
-                  hint="Check all that apply. Maximum 3 selections."
-                  options={[
-                    "Healthcare / Medical",
-                    "Dental Practices",
-                    "Financial / Accounting / CPA",
-                    "Legal Firms",
-                    "Manufacturing / Construction",
-                    "Nonprofits / Education",
-                    "Professional Services (Marketing, Real Estate, etc.)",
-                    "Retail / Hospitality",
-                    "Government / Municipalities",
-                    "Real Estate / Property Management",
-                    "Transportation / Logistics",
-                    "Engineering / Architecture Firms",
-                    "Energy / Oil & Gas",
-                    "Insurance Agencies",
-                    "Technology / SaaS Companies",
-                    "Agriculture / Farming"
-                  ]}
-                  selected={formData.targetIndustries}
-                  onToggle={(value) => updateArrayField("targetIndustries", value, 3, "targetIndustriesOther")}
+                  hint="Choose 1–3 industry pages, including custom pages. Category headings only help you find options."
+                  options={EXPRESS_INDUSTRY_OPTIONS}
+                  optionGroups={EXPRESS_INDUSTRY_OPTIONS_GROUPED}
+                  legacyOptions={EXPRESS_LEGACY_INDUSTRY_OPTIONS}
+                  value={formData.targetIndustries}
                   otherValue={formData.targetIndustriesOther}
-                  onOtherChange={(value) => updateField("targetIndustriesOther", value)}
-                  limit={3}
+                  structure={Object.hasOwn(formData, "targetIndustriesStructure") ? formData.targetIndustriesStructure : undefined}
+                  onChange={(structure) => updateOrganizedPages("targetIndustries", structure)}
+                  min={1}
+                  max={3}
                   onInfoClick={() => setInfoModalData(HELPER_COPY.q8)}
                   isOpen={openQuestions.includes(8)}
                   onClick={() => handleQuestionClick(8)}

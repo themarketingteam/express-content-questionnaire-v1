@@ -223,7 +223,9 @@
     },
     "retention_policy": {
       "type": "string",
-      "enum": ["indefinite_until_manual_deletion"],
+      "enum": [
+        "indefinite_until_manual_deletion"
+      ],
       "default": "indefinite_until_manual_deletion"
     },
     "retention_policy_version": {
@@ -233,6 +235,214 @@
     "retention_protected_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "questionnaire_payload_version": {
+      "type": "integer",
+      "enum": [
+        1,
+        2
+      ],
+      "description": "Absent or 1 is legacy; 2 includes an optional authoritative page structure."
+    },
+    "service_offerings_structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "page-tree-v1"
+          ]
+        },
+        "pages": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "predefined",
+                  "custom"
+                ]
+              },
+              "catalogId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 2000
+              },
+              "children": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "predefined",
+                        "custom"
+                      ]
+                    },
+                    "catalogId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 2000
+                    },
+                    "children": {
+                      "type": "array",
+                      "maxItems": 0,
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "source"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "label",
+              "source"
+            ]
+          }
+        }
+      },
+      "required": [
+        "format",
+        "pages"
+      ],
+      "description": "Optional authoritative mapped page tree. Array position is sibling priority. New pages contain label and source, with children only for nonempty parents; optional historical id/catalogId and empty children remain readable."
+    },
+    "target_industries_structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "page-tree-v1"
+          ]
+        },
+        "pages": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "predefined",
+                  "custom"
+                ]
+              },
+              "catalogId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 2000
+              },
+              "children": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "predefined",
+                        "custom"
+                      ]
+                    },
+                    "catalogId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 2000
+                    },
+                    "children": {
+                      "type": "array",
+                      "maxItems": 0,
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "source"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "label",
+              "source"
+            ]
+          }
+        }
+      },
+      "required": [
+        "format",
+        "pages"
+      ],
+      "description": "Optional authoritative mapped page tree. Array position is sibling priority. New pages contain label and source, with children only for nonempty parents; optional historical id/catalogId and empty children remain readable."
     }
   },
   "required": [],

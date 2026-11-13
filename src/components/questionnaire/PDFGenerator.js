@@ -1,9 +1,9 @@
 import { jsPDF } from "jspdf";
 import { format } from "date-fns";
-import { normalizeExpressFormData } from "../../lib/expressQuestionnairePayload.js";
+import { formatOrganizedAnswer, hasOrganizedAnswer, normalizeExpressDisplayFormData } from "../../lib/pageOrganizerDisplay.js";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "./expressTemplateLogo.js";
 
-export const EXPRESS_PDF_TEMPLATE_VERSION = "express-template-v1";
+export const EXPRESS_PDF_TEMPLATE_VERSION = "express-template-v2-organized-pages";
 
 export const QUESTIONS = [
   { id: 1, title: "What type of IT company are you?", field: "itCompanyType", otherField: "itCompanyTypeOther" },
@@ -93,6 +93,7 @@ export function buildQuestionnairePdfFilename(businessName, generatedAt = new Da
 }
 
 export function formatAnswer(field, formData, otherField) {
+  if (hasOrganizedAnswer(formData, field)) return toPdfText(formatOrganizedAnswer(formData[`${field}Structure`]));
   const value = formData?.[field];
   const otherValue = otherField ? formData?.[otherField] : "";
   let parts = [];
@@ -289,7 +290,7 @@ function drawQuestionRow(pdf, row) {
 }
 
 export function createQuestionnairePDF(formData, businessName, domain, options = {}) {
-  const normalizedFormData = normalizeExpressFormData(formData || {});
+  const normalizedFormData = normalizeExpressDisplayFormData(formData || {});
   const submittedAt = options.submittedAt instanceof Date
     ? options.submittedAt
     : new Date(options.submittedAt || Date.now());

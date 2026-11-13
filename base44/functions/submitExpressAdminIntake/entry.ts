@@ -1,3 +1,4 @@
+import { organizedPayloadRecordFields, validateExpressOrganizerLimits } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
@@ -84,7 +85,10 @@ function normalizePayload(payload: unknown) {
 
   const metadata = payload.metadata;
   const userdata = payload.userdata;
+  const organizer = payload.metadata.questionnaire_payload_version !== undefined || payload.userdata.service_offerings_structure || payload.userdata.target_industries_structure ? validateExpressOrganizerLimits(payload) : { ok: true, errors: [] };
+  if (!organizer.ok) return { ok: false as const, errors: organizer.errors };
   const normalizedMetadata = {
+    ...(metadata.questionnaire_payload_version !== undefined ? { questionnaire_payload_version: metadata.questionnaire_payload_version } : {}),
     business_name: asString(metadata.business_name),
     businessDomain: cleanDomain(metadata.businessDomain || metadata.business_domain),
     submission_datetime: normalizeSubmissionDate(metadata.submission_datetime),
@@ -93,6 +97,8 @@ function normalizePayload(payload: unknown) {
     submit_attempt_id: asString(metadata.submit_attempt_id),
   };
   const normalizedUserdata: Record<string, unknown> = {
+    ...(userdata.service_offerings_structure ? { service_offerings_structure: userdata.service_offerings_structure } : {}),
+    ...(userdata.target_industries_structure ? { target_industries_structure: userdata.target_industries_structure } : {}),
     it_company_type: asStringArray(userdata.it_company_type),
     it_company_type_other: asString(userdata.it_company_type_other),
     service_offerings: asStringArray(userdata.service_offerings),
@@ -120,7 +126,7 @@ function normalizePayload(payload: unknown) {
   const errors: string[] = [];
   if (!normalizedMetadata.business_name) errors.push('metadata.business_name is required.');
   if (!normalizedMetadata.businessDomain) errors.push('metadata.businessDomain is required.');
-  if ((normalizedUserdata.service_offerings as string[]).length === 0) {
+  if ((normalizedUserdata.service_offerings as string[]).length === 0 && !normalizedUserdata.service_offerings_structure) {
     errors.push('userdata.service_offerings must contain at least one value.');
   }
   if (!normalizedUserdata.differentiation) errors.push('userdata.differentiation is required.');
@@ -138,6 +144,7 @@ function mapSubmissionRecord(payload: any) {
   const metadata = payload.metadata;
   const userdata = payload.userdata;
   const record: Record<string, unknown> = {
+    ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: metadata.business_name,
     business_domain: metadata.businessDomain,
     user_email: asString(metadata.user_email || userdata.user_email),

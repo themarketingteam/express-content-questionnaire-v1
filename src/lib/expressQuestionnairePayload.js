@@ -1,3 +1,5 @@
+import { organizedPayloadRecordFields } from '../../base44/shared/pageOrganizerContract.js';
+import { normalizeExpressPageOrganizerFormData, expressPageOrganizerFields, projectExpressPageOrganizerPayload } from './expressPageOrganizer.js';
 /**
  * Express questionnaire payload builder utility.
  * Provides domain cleaning, default form data, payload building,
@@ -76,7 +78,7 @@ export function normalizeExpressFormData(formData) {
     return defaultVal;
   };
   
-  return {
+  return normalizeExpressPageOrganizerFormData({
     itCompanyType: ensureArray(fd.itCompanyType),
     itCompanyTypeOther: ensureString(fd.itCompanyTypeOther, ""),
     serviceOfferings: ensureArray(fd.serviceOfferings),
@@ -97,13 +99,15 @@ export function normalizeExpressFormData(formData) {
     clientChallengesOther: ensureString(fd.clientChallengesOther, ""),
     clientOutcomes: ensureArray(fd.clientOutcomes),
     clientOutcomesOther: ensureString(fd.clientOutcomesOther, ""),
-    idealClient: ensureString(fd.idealClient, "")
-  };
+    idealClient: ensureString(fd.idealClient, ""),
+    ...expressPageOrganizerFields(fd)
+  });
 }
 
-export function buildExpressSubmissionPayload({ formData, businessName, domain, sessionId, submitAttemptId }) {
+export function buildExpressSubmissionPayload({ formData, businessName, domain, sessionId, submitAttemptId = "" }) {
   // Normalize form data to ensure consistent types
   const safeFormData = normalizeExpressFormData(formData || {});
+  const organizer = projectExpressPageOrganizerPayload(safeFormData);
   
   return {
     _rawFormData: { ...safeFormData },
@@ -113,7 +117,8 @@ export function buildExpressSubmissionPayload({ formData, businessName, domain, 
       submission_datetime: new Date().toISOString(),
       service_type: "express",
       questionnaire_session_id: sessionId || "",
-      submit_attempt_id: submitAttemptId || ""
+      submit_attempt_id: submitAttemptId || "",
+      ...organizer.metadata
     },
     userdata: {
       it_company_type: safeFormData.itCompanyType,
@@ -138,7 +143,8 @@ export function buildExpressSubmissionPayload({ formData, businessName, domain, 
       client_challenges_other: safeFormData.clientChallengesOther,
       client_outcomes: safeFormData.clientOutcomes,
       client_outcomes_other: safeFormData.clientOutcomesOther,
-      ideal_client: safeFormData.idealClient
+      ideal_client: safeFormData.idealClient,
+      ...organizer.userdata
     }
   };
 }
@@ -161,6 +167,7 @@ export function mapExpressPayloadToFormSubmissionRecord(payload) {
   };
 
   return {
+    ...organizedPayloadRecordFields(payload),
     business_name: md.business_name || "",
     business_domain: md.businessDomain || md.business_domain || "",
     submission_datetime: md.submission_datetime || new Date().toISOString(),

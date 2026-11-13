@@ -1,3 +1,4 @@
+import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
@@ -65,6 +66,7 @@ const mapExpressPayloadToFormSubmissionRecord = (payload, rawResponses) => {
   };
 
   const record = {
+    ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: normalizedMetadata.business_name || '',
     business_domain: cleanDomain(normalizedMetadata.businessDomain || normalizedMetadata.business_domain || userdata.business_domain || ''),
     user_email: normalizedMetadata.user_email || userdata.user_email || '',
@@ -131,6 +133,10 @@ const hasRequiredExpressPayloadFields = (payload) => {
 // ─── Zapier delivery ──────────────────────────────────────────────────────────
 
 function buildZapierPayload(payload) {
+  if (payload?.metadata?.questionnaire_payload_version !== undefined) {
+    const validation = validateExpressOrganizerLimits(payload);
+    if (!validation.ok) throw new Error(validation.errors.join(' '));
+  }
   const { metadata = {}, userdata = {} } = payload || {};
   const cleanDomain = (domain) => {
     if (!domain) return "";
@@ -140,6 +146,7 @@ function buildZapierPayload(payload) {
 
   return {
     metadata: {
+      ...(metadata.questionnaire_payload_version !== undefined ? { questionnaire_payload_version: metadata.questionnaire_payload_version } : {}),
       business_name: metadata.business_name || "",
       businessDomain: cleanedDomain,
       business_domain: cleanedDomain,
@@ -334,7 +341,13 @@ Deno.serve(async (req) => {
       base44,
       sessionId: sessionId || `retry:${submitAttemptId || intakeIdActual || 'manual'}`,
       purpose: `submission-retry:${sessionId || submitAttemptId || intakeIdActual || 'manual'}`,
-      operation: async () => {
+      operation: async (coordinatorDraft) => {
+      let currentResponses: Record<string, unknown> = {};
+      try { const serializedResponses = coordinatorDraft?.responses_json; if (typeof serializedResponses === 'string') currentResponses = JSON.parse(serializedResponses); } catch { /* Legacy snapshots can be unavailable. */ }
+      if (currentResponses.serviceOfferingsStructure || currentResponses.targetIndustriesStructure) {
+        const organizerGuard = validateOrganizedSubmission({ payload: transformed, responses: currentResponses });
+        if (!organizerGuard.ok) throw Object.assign(new Error(organizerGuard.errors.join(' ')), { code: organizerGuard.code, status: organizerGuard.status });
+      }
 
     // ── Non-force retry: dedup by session_id or submit_attempt_id ──
     // If a FormSubmission already exists, return alreadySubmitted WITHOUT
@@ -501,6 +514,10 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
+    const organizerError = error as { code?: string; status?: number; message?: string };
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+      return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, { status: organizerError.status === 409 ? 409 : 400, headers: corsHeaders });
+    }
     return Response.json(
       { success: false, error: safeError(error) },
       { status: 500, headers: corsHeaders }

@@ -1,3 +1,4 @@
+import { validateExpressOrganizerLimits } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 
 const corsHeaders = {
@@ -40,6 +41,11 @@ Deno.serve(async (req) => {
         status: 400,
         headers: corsHeaders,
       });
+    }
+
+    if (payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure) {
+      const organizer = validateExpressOrganizerLimits(payload);
+      if (!organizer.ok) return Response.json({ success: false, error: organizer.errors.join(' ') }, { status: 400, headers: corsHeaders });
     }
 
     // Read webhook URL from environment

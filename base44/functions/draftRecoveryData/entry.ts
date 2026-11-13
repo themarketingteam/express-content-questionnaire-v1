@@ -212,12 +212,15 @@ function submissionAsDraft(submission: Record<string, any>, owningDraft: Record<
       businessDomain: submission.business_domain || owningDraft.domain || '',
       submission_datetime: submission.submission_datetime || submission.created_date || '',
       service_type: 'express',
+      ...(submission.questionnaire_payload_version !== undefined ? { questionnaire_payload_version: submission.questionnaire_payload_version } : {}),
       questionnaire_session_id: submission.questionnaire_session_id || owningDraft.session_id || '',
       submit_attempt_id: submission.submit_attempt_id || '',
     },
     userdata: {
       it_company_type: submission.it_company_type || [],
       it_company_type_other: submission.it_company_type_other || '',
+      ...(submission.service_offerings_structure ? { service_offerings_structure: submission.service_offerings_structure } : {}),
+      ...(submission.target_industries_structure ? { target_industries_structure: submission.target_industries_structure } : {}),
       service_offerings: submission.service_offerings || [],
       service_offerings_other: submission.service_offerings_other || '',
       differentiation: submission.differentiation || '',
@@ -1029,6 +1032,10 @@ Deno.serve(async (req) => {
         return json({ success: false, error: 'Unsupported action.' }, 400);
     }
   } catch (error) {
+    const organizerError = error as { code?: string; status?: number; message?: string };
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+      return json({ success: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, organizerError.status === 409 ? 409 : 400);
+    }
     console.error('Draft recovery data request failed', error);
     return json({ success: false, error: 'The draft recovery request failed.' }, 500);
   }

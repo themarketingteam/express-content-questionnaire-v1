@@ -1,6 +1,6 @@
 import { EXPRESS_PDF_TEMPLATE_VERSION } from "../components/questionnaire/PDFGenerator.js";
 import { buildExpressDraftSubmissionPreview } from "./expressDraftSubmissionPreview.js";
-import { normalizeExpressFormData } from "./expressQuestionnairePayload.js";
+import { normalizeExpressDisplayFormData, retainMappedPageStructures } from "./pageOrganizerDisplay.js";
 
 function safeJsonParse(value, fallback = null) {
   if (!value) return fallback;
@@ -13,11 +13,12 @@ function safeJsonParse(value, fallback = null) {
 
 function canonicalPayloadToFormData(payload) {
   const userdata = payload?.userdata || {};
-  return normalizeExpressFormData({
+  return normalizeExpressDisplayFormData({
     itCompanyType: userdata.it_company_type,
     itCompanyTypeOther: userdata.it_company_type_other,
     serviceOfferings: userdata.service_offerings,
     serviceOfferingsOther: userdata.service_offerings_other,
+    ...(Object.hasOwn(userdata, 'service_offerings_structure') ? { serviceOfferingsStructure: userdata.service_offerings_structure } : {}),
     differentiation: userdata.differentiation,
     geographicAreas: userdata.geographic_areas,
     geographicAreaMeta: userdata.geographic_area_meta,
@@ -29,6 +30,7 @@ function canonicalPayloadToFormData(payload) {
     brandToneOther: userdata.brand_tone_other,
     targetIndustries: userdata.target_industries,
     targetIndustriesOther: userdata.target_industries_other,
+    ...(Object.hasOwn(userdata, 'target_industries_structure') ? { targetIndustriesStructure: userdata.target_industries_structure } : {}),
     clientSize: userdata.client_size,
     clientChallenges: userdata.client_challenges,
     clientChallengesOther: userdata.client_challenges_other,
@@ -40,7 +42,7 @@ function canonicalPayloadToFormData(payload) {
 
 function submissionToCanonicalPayload(submission) {
   if (!submission) return null;
-  return {
+  return retainMappedPageStructures({ metadata: submission, userdata: submission }, {
     metadata: {
       business_name: String(submission.business_name || ""),
       businessDomain: String(submission.business_domain || ""),
@@ -72,7 +74,7 @@ function submissionToCanonicalPayload(submission) {
       client_outcomes_other: submission.client_outcomes_other || "",
       ideal_client: submission.ideal_client || "",
     },
-  };
+  });
 }
 
 function newestTimestamp(...values) {
@@ -204,7 +206,7 @@ export async function createPdfPayloadFingerprint(input) {
   const material = stableStringify({
     businessName: input.businessName,
     domain: input.domain,
-    formData: normalizeExpressFormData(input.formData || {}),
+    formData: normalizeExpressDisplayFormData(input.formData || {}),
     submissionDate: input.submissionDateKey,
     templateVersion: EXPRESS_PDF_TEMPLATE_VERSION,
   });

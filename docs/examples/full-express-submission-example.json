@@ -1,0 +1,106 @@
+{
+  "metadata": {
+    "questionnaire_payload_version": 2,
+    "business_name": "Example Express IT",
+    "businessDomain": "example.com",
+    "business_domain": "example.com",
+    "submission_datetime": "2026-11-13T18:00:00.000Z",
+    "service_type": "express",
+    "questionnaire_session_id": "example-express-session",
+    "submit_attempt_id": "example-express-submission"
+  },
+  "userdata": {
+    "it_company_type": [
+      "Managed Services Provider (MSP)"
+    ],
+    "it_company_type_other": "",
+    "service_offerings": [
+      "Managed IT",
+      "IT Help Desk",
+      "Cloud Services",
+      "Microsoft 365"
+    ],
+    "service_offerings_other": "Managed Services, Security Reviews",
+    "differentiation": "Our local team provides practical guidance, clear monthly plans, and responsive support for growing professional services businesses.",
+    "geographic_areas": "Chicago, IL",
+    "geographic_area_meta": {
+      "label": "Chicago, IL",
+      "source": "manual"
+    },
+    "pricing_packaging": "Flat-rate monthly (fully managed)",
+    "pricing_packaging_other": "",
+    "company_goals": "Acquire more clients",
+    "company_goals_other": "",
+    "brand_tone": "Friendly & Approachable",
+    "brand_tone_other": "",
+    "target_industries": [
+      "Financial",
+      "CPA"
+    ],
+    "target_industries_other": "Vet Clinics",
+    "client_size": "5-50 employees",
+    "client_challenges": [
+      "Cybersecurity concerns or breaches",
+      "Frequent downtime or outages"
+    ],
+    "client_challenges_other": "",
+    "client_outcomes": [
+      "Reduced downtime",
+      "Peace of mind about security"
+    ],
+    "client_outcomes_other": "",
+    "ideal_client": "Our ideal client is a growing business with 5 to 50 employees that values dependable technology, clear communication, and an ongoing relationship with its IT provider.",
+    "service_offerings_structure": {
+      "format": "page-tree-v1",
+      "pages": [
+        {
+          "label": "Managed Services",
+          "source": "custom",
+          "children": [
+            {
+              "label": "Managed IT",
+              "source": "predefined"
+            },
+            {
+              "label": "IT Help Desk",
+              "source": "predefined"
+            },
+            {
+              "label": "Security Reviews",
+              "source": "custom"
+            }
+          ]
+        },
+        {
+          "label": "Cloud Services",
+          "source": "predefined",
+          "children": [
+            {
+              "label": "Microsoft 365",
+              "source": "predefined"
+            }
+          ]
+        }
+      ]
+    },
+    "target_industries_structure": {
+      "format": "page-tree-v1",
+      "pages": [
+        {
+          "label": "Financial",
+          "source": "predefined",
+          "children": [
+            {
+              "label": "CPA",
+              "source": "predefined"
+            }
+          ]
+        },
+        {
+          "label": "Vet Clinics",
+          "source": "custom"
+        }
+      ]
+    }
+  }
+}

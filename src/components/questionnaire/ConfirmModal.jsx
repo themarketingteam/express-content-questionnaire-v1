@@ -3,7 +3,7 @@ import { X, CheckCircle, AlertCircle, Download, Loader2, Copy } from "lucide-rea
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { generatePDF } from "./PDFGenerator.js";
-import { normalizeExpressFormData } from "@/lib/expressQuestionnairePayload";
+import { formatOrganizedAnswer, hasOrganizedAnswer, normalizeExpressDisplayFormData } from "../../lib/pageOrganizerDisplay.js";
 
 const capitalizeBusinessName = (name) => {
   return name
@@ -41,7 +41,7 @@ export default function ConfirmModal({
   onOpenValidationGuide
 }) {
   // Normalize formData to prevent crashes from malformed state
-  const normalizedFormData = normalizeExpressFormData(formData || {});
+  const normalizedFormData = normalizeExpressDisplayFormData(formData || {});
   
   const [businessName, setBusinessName] = useState(capitalizeBusinessName(initialBusinessName || ""));
   const [domain, setDomain] = useState(initialDomain || "");
@@ -182,8 +182,8 @@ export default function ConfirmModal({
         {
           number: 2,
           question: "What are your primary service offerings?",
-          answer: formatAnswer(normalizedFormData.serviceOfferings),
-          other: normalizedFormData.serviceOfferingsOther
+          answer: hasOrganizedAnswer(normalizedFormData, 'serviceOfferings') ? formatOrganizedAnswer(normalizedFormData.serviceOfferingsStructure) : formatAnswer(normalizedFormData.serviceOfferings),
+          other: hasOrganizedAnswer(normalizedFormData, 'serviceOfferings') ? '' : normalizedFormData.serviceOfferingsOther
         },
         {
           number: 3,
@@ -221,8 +221,8 @@ export default function ConfirmModal({
         {
           number: 8,
           question: "What types of businesses do you primarily serve?",
-          answer: formatAnswer(normalizedFormData.targetIndustries),
-          other: normalizedFormData.targetIndustriesOther
+          answer: hasOrganizedAnswer(normalizedFormData, 'targetIndustries') ? formatOrganizedAnswer(normalizedFormData.targetIndustriesStructure) : formatAnswer(normalizedFormData.targetIndustries),
+          other: hasOrganizedAnswer(normalizedFormData, 'targetIndustries') ? '' : normalizedFormData.targetIndustriesOther
         },
         {
           number: 9,

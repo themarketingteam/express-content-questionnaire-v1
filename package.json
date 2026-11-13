@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite --config vite.local.config.js",
+    "build": "vite build --config vite.local.config.js",
     "lint": "eslint . --max-warnings 0",
     "test:pdf": "node --test tests/pdf-generator.test.mjs tests/admin-draft-pdf.test.mjs",
     "test:persistence": "node --test tests/remote-draft-persistence.test.mjs",
@@ -21,7 +21,12 @@
     "deploy:base44:functions": "node scripts/verify-deploy-source.mjs && npx base44 functions deploy",
     "typecheck": "tsc -p ./jsconfig.json",
     "typecheck:retention-backend": "deno check --no-config base44/functions/backupExpressRecoveryData/entry.ts base44/functions/manageExpressRecoveryData/entry.ts base44/functions/draftPdfStorage/entry.ts base44/functions/adminRecoveryPagination/entry.ts base44/functions/draftRecoveryRetention/entry.ts base44/functions/draftRecoveryData/entry.ts base44/functions/questionnaireDraftData/entry.ts",
-    "preview": "vite preview"
+    "preview": "vite --config vite.local.config.js",
+    "dev:local": "vite --config vite.local.config.js",
+    "build:local": "vite build --config vite.local.config.js",
+    "local:start": "node scripts/local-preview-daemon.mjs start",
+    "local:stop": "node scripts/local-preview-daemon.mjs stop",
+    "local:status": "node scripts/local-preview-daemon.mjs status"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.41",

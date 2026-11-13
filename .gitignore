@@ -29,3 +29,7 @@ dist-ssr
 
 .env
 base44/.app.jsonc
+
+# Isolated local Express preview
+.local-preview/
+dist-local/

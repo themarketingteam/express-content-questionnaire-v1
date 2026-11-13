@@ -1,3 +1,4 @@
+import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateOrganizedPayload, restoreOrganizedProjections, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 /**
  * autoRepairRetryIntake.js
  *
@@ -59,6 +60,8 @@ function sanitizeGeoMeta(raw) {
 }
 
 function deterministicRepair(payload, context = {}) {
+  const hasOrganizer = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure;
+  if (hasOrganizer && !validateOrganizedPayload(payload).ok) return { payload, changedPaths: [], warnings: ['Page organization requires manual review.'], repaired: false };
   const changedPaths = [];
   const warnings = [];
   const track = (path, before, after, reason) => changedPaths.push({ path, before: String(before ?? 'null'), after: String(after ?? 'null'), reason });
@@ -101,11 +104,11 @@ function deterministicRepair(payload, context = {}) {
     warnings.push('geographic_area_meta reset'); track('userdata.geographic_area_meta', typeof ud.geographic_area_meta, '{}', 'reset'); ud.geographic_area_meta = {};
   }
 
-  return { payload: { metadata: meta, userdata: ud }, changedPaths, warnings, repaired: changedPaths.length > 0 };
+  return { payload: hasOrganizer ? restoreOrganizedProjections({ metadata: meta, userdata: ud }) : { metadata: meta, userdata: ud }, changedPaths, warnings, repaired: changedPaths.length > 0 };
 }
 
 function validatePayload(payload) {
-  const errors = [];
+  const errors = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure ? [...validateExpressOrganizerLimits(payload).errors] : [];
   if (!isPlainObject(payload)) { errors.push('payload must be a plain object'); return { ok: false, errors }; }
   if (!isPlainObject(payload.metadata)) { errors.push('metadata must be a plain object'); }
   else {
@@ -129,6 +132,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
   else { companyGoals = []; }
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta);
   const record = {
+    ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: meta.business_name || '',
     business_domain: meta.businessDomain || meta.business_domain || ud.business_domain || '',
     user_email: meta.user_email || ud.user_email || '',
@@ -212,7 +216,13 @@ async function processIntake(base44, intake) {
     base44,
     sessionId: sessionId || `repair-intake:${intake.id}`,
     purpose: `submission-repair:${sessionId || intake.id}:${intake.submit_attempt_id || 'intake'}`,
-    operation: async () => {
+    operation: async (coordinatorDraft) => {
+      let currentResponses: Record<string, unknown> = {};
+      try { const serializedResponses = coordinatorDraft?.responses_json; if (typeof serializedResponses === 'string') currentResponses = JSON.parse(serializedResponses); } catch { /* Legacy snapshots can be unavailable. */ }
+      if (currentResponses.serviceOfferingsStructure || currentResponses.targetIndustriesStructure) {
+        const organizerGuard = validateOrganizedSubmission({ payload: repairResult.payload, responses: currentResponses });
+        if (!organizerGuard.ok) throw Object.assign(new Error(organizerGuard.errors.join(' ')), { code: organizerGuard.code, status: organizerGuard.status });
+      }
   // Dedupe check
   if (sessionId) {
     try {

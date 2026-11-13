@@ -4,7 +4,9 @@
  * for the /admin/submit-intake page.
  */
 
-import { cleanExpressDomain, normalizeExpressFormData } from "@/lib/expressQuestionnairePayload";
+import { cleanExpressDomain, normalizeExpressFormData } from "./expressQuestionnairePayload.js";
+import { retainMappedPageStructures } from './pageOrganizerDisplay.js';
+import { validateOrganizedPayload } from '../../base44/shared/pageOrganizerContract.js';
 
 export function initialExpressAdminIntakePayload() {
   return {
@@ -45,6 +47,8 @@ export function repairExpressAdminIntakePayload(payload) {
   if (!payload || typeof payload !== "object") {
     return { ok: false, payload: null, errors: ["Payload is null or not an object"] };
   }
+  const organizedValidation = validateOrganizedPayload(payload);
+  if (!organizedValidation.ok) return { ok: false, payload: null, errors: organizedValidation.errors };
 
   const md = payload.metadata || {};
   const ud = payload.userdata || {};
@@ -107,7 +111,7 @@ export function repairExpressAdminIntakePayload(payload) {
     ideal_client: normalizedUserdata.idealClient
   };
 
-  const repairedPayload = { metadata: repairedMetadata, userdata: repairedUserdata };
+  const repairedPayload = retainMappedPageStructures(payload, { metadata: repairedMetadata, userdata: repairedUserdata });
 
   // Validate repaired payload has minimum required structure
   if (!repairedPayload.metadata.business_name || !repairedPayload.metadata.businessDomain) {
@@ -121,6 +125,8 @@ export function normalizeExpressSubmitIntakePayload(payload) {
   if (!payload || typeof payload !== "object") {
     return { ok: false, payload: null, errors: ["Payload is null or not an object"] };
   }
+  const organizedValidation = validateOrganizedPayload(payload);
+  if (!organizedValidation.ok) return { ok: false, payload: null, errors: organizedValidation.errors };
 
   const md = payload.metadata || {};
   const ud = payload.userdata || {};
@@ -160,7 +166,7 @@ export function normalizeExpressSubmitIntakePayload(payload) {
     ideal_client: String(ud.ideal_client || ""),
   };
 
-  const normalizedPayload = { metadata: normalizedMetadata, userdata: normalizedUserdata };
+  const normalizedPayload = retainMappedPageStructures(payload, { metadata: normalizedMetadata, userdata: normalizedUserdata });
 
   // Validate
   const validation = validateExpressAdminIntakePayload(normalizedPayload);
@@ -172,7 +178,7 @@ export function normalizeExpressSubmitIntakePayload(payload) {
 }
 
 export function validateExpressAdminIntakePayload(payload) {
-  const errors = [];
+  const errors = [...validateOrganizedPayload(payload).errors];
   const md = payload?.metadata || {};
   const ud = payload?.userdata || {};
 
@@ -182,7 +188,7 @@ export function validateExpressAdminIntakePayload(payload) {
   if (md.service_type !== "express") errors.push("metadata.service_type must be 'express'");
 
   // Required userdata fields for Express recovery
-  if (!Array.isArray(ud.service_offerings) || ud.service_offerings.length === 0) {
+  if (!Array.isArray(ud.service_offerings) || (ud.service_offerings.length === 0 && !ud.service_offerings_structure?.pages?.length)) {
     errors.push("userdata.service_offerings must be a non-empty array");
   }
   if (!String(ud.differentiation || "").trim()) errors.push("userdata.differentiation is required");

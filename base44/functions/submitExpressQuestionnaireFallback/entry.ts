@@ -1,3 +1,4 @@
+import { organizedPayloadRecordFields, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
@@ -148,6 +149,7 @@ function mapExpressPayloadToFormSubmissionRecord(
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta ?? meta.geographic_area_meta);
 
   const record = {
+    ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name:            ud.business_name        ?? meta.business_name        ?? null,
     business_domain:          ud.business_domain      ?? meta.businessDomain       ?? meta.business_domain ?? null,
     user_email:               meta.user_email         ?? ud.user_email             ?? null,
@@ -399,6 +401,12 @@ Deno.serve(async (req) => {
           status: 'submit_failed',
         } : draftSnapshot,
         operation: async (coordinatorDraft) => {
+        let savedResponses: Record<string, unknown> = {};
+        try { const serializedResponses = coordinatorDraft.responses_json; if (typeof serializedResponses === 'string') savedResponses = JSON.parse(serializedResponses); } catch { /* Legacy recovery snapshots can be unavailable. */ }
+        if (savedResponses.serviceOfferingsStructure || savedResponses.targetIndustriesStructure) {
+          const organizerGuard = validateOrganizedSubmission({ payload: transformedPayload, responses: savedResponses });
+          if (!organizerGuard.ok) return Response.json({ success: false, received: false, code: organizerGuard.code, error: { message: organizerGuard.errors.join(' ') } }, { status: organizerGuard.status, headers: corsHeaders });
+        }
         const draftBusiness = normalizeIdentity(coordinatorDraft.business_name);
         const draftDomain = normalizeIdentity(coordinatorDraft.domain, 'domain');
         const incomingBusiness = normalizeIdentity(businessName);

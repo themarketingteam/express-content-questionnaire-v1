@@ -682,6 +682,10 @@ Deno.serve(async (req) => {
       draft: withoutDraftAccessHashes(saved),
     });
   } catch (error) {
+    const organizerError = error as { code?: string; status?: number; message?: string };
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+      return json({ success: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, organizerError.status === 409 ? 409 : 400);
+    }
     console.error('Questionnaire draft request failed', error);
     return json({ success: false, error: 'The questionnaire draft request failed.' }, 500);
   }

@@ -1,3 +1,4 @@
+import { normalizeExpressPageOrganizerFormData, expressPageOrganizerFields } from './expressPageOrganizer.js';
 import { getInitialExpressFormData } from "@/lib/expressQuestionnairePayload";
 import { safeLocalStorageGet, safeLocalStorageSet, safeJsonParse } from "@/lib/browserSafety";
 
@@ -220,7 +221,7 @@ export function normalizeExpressFormData(value) {
     return initial;
   }
 
-  return {
+  return normalizeExpressPageOrganizerFormData({
     itCompanyType: normalizeStringArray(value.itCompanyType),
     itCompanyTypeOther: normalizeLiveString(value.itCompanyTypeOther, ""),
     serviceOfferings: normalizeStringArray(value.serviceOfferings),
@@ -244,8 +245,9 @@ export function normalizeExpressFormData(value) {
     clientChallengesOther: normalizeLiveString(value.clientChallengesOther, ""),
     clientOutcomes: normalizeStringArray(value.clientOutcomes),
     clientOutcomesOther: normalizeLiveString(value.clientOutcomesOther, ""),
-    idealClient: normalizeLiveString(value.idealClient, "")
-  };
+    idealClient: normalizeLiveString(value.idealClient, ""),
+    ...expressPageOrganizerFields(value)
+  });
 }
 
 /**
@@ -430,6 +432,7 @@ export function parsePersistedStateCookie(rawValue) {
     // Track dropped unknown fields from formData
     const knownFormFields = [
       "itCompanyType", "itCompanyTypeOther", "serviceOfferings", "serviceOfferingsOther",
+      "serviceOfferingsStructure", "targetIndustriesStructure",
       "differentiation", "geographicAreas", "geographicAreaMeta", "pricingPackaging",
       "pricingPackagingOther", "companyGoals", "companyGoalsOther", "brandTone",
       "brandToneOther", "targetIndustries", "targetIndustriesOther", "clientSize",
