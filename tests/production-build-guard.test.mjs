@@ -48,6 +48,8 @@ test('hosted builds use the production config while developer previews remain is
   assert.equal(config.site.buildCommand, 'npm run build:production');
   assert.equal(config.site.outputDirectory, './dist');
   assert.equal(scripts['build:production'], 'vite build --config vite.config.js');
-  assert.match(scripts.build, /vite.local.config.js/);
+  assert.equal(scripts.build, 'npm run build:production');
+  assert.match(scripts['build:local'], /vite.local.config.js/);
+  assert.match(scripts['dev:local'], /vite.local.config.js/);
   assert.match(scripts['deploy:base44:site'], /verify-deploy-source/);
 });

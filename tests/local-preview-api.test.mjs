@@ -208,7 +208,7 @@ test('local configuration removes trackers, aliases relative/native SDK paths, a
   assert.match(config.server.headers['Content-Security-Policy'], /connect-src 'self' ws:\/\/localhost:5174 ws:\/\/127.0.0.1:5174;/);
   assert.doesNotMatch(config.server.headers['Content-Security-Policy'], /https?:\/\/|\*/);
   const scripts = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts;
-  for (const key of ['dev', 'build', 'preview']) assert.match(scripts[key], /vite.local.config.js/);
+  for (const key of ['dev:local', 'build:local']) assert.match(scripts[key], /vite.local.config.js/);
 });
 
 test('browser guard blocks external fetch, XHR and beacons while permitting only this loopback origin', async () => {

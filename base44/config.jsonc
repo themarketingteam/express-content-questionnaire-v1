@@ -3,7 +3,7 @@
   "site": {
     "installCommand": "npm install",
     "buildCommand": "npm run build:production",
-    "serveCommand": "npm run dev",
+    "serveCommand": "npm run dev:production",
     "outputDirectory": "./dist"
   }
 }
