@@ -99,8 +99,16 @@ export function readOrganizerRecoveryArchive(storage, sessionId) {
   try { const value = JSON.parse(storage?.getItem(archiveKey(sessionId)) || 'null'); return value?.sessionId === sessionId && value.format === 'express-organizer-recovery-v1' && Array.isArray(value.conflicts) ? value : null; }
   catch { return null; }
 }
-export function preserveOrganizerRecoveryCopy(storage, sessionId, conflict) {
-  const archive = readOrganizerRecoveryArchive(storage, sessionId) || { format: 'express-organizer-recovery-v1', sessionId, conflicts: [] };
+export function preserveOrganizerRecoveryCopy(storage, sessionId, conflict, previousArchive = null) {
+  const archive = { format: 'express-organizer-recovery-v1', sessionId, conflicts: [] };
+  // A quota/storage failure must not make the next conflict replace the only
+  // remaining in-memory copy. Merge durable and current-page recovery history.
+  for (const source of [readOrganizerRecoveryArchive(storage, sessionId), previousArchive]) {
+    if (source?.sessionId !== sessionId || source?.format !== archive.format || !Array.isArray(source.conflicts)) continue;
+    for (const saved of source.conflicts) {
+      if (!archive.conflicts.some((entry) => same(entry.formData, saved.formData) && same(entry.questionIds, saved.questionIds))) archive.conflicts.push(copy(saved));
+    }
+  }
   if (!archive.conflicts.some((saved) => same(saved.formData, conflict.formData) && same(saved.questionIds, conflict.questionIds))) archive.conflicts.push({ ...copy(conflict), capturedAt: new Date().toISOString() });
   try { if (!storage) throw new Error('Storage unavailable'); storage.setItem(archiveKey(sessionId), JSON.stringify(archive)); return { archive, storageSaved: true }; }
   catch { return { archive, storageSaved: false }; }

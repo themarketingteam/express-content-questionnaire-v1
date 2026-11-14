@@ -1,3 +1,4 @@
+import { requireExpressRecoveryIntegrity, requireExpressRecoveryReceipt } from '../../shared/expressSubmissionIntegrity.js';
 import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateOrganizedPayload, restoreOrganizedProjections, samePageStructure, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
@@ -12,6 +13,13 @@ import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.t
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
+// Legacy recovery JSON has optional, historically inconsistent fields. Validate
+// its wire shape and raw-answer preservation before using it for submission.
+type JsonRecord = Record<string, any>;
+type BackendClient = ReturnType<typeof createClientFromRequest>;
+type RepairContext = { businessName?: string; sessionId?: string; submitAttemptId?: string };
+type RepairChange = { path: string; before: string; after: string; reason: string };
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -24,33 +32,34 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function safeError(error) {
+function safeError(error: unknown) {
   try {
     return {
-      message: error?.message || String(error),
-      name: error?.name || 'Error',
-      stack: error?.stack || null,
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : 'Error',
+      stack: error instanceof Error ? error.stack || null : null,
     };
   } catch {
     return { message: String(error) };
   }
 }
 
-function parseJson(value) {
+function parseJson(value: unknown): any {
   if (!value) return null;
   if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
   try { return JSON.parse(value); } catch { return null; }
 }
 
-function isPlainObject(v) {
+function isPlainObject(v: unknown): v is JsonRecord {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-function incrementCount(v) {
+function incrementCount(v: unknown) {
   return typeof v === 'number' && !isNaN(v) ? v + 1 : 1;
 }
 
-function readBooleanSecret(name, fallback) {
+function readBooleanSecret(name: string, fallback: boolean) {
   try {
     const value = String(secrets.get(name) || '').trim().toLowerCase();
     if (!value) return fallback;
@@ -60,7 +69,7 @@ function readBooleanSecret(name, fallback) {
   }
 }
 
-function readSecret(name) {
+function readSecret(name: string) {
   try { return secrets.get(name) || ''; } catch { return ''; }
 }
 
@@ -72,9 +81,9 @@ const SCALAR_FIELDS = [
   'client_challenges_other', 'client_outcomes_other', 'ideal_client',
 ];
 
-function sanitizeGeoMeta(raw) {
+function sanitizeGeoMeta(raw: JsonRecord | null | undefined) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const out = {};
+  const out: { label?: string; lat?: number; lon?: number; place_id?: string; source?: string } = {};
   if (typeof raw.label === 'string' && raw.label.trim()) out.label = raw.label.trim();
   if (typeof raw.lat === 'number' && isFinite(raw.lat)) out.lat = raw.lat;
   if (typeof raw.lon === 'number' && isFinite(raw.lon)) out.lon = raw.lon;
@@ -85,13 +94,13 @@ function sanitizeGeoMeta(raw) {
 
 // ─── Deterministic Repair ────────────────────────────────────────────────────
 
-function deterministicRepair(payload, context = {}) {
-  const hasOrganizer = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure;
+function deterministicRepair(payload: JsonRecord, context: RepairContext = {}) {
+  const hasOrganizer = Object.hasOwn(payload?.metadata || {}, 'questionnaire_payload_version') || Object.hasOwn(payload?.userdata || {}, 'service_offerings_structure') || Object.hasOwn(payload?.userdata || {}, 'target_industries_structure');
   if (hasOrganizer && !validateOrganizedPayload(payload).ok) return { payload, changedPaths: [], warnings: ['Page organization requires manual review.'], repaired: false };
-  const changedPaths = [];
-  const warnings = [];
+  const changedPaths: RepairChange[] = [];
+  const warnings: string[] = [];
 
-  const track = (path, before, after, reason) => {
+  const track = (path: string, before: unknown, after: unknown, reason: string) => {
     changedPaths.push({ path, before: String(before ?? 'null'), after: String(after ?? 'null'), reason });
   };
 
@@ -132,7 +141,7 @@ function deterministicRepair(payload, context = {}) {
     meta.businessDomain = '';
   }
 
-  const isValidIso = (v) => typeof v === 'string' && v.length > 0 && !isNaN(new Date(v).getTime());
+  const isValidIso = (v: unknown) => typeof v === 'string' && v.length > 0 && !isNaN(new Date(v).getTime());
   if (!isValidIso(meta.submission_datetime)) {
     const now = nowIso();
     track('metadata.submission_datetime', meta.submission_datetime, now, 'missing or invalid; filled');
@@ -183,14 +192,14 @@ function deterministicRepair(payload, context = {}) {
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-function cleanDomain(domain) {
+function cleanDomain(domain: unknown) {
   if (!domain) return '';
   return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].trim().toLowerCase();
 }
 
-function validatePayload(payload, { requireBusinessName = true, requireDomain = false } = {}) {
-  const errors = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure ? [...validateExpressOrganizerLimits(payload).errors] : [];
-  const warnings = [];
+function validatePayload(payload: JsonRecord, { requireBusinessName = true, requireDomain = false } = {}) {
+  const errors = [...validateExpressOrganizerLimits(payload).errors];
+  const warnings: string[] = [];
 
   if (!isPlainObject(payload)) { errors.push('payload must be a plain object'); return { ok: false, errors, warnings }; }
   if (!isPlainObject(payload.metadata)) { errors.push('metadata must be a plain object'); }
@@ -213,7 +222,7 @@ function validatePayload(payload, { requireBusinessName = true, requireDomain = 
 
 // ─── FormSubmission mapper ────────────────────────────────────────────────────
 
-function mapToFormSubmissionRecord(payload, rawResponses) {
+function mapToFormSubmissionRecord(payload: JsonRecord, rawResponses: unknown): JsonRecord {
   const meta = payload.metadata || {};
   const ud = payload.userdata || {};
 
@@ -224,7 +233,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
 
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta);
 
-  const record = {
+  const record: JsonRecord = {
     ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: meta.business_name || '',
     business_domain: cleanDomain(meta.businessDomain || meta.business_domain || ''),
@@ -270,7 +279,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
 
 // ─── Zapier payload builder ───────────────────────────────────────────────────
 
-function buildZapierPayload(payload) {
+function buildZapierPayload(payload: JsonRecord): JsonRecord {
   const meta = payload?.metadata || {};
   const ud = payload?.userdata || {};
   return {
@@ -288,7 +297,7 @@ function buildZapierPayload(payload) {
 
 // ─── Source resolution ────────────────────────────────────────────────────────
 
-async function resolveSource(base44, { draftId, intakeId, questionnaireSessionId }) {
+async function resolveSource(base44: BackendClient, { draftId, intakeId, questionnaireSessionId }: { draftId?: string; intakeId?: string; questionnaireSessionId?: string }) {
   // Try intake first by ID
   if (intakeId) {
     const records = await base44.asServiceRole.entities.FormSubmissionIntake.filter({ id: intakeId });
@@ -317,7 +326,7 @@ async function resolveSource(base44, { draftId, intakeId, questionnaireSessionId
   return null;
 }
 
-function extractPayloadFromSource(source) {
+function extractPayloadFromSource(source: { type: string; record: JsonRecord }) {
   if (source.type === 'intake') {
     const r = source.record;
     return parseJson(r.transformed_payload_json) ||
@@ -333,7 +342,7 @@ function extractPayloadFromSource(source) {
   return null;
 }
 
-function buildRepairContext(source) {
+function buildRepairContext(source: { type: string; record: JsonRecord }): RepairContext {
   const r = source.record;
   if (source.type === 'intake') {
     return {
@@ -355,7 +364,7 @@ function buildRepairContext(source) {
 
 // ─── AI Agent invocation ──────────────────────────────────────────────────────
 
-async function callRepairAgent(base44, { sourceRecord, sourceType, rawPayload, repairContext }) {
+async function callRepairAgent(base44: BackendClient, { sourceRecord, sourceType, rawPayload, repairContext }: { sourceRecord: JsonRecord; sourceType: string; rawPayload: JsonRecord; repairContext: RepairContext }) {
   const r = sourceRecord;
   const prompt = `You are the Express questionnaire submission repair agent.
 
@@ -396,7 +405,9 @@ Return ONLY the JSON response contract described in your instructions. No other 
     model: 'claude_sonnet_4_6',
   });
 
-  return result;
+  const parsed = parseJson(result);
+  if (!isPlainObject(parsed)) throw new Error('AI repair did not return an object.');
+  return parsed;
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -462,7 +473,7 @@ Deno.serve(async (req) => {
     const identityTrigger = mode === 'diagnose_only'
       ? 'admin_diagnose'
       : (mode === 'repair_and_retry' ? 'admin_repair_retry' : 'admin_repair');
-    let identityResult;
+    let identityResult: { payload: JsonRecord | null; resolution: JsonRecord };
     try {
       identityResult = await resolveSubmissionIdentity({
         base44,
@@ -490,7 +501,7 @@ Deno.serve(async (req) => {
           businessName: { existing: repairContext.businessName || '', candidate: '', confidence: 0, decision: 'provider_error', autoEligible: false, evidence: [], reasons: [] },
           domain: { existing: sourceType === 'draft' ? source.record.domain || '' : source.record.business_domain || '', candidate: '', confidence: 0, decision: 'provider_error', autoEligible: false, inspected: [], reasons: [] },
           appliedFields: [],
-          errors: [identityError?.message || 'Identity resolution failed.'],
+          errors: [(identityError instanceof Error ? identityError.message : String(identityError)) || 'Identity resolution failed.'],
         },
       };
     }
@@ -554,7 +565,7 @@ Deno.serve(async (req) => {
     let aiReport = null;
 
     // Step 2: Call AI agent if deterministic repair couldn't produce a valid payload
-    if (!structuralValidation.ok && !((identityPayload?.metadata?.questionnaire_payload_version !== undefined || identityPayload?.userdata?.service_offerings_structure || identityPayload?.userdata?.target_industries_structure) && !validateOrganizedPayload(identityPayload).ok)) {
+    if (!structuralValidation.ok && !((Object.hasOwn(identityPayload?.metadata || {}, 'questionnaire_payload_version') || Object.hasOwn(identityPayload?.userdata || {}, 'service_offerings_structure') || Object.hasOwn(identityPayload?.userdata || {}, 'target_industries_structure')) && !validateOrganizedPayload(identityPayload).ok)) {
       try {
         aiReport = await callRepairAgent(base44, {
           sourceRecord: source.record,
@@ -576,7 +587,7 @@ Deno.serve(async (req) => {
           structuralValidation = validatePayload(finalPayload, { requireBusinessName: false, requireDomain: false });
         }
       } catch (aiErr) {
-        allWarnings.push(`AI repair call failed: ${aiErr?.message || 'unknown'}`);
+        allWarnings.push(`AI repair call failed: ${(aiErr instanceof Error ? aiErr.message : String(aiErr)) || 'unknown'}`);
       }
     }
 
@@ -695,12 +706,14 @@ Deno.serve(async (req) => {
 
     return await withSubmissionSessionLease({
       base44,
+      authority: sourceType === 'draft' ? { trustedDraftId: sourceId } : {},
       sessionId: sessionId || `repair:${submitAttemptId || sourceId}`,
       purpose: `submission-repair:${sessionId || submitAttemptId || sourceId}`,
-      operation: async (coordinatorDraft) => {
+      operation: async (coordinatorDraft, lease) => {
       let currentResponses: Record<string, unknown> = {};
       try { const serializedResponses = coordinatorDraft?.responses_json; if (typeof serializedResponses === 'string') currentResponses = JSON.parse(serializedResponses); } catch { /* Legacy snapshots can be unavailable. */ }
-      if (currentResponses.serviceOfferingsStructure || currentResponses.targetIndustriesStructure) {
+      requireExpressRecoveryIntegrity(finalPayload, sourceType === 'intake' ? source.record.raw_responses_json : source.record.responses_json, coordinatorDraft?.responses_json);
+      if (Object.hasOwn(currentResponses, 'serviceOfferingsStructure') || Object.hasOwn(currentResponses, 'targetIndustriesStructure')) {
         const organizerGuard = validateOrganizedSubmission({ payload: finalPayload, responses: currentResponses });
         if (!organizerGuard.ok) throw Object.assign(new Error(organizerGuard.errors.join(' ')), { code: organizerGuard.code, status: organizerGuard.status });
       }
@@ -735,6 +748,7 @@ Deno.serve(async (req) => {
             { questionnaire_session_id: sessionId }, '-created_date', 1
           );
           if (existing && existing.length > 0) {
+            requireExpressRecoveryReceipt(existing[0], finalPayload, sourceType === 'intake' ? source.record.raw_responses_json : source.record.responses_json, coordinatorDraft.responses_json);
             const existingId = existing[0].id;
             const retryResult = { ok: true, alreadySubmitted: true, linkedSubmissionId: existingId };
 
@@ -755,7 +769,7 @@ Deno.serve(async (req) => {
               repairReport: report,
             }, { headers: corsHeaders });
           }
-        } catch { /* skip */ }
+        } catch (error) { if ((error as { code?: string })?.code === 'existing_submission_integrity_mismatch') throw error; throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`); }
       }
 
       if (submitAttemptId) {
@@ -764,6 +778,7 @@ Deno.serve(async (req) => {
             { submit_attempt_id: submitAttemptId }, '-created_date', 1
           );
           if (existing && existing.length > 0) {
+            requireExpressRecoveryReceipt(existing[0], finalPayload, sourceType === 'intake' ? source.record.raw_responses_json : source.record.responses_json, coordinatorDraft.responses_json);
             const existingId = existing[0].id;
             if (sourceType === 'intake') {
               await base44.asServiceRole.entities.FormSubmissionIntake.update(sourceId, {
@@ -778,7 +793,7 @@ Deno.serve(async (req) => {
               repairReport: report,
             }, { headers: corsHeaders });
           }
-        } catch { /* skip */ }
+        } catch (error) { if ((error as { code?: string })?.code === 'existing_submission_integrity_mismatch') throw error; throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`); }
       }
     }
 
@@ -793,6 +808,7 @@ Deno.serve(async (req) => {
     submissionRecord.retention_protected_at = now;
     let createdSubmission;
 
+    await lease.assertOwned();
     try {
       createdSubmission = await base44.asServiceRole.entities.FormSubmission.create(submissionRecord);
     } catch (createErr) {
@@ -848,7 +864,7 @@ Deno.serve(async (req) => {
         versionKey: `${sourceId}:ai-repair-submitted:${createdId}`,
       });
       if (!submittedVersion?.id) throw new Error('AI-repaired submitted history was not retained.');
-      await base44.asServiceRole.entities.FormDraft.update(sourceId, {
+      await lease.update({
         ...retrySuccessFields,
         status: 'submitted',
         final_submission_id: createdId,
@@ -882,6 +898,7 @@ Deno.serve(async (req) => {
         const zapierPayload = buildZapierPayload(finalPayload);
         const zapierController = new AbortController();
         const zapierTimeout = setTimeout(() => zapierController.abort(), 8000);
+        await lease.assertOwned();
         const zapierRes = await fetch(zapierWebhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -896,9 +913,9 @@ Deno.serve(async (req) => {
           zapierError = `Zapier returned ${zapierRes.status}: ${zapierText}`;
         }
       } catch (zapierErr) {
-        zapierError = zapierErr?.name === 'AbortError'
+        zapierError = (zapierErr instanceof Error && zapierErr.name === 'AbortError')
           ? 'Zapier delivery timed out'
-          : (zapierErr?.message || 'Zapier delivery failed');
+          : ((zapierErr instanceof Error ? zapierErr.message : String(zapierErr)) || 'Zapier delivery failed');
       }
     } else {
       zapierError = 'EXPRESS_ZAPIER_WEBHOOK_URL not configured';
@@ -929,7 +946,13 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     const organizerError = error as { code?: string; status?: number; message?: string };
-    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+    if (organizerError?.code === 'existing_submission_integrity_mismatch') {
+      return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message }, { status: 409, headers: corsHeaders });
+    }
+    if (organizerError?.code === 'payload_integrity_mismatch') {
+      return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message }, { status: 422, headers: corsHeaders });
+    }
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE' || ['DRAFT_LEASE_LOST', 'DRAFT_WRITE_UNVERIFIED', 'DRAFT_SNAPSHOT_INVALID'].includes(organizerError?.code || '') || organizerError?.code === 'AMBIGUOUS_DRAFT_SESSION') {
       return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, { status: organizerError.status === 409 ? 409 : 400, headers: corsHeaders });
     }
     return Response.json(

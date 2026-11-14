@@ -95,11 +95,11 @@ test("missing or unrecognized raw snapshots never claim verified preservation", 
   }
 });
 
-async function backendHarness({ failRetention = false, existingSubmission = null } = {}) {
+async function backendHarness({ failRetention = false, existingSubmission = null, savedDraft = {}, failLookup = false } = {}) {
   const source = await readFile(new URL("../base44/functions/submitExpressQuestionnaireFallback/entry.ts", import.meta.url), "utf8");
   const executable = stripTypeScriptTypes(source.replace(/^import .*;\n/gm, ""));
-  const captures = { intakes: [], checkpointWrites: 0, finalWrites: 0, finalUpdates: 0, initialSnapshot: null };
-  const draft = { id: "draft-1", business_name: "Synthetic integrity test", domain: "example.test", responses_json: "original-checkpoint", mapped_payload_json: "original-payload" };
+  const captures = { intakes: [], checkpointWrites: 0, finalWrites: 0, finalUpdates: 0, initialSnapshot: null, versionTypes: [] };
+  const draft = { id: "draft-1", business_name: "Synthetic integrity test", domain: "example.test", responses_json: '{"checkpoint":"original"}', mapped_payload_json: "original-payload", ...savedDraft };
   let handler;
   vm.runInNewContext(executable, {
     Response, TextEncoder, crypto, console,
@@ -113,7 +113,7 @@ async function backendHarness({ failRetention = false, existingSubmission = null
           return Promise.resolve({ ...draft, ...value });
         } },
         FormSubmission: {
-          filter() { return existingSubmission ? [existingSubmission] : []; },
+          filter() { if (failLookup) throw new Error('Synthetic final lookup outage'); return existingSubmission ? [existingSubmission] : []; },
           update() { captures.finalUpdates += 1; return Promise.resolve(existingSubmission); },
           create() { captures.finalWrites += 1; throw new Error("Unexpected final creation"); },
         },
@@ -129,9 +129,14 @@ async function backendHarness({ failRetention = false, existingSubmission = null
     },
     withSubmissionSessionLease({ initialSnapshot, operation }) {
       captures.initialSnapshot = initialSnapshot;
-      return operation(draft);
+      return operation(draft, { assertOwned: async () => {}, update: async (value) => {
+        captures.checkpointWrites++;
+        if (!existingSubmission && !failLookup) throw new Error('Unexpected checkpoint overwrite');
+        return { ...draft, ...value };
+      } });
     },
-    createQuestionnaireVersion() {
+    createQuestionnaireVersion(options) {
+      captures.versionTypes.push(options.versionType);
       captures.checkpointWrites += 1;
       if (!existingSubmission) throw new Error("Unexpected checkpoint overwrite");
       return { id: `version-${captures.checkpointWrites}` };
@@ -161,7 +166,7 @@ test("backend rejects an emptied payload before checkpoint or final writes and r
   assert.equal(result.body.zapierSent, false);
   assert.equal(harness.captures.checkpointWrites, 0);
   assert.equal(harness.captures.finalWrites, 0);
-  assert.equal(harness.draft.responses_json, "original-checkpoint");
+  assert.equal(harness.draft.responses_json, '{"checkpoint":"original"}');
   assert.equal(harness.captures.initialSnapshot.mapped_payload_json, "");
   assert.equal(harness.captures.intakes.length, 1);
   assert.equal(harness.captures.intakes[0].status, "received_intake");
@@ -232,5 +237,73 @@ test("deduplication accepts an intact saved submission including array-stored co
   assert.equal(result.body.success, true);
   assert.equal(result.body.alreadySubmitted, true);
   assert.equal(result.body.submissionId, existingSubmission.id);
+  assert.equal(harness.captures.finalWrites, 0);
+});
+
+test("deduplication accepts an intact version-two flattened record and rejects damaged tree metadata", async () => {
+  const raw = completeAnswers();
+  raw.serviceOfferingsStructure = {
+    format: "page-tree-v1",
+    pages: [
+      { id: "service-1", label: "Cloud", source: "predefined", catalogId: "q2:option:Cloud", children: [
+        { id: "service-2", label: "Security", source: "predefined", catalogId: "q2:option:Security", children: [] },
+      ] },
+      { id: "service-3", label: "Custom application support", source: "custom", catalogId: null, children: [] },
+    ],
+  };
+  const payload = build(raw);
+  for (const damaged of [false, true]) {
+    const existingSubmission = storedSubmission(raw, payload);
+    assert.equal(existingSubmission.questionnaire_payload_version, 2);
+    if (damaged) delete existingSubmission.questionnaire_payload_version;
+    const harness = await backendHarness({ existingSubmission });
+    const result = await harness.send(raw, payload);
+    assert.equal(result.status, damaged ? 409 : 200);
+    assert.equal(result.body.success, !damaged);
+    assert.equal(harness.captures.finalWrites, 0);
+  }
+});
+
+test('a finalized submission rejects changed answers without replacing its saved checkpoint', async () => {
+  const raw = completeAnswers();
+  const payload = build(raw);
+  const saved = { ...raw, idealClient: 'Authoritative submitted answer' };
+  const harness = await backendHarness({ savedDraft: { status: 'submitted', final_submission_id: 'final-1', responses_json: JSON.stringify(saved) } });
+  const result = await harness.send(raw, payload);
+  assert.equal(result.status, 409);
+  assert.equal(result.body.code, 'draft_finalized');
+  assert.equal(harness.captures.checkpointWrites, 0);
+  assert.equal(harness.captures.finalWrites, 0);
+  assert.equal(harness.draft.responses_json, JSON.stringify(saved));
+});
+
+test('an intact finalized receipt does not write another in-progress checkpoint', async () => {
+  const raw = completeAnswers();
+  const payload = build(raw);
+  const existingSubmission = storedSubmission(raw, payload);
+  const harness = await backendHarness({ existingSubmission, savedDraft: { status: 'submitted', final_submission_id: existingSubmission.id, responses_json: JSON.stringify(raw) } });
+  const result = await harness.send(raw, payload);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.alreadySubmitted, true);
+  assert.deepEqual(harness.captures.versionTypes, ['submitted_snapshot']);
+  assert.equal(harness.draft.status, 'submitted');
+});
+
+test('a newer saved answer holds an older submit snapshot before checkpoint writes', async () => {
+  const raw = completeAnswers();
+  const harness = await backendHarness({ savedDraft: { responses_json: JSON.stringify({ ...raw, differentiation: 'Newer answer from another tab' }) } });
+  const result = await harness.send(raw, build(raw));
+  assert.equal(result.status, 409);
+  assert.equal(result.body.code, 'draft_changed_before_submit');
+  assert.equal(harness.captures.checkpointWrites, 0);
+  assert.equal(harness.captures.finalWrites, 0);
+});
+
+test('a failed duplicate lookup cannot authorize another final record', async () => {
+  const raw = completeAnswers();
+  const harness = await backendHarness({ existingSubmission: storedSubmission(raw, build(raw)), failLookup: true });
+  const result = await harness.send(raw, build(raw));
+  assert.equal(result.status, 500);
+  assert.match(result.body.error.message, /deduplication is unavailable/);
   assert.equal(harness.captures.finalWrites, 0);
 });

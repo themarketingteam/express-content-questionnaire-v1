@@ -1,0 +1,23 @@
+{
+  "name": "autoRepairRetryIntake",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "name": "Auto Repair & Retry Pending Intakes",
+      "description": "Every 5 minutes, finds FormSubmissionIntake records with status auto_repair_pending that are at least 10 minutes old and attempts AI repair + retry. Marks failures as auto_repair_failed on the FormDraft.",
+      "function_args": null,
+      "is_active": false,
+      "type": "scheduled",
+      "schedule_mode": "recurring",
+      "schedule_type": "simple",
+      "repeat_unit": "minutes",
+      "repeat_interval": 5,
+      "start_time": null,
+      "repeat_on_days": null,
+      "repeat_on_day_of_month": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  ]
+}

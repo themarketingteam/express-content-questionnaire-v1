@@ -85,7 +85,7 @@ function normalizePayload(payload: unknown) {
 
   const metadata = payload.metadata;
   const userdata = payload.userdata;
-  const organizer = payload.metadata.questionnaire_payload_version !== undefined || payload.userdata.service_offerings_structure || payload.userdata.target_industries_structure ? validateExpressOrganizerLimits(payload) : { ok: true, errors: [] };
+  const organizer = validateExpressOrganizerLimits(payload);
   if (!organizer.ok) return { ok: false as const, errors: organizer.errors };
   const normalizedMetadata = {
     ...(metadata.questionnaire_payload_version !== undefined ? { questionnaire_payload_version: metadata.questionnaire_payload_version } : {}),

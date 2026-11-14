@@ -27,6 +27,7 @@ import {
 } from "@/lib/draftSaveReliability";
 import {
   buildPersistedStateFromRemoteDraft,
+  parseAuthoritativeDraftResponses,
   parseRemoteAnswerHistory,
   selectNewestPersistedState,
 } from "@/lib/remoteDraftState";
@@ -228,6 +229,9 @@ export default function Questionnaire() {
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
   const draftBootstrapReadyRef = useRef(false);
+  const clearInProgressRef = useRef(false);
+  const lastClearSequenceRef = useRef(0);
+  const organizerRecoveryArchiveRef = useRef(null);
   const draftRevisionRef = useRef(0);
   const lastConfirmedRevisionRef = useRef(0);
   const latestOrganizerFormRef = useRef(formData);
@@ -307,7 +311,8 @@ export default function Questionnaire() {
   const preserveOrganizerConflict = useCallback((conflict) => {
     if (!conflict) return;
     conflict.questionIds.forEach((id) => lockedOrganizerQuestionsRef.current.add(id));
-    const preserved = preserveOrganizerRecoveryCopy(getOrganizerBrowserStorage(), questionnaireSessionId, conflict);
+    const preserved = preserveOrganizerRecoveryCopy(getOrganizerBrowserStorage(), questionnaireSessionId, conflict, organizerRecoveryArchiveRef.current);
+    organizerRecoveryArchiveRef.current = preserved.archive;
     setOrganizerRecoveryNotice({ ...preserved, requiresReload: true });
   }, [questionnaireSessionId]);
 
@@ -315,7 +320,7 @@ export default function Questionnaire() {
     if (!serverDraft?.responses_json) throw Object.assign(new Error('The current server draft could not be loaded. Reload before saving.'), { status: 409, code: 'ORGANIZER_SERVER_SNAPSHOT_REQUIRED' });
     const serverRevision = Number(serverDraft.last_confirmed_revision || 0);
     if (serverRevision < lastConfirmedRevisionRef.current) return;
-    const serverFormData = parseOrganizerResponses(serverDraft.responses_json);
+    const serverFormData = parseAuthoritativeDraftResponses(serverDraft);
     const reconciliation = reconcileOrganizerAcknowledgement({ currentFormData: latestOrganizerFormRef.current, sentFormData: parseOrganizerResponses(sentDraft?.responses_json), serverFormData });
     if (reconciliation.conflict) {
       preserveOrganizerConflict({ ...reconciliation.conflict, baseRevision: lastConfirmedRevisionRef.current, serverRevision });
@@ -346,8 +351,8 @@ export default function Questionnaire() {
       const result = await retryDraftOperation(
       () => {
         assertOrganizerDraftCurrent(draftRecord);
-        const wireDraft = prepareOrganizerWireDraft(draftRecord, parseOrganizerResponses(remoteDraftRef.current?.responses_json), lockedOrganizerQuestionsRef.current, lastConfirmedRevisionRef.current);
-        return draftApi.save(wireDraft);
+        const { __checkpointType, ...wireDraft } = prepareOrganizerWireDraft(draftRecord, parseOrganizerResponses(remoteDraftRef.current?.responses_json), lockedOrganizerQuestionsRef.current, lastConfirmedRevisionRef.current);
+        return __checkpointType ? draftApi.checkpoint(wireDraft, __checkpointType) : draftApi.save(wireDraft);
       },
       {
         onRetry: ({ attempt, code }) => {
@@ -388,6 +393,9 @@ export default function Questionnaire() {
   const findExistingDraftBySessionId = useCallback(async () => remoteDraftRef.current, []);
 
   const persistDraftRecord = useCallback(async (draftRecord) => {
+    if (clearInProgressRef.current || Number(draftRecord.client_revision || 0) <= lastClearSequenceRef.current) {
+      throw Object.assign(new Error('This save was superseded by Clear all.'), { status: 409, draftSaveSuperseded: true });
+    }
     const mutationRecord = createDraftMutationEnvelope(draftRecord, {
       clientInstanceId: clientInstanceIdRef.current,
       baseRevision: lastConfirmedRevisionRef.current,
@@ -414,7 +422,7 @@ export default function Questionnaire() {
       try {
         result = await enqueueDraftSave(mutationRecord);
       } catch (error) {
-        if (Number(error?.status || error?.response?.status) === 409) {
+        if (!clearInProgressRef.current && Number(error?.status || error?.response?.status) === 409) {
           try { reconcileAuthoritativeOrganizerDraft(await draftApi.load(), mutationRecord); }
           catch { /* The original failed save and browser recovery copy remain available. */ }
         }
@@ -494,16 +502,19 @@ export default function Questionnaire() {
       businessName: modalBusinessName,
       domain: modalDomain,
     } = /** @type {any} */ (options);
-    if (!draftBootstrapReadyRef.current || (!isHydratedRef.current && !responsesSnapshot)) return;
+    if (clearInProgressRef.current || !draftBootstrapReadyRef.current || (!isHydratedRef.current && !responsesSnapshot)) {
+      if (responsesSnapshot) throw Object.assign(new Error('The current draft must be reloaded before submitting these answers.'), { status: 409, code: 'DRAFT_NOT_READY' });
+      return;
+    }
     const clientRevision = reserveClientSequence(draftRevisionRef);
     const expandedSnap = expandedSnapshotArg || Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), openQuestions.includes(i + 1)])
     );
     // Use text validation hook status as canonical validation status
     const canonicalValidationStatus = validationStatusSnapshot || textValidation.getAllFieldStatuses();
-    await saveDraftSnapshot({
+    const result = await saveDraftSnapshot({
       sessionId: questionnaireSessionId,
-      responses: responsesSnapshot || formData,
+      responses: responsesSnapshot || latestOrganizerFormRef.current,
       validationStatus: canonicalValidationStatus,
       touchedQuestions: touchedQuestionsSnapshot || touchedQuestions,
       expandedQuestions: expandedSnap,
@@ -518,10 +529,15 @@ export default function Questionnaire() {
       submitAttemptId: submitAttemptId || "",
       clientRevision,
     });
+    if (!result || result.saved === false || result.stale || result.finalized) {
+      throw Object.assign(new Error('The server did not confirm this answer snapshot. Reload and review the saved answers before submitting.'), { status: 409, code: 'DRAFT_SNAPSHOT_NOT_CONFIRMED' });
+    }
+    return result;
   }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
   const queueDraftSave = useCallback((changedQuestionId, nextFormData, historySnapshot) => {
     if (hasFinalSubmittedRef.current) return;
+    if (clearInProgressRef.current) return;
     if (!isHydratedRef.current || !draftBootstrapReadyRef.current) return;
     // Delayed text checks may carry an old full form; preserve current page trees.
     nextFormData = preserveUnchangedOrganizerQuestions(nextFormData, latestOrganizerFormRef.current, changedQuestionId);
@@ -613,7 +629,7 @@ export default function Questionnaire() {
   }, [answerHistory, businessNameParam, domainParam, draftIdentity.storageAvailable, openQuestions, questionnaireSessionId, saveDraftSnapshot, textValidation, touchedQuestions]);
 
   const retryLatestDraft = useCallback(async () => {
-    if (!draftBootstrapReadyRef.current || hasFinalSubmittedRef.current) return;
+    if (clearInProgressRef.current || !draftBootstrapReadyRef.current || hasFinalSubmittedRef.current) return;
     const pendingDraft = latestPendingDraftRef.current;
     if (!pendingDraft) return;
     try {
@@ -640,7 +656,7 @@ export default function Questionnaire() {
   useEffect(() => attachDraftLifecycleFlush({
     documentTarget: document,
     windowTarget: window,
-    getPendingDraft: () => draftBootstrapReadyRef.current && !hasFinalSubmittedRef.current
+    getPendingDraft: () => draftBootstrapReadyRef.current && !hasFinalSubmittedRef.current && !clearInProgressRef.current
       ? latestPendingDraftRef.current
       : null,
     flushDraft: async (draftRecord) => {
@@ -927,6 +943,7 @@ export default function Questionnaire() {
       if (reconciledHydration.conflict) preserveOrganizerConflict(reconciledHydration.conflict);
       else {
         const archive = readOrganizerRecoveryArchive(getOrganizerBrowserStorage(), questionnaireSessionId);
+        organizerRecoveryArchiveRef.current = archive;
         if (archive) setOrganizerRecoveryNotice({ archive, storageSaved: true, requiresReload: false });
       }
 
@@ -1051,7 +1068,11 @@ export default function Questionnaire() {
       }
     };
 
-    hydrateDraft();
+    void hydrateDraft().catch((error) => {
+      if (!active) return;
+      draftBootstrapReadyRef.current = false;
+      setDraftSaveStatus((previous) => ({ ...previous, state: 'bootstrap_blocked', lastError: error?.message || 'The saved draft could not be safely restored.' }));
+    });
     return () => {
       active = false;
     };
@@ -1500,6 +1521,8 @@ export default function Questionnaire() {
         credentials: urlCredentials,
         domainParam,
         questionnaireSessionId,
+        draftId: draftRecordIdRef.current,
+        draftAccessKey: draftIdentity.accessKey,
         saveDraftNow,
         createDraftEvent,
         submitAttemptId: activeSubmitAttemptIdRef.current,
@@ -1585,7 +1608,11 @@ export default function Questionnaire() {
   }, [isSubmitting, formData, touchedQuestions, openQuestions, questionnaireSessionId, urlCredentials, domainParam, saveDraftNow, createDraftEvent]);
 
   const performClearAllAnswers = useCallback(async () => {
+    if (clearInProgressRef.current || submitInFlightRef.current || hasFinalSubmittedRef.current) return;
     if (lockedOrganizerQuestionsRef.current.size) { toast.error('Reload the current page organization before clearing these answers. Your recovery copy is preserved.'); return; }
+    clearInProgressRef.current = true;
+    // Earlier callers must not announce a save after this clear becomes pending.
+    draftRequestVersionRef.current += 1;
     if (draftSaveTimeoutRef.current) { clearTimeout(draftSaveTimeoutRef.current); draftSaveTimeoutRef.current = null; }
     setIsClearingAll(true);
     
@@ -1593,25 +1620,11 @@ export default function Questionnaire() {
       // Create cleared state values
       const clearedFormData = getInitialExpressFormData();
       for (const key of ["serviceOfferingsStructure", "targetIndustriesStructure"]) {
-        if (Object.hasOwn(formData, key)) clearedFormData[key] = { format: "page-tree-v1", pages: [] };
+        if (Object.hasOwn(latestOrganizerFormRef.current, key)) clearedFormData[key] = { format: "page-tree-v1", pages: [] };
       }
       const clearedValidationStatus = /** @type {Record<string, import("@/lib/expressPersistedState").ValidationStatus>} */ ({});
       const clearedTouchedQuestions = /** @type {Record<string, boolean>} */ ({});
       const clearedExpandedQuestions = getDefaultExpandedQuestions();
-      
-      // Set state using exact cleared values
-      setFormData(clearedFormData);
-      textValidation.resetAllFields();
-      setTouchedQuestions(clearedTouchedQuestions);
-      setOpenQuestions([1]);
-      
-      // Clear submit validation issues/warnings
-      setSubmitValidationIssues([]);
-      setSubmitValidationWarnings([]);
-      
-      // Clear submit error/recovery UI
-      setSubmitError(null);
-      setRecoveryCode("");
       
       // Save cleared state to draft snapshot
       if (!hasFinalSubmittedRef.current) {
@@ -1632,6 +1645,7 @@ export default function Questionnaire() {
         });
 
         const clearRevision = reserveClientSequence(draftRevisionRef);
+        lastClearSequenceRef.current = clearRevision;
         const clearedCheckpoint = createDraftMutationEnvelope(buildImmediateDraftRecord({
           sessionId: questionnaireSessionId,
           responses: clearedFormData,
@@ -1651,7 +1665,10 @@ export default function Questionnaire() {
           previousDraft: remoteDraftRef.current,
           mutationPrefix: "explicit-clear",
         });
-        const checkpointResult = await draftApi.checkpoint(clearedCheckpoint, "explicit_clear");
+        latestPendingDraftRef.current = clearedCheckpoint;
+        setDraftSaveStatus((previous) => ({ ...previous, state: 'saving_server', pendingLocalChanges: true, pendingRevision: clearRevision, lastError: '' }));
+        // The queue acknowledges prior autosaves before rebasing this checkpoint.
+        const checkpointResult = await enqueueDraftSave({ ...clearedCheckpoint, __checkpointType: "explicit_clear" });
         const authoritativeDraft = checkpointResult.draft || await draftApi.load();
         reconcileAuthoritativeOrganizerDraft(authoritativeDraft, clearedCheckpoint);
         if (checkpointResult.stale || checkpointResult.saved === false) throw Object.assign(new Error('The server draft changed before the clear completed. Reload and review the current answers.'), { status: 409 });
@@ -1662,6 +1679,17 @@ export default function Questionnaire() {
         latestPendingDraftRef.current = null;
         setDraftSaveStatus((previous) => ({ ...previous, state: 'saved_server', pendingLocalChanges: false, lastConfirmedRevision: revision, lastServerSavedAt: authoritativeDraft?.last_saved_at || new Date().toISOString(), lastError: '' }));
       }
+
+      // Keep existing answers visible until the destructive checkpoint is durable.
+      latestOrganizerFormRef.current = clearedFormData;
+      setFormData(clearedFormData);
+      textValidation.resetAllFields();
+      setTouchedQuestions(clearedTouchedQuestions);
+      setOpenQuestions([1]);
+      setSubmitValidationIssues([]);
+      setSubmitValidationWarnings([]);
+      setSubmitError(null);
+      setRecoveryCode("");
       
       // Save cleared state to localStorage and write marker cookie
       const persistedState = buildPersistedState({
@@ -1678,12 +1706,19 @@ export default function Questionnaire() {
       toast.success("All answers cleared");
     } catch (err) {
       console.error("[clear-all] failed:", err);
+      // A failed clear is never retried by a later background save/pagehide.
+      latestPendingDraftRef.current = null;
+      // An unanswered timeout may already have committed. Stop further writes
+      // until reload establishes which snapshot is authoritative.
+      draftBootstrapReadyRef.current = false;
+      setDraftSaveStatus((previous) => ({ ...previous, state: 'save_rejected', pendingLocalChanges: true, lastError: 'Clear was not confirmed. Your displayed answers are preserved; reload before trying again.' }));
       toast.error("Failed to clear answers. Please try again.");
     } finally {
+      clearInProgressRef.current = false;
       setIsClearingAll(false);
       setShowClearAllConfirm(false);
     }
-  }, [createDraftEvent, draftApi, formData, questionnaireSessionId, reconcileAuthoritativeOrganizerDraft, textValidation, urlCredentials]);
+  }, [createDraftEvent, draftApi, enqueueDraftSave, questionnaireSessionId, reconcileAuthoritativeOrganizerDraft, textValidation, urlCredentials]);
 
   // Silent reset after full successful submission (no confirmation modal)
   const resetQuestionnaireStateAfterFullSuccess = useCallback(() => {
@@ -1818,7 +1853,7 @@ export default function Questionnaire() {
       });
       
       // Queue draft save after validation
-      queueDraftSave(questionId, formData);
+      queueDraftSave(questionId, latestOrganizerFormRef.current);
     } catch (error) {
       // Create validation unavailable event
       createDraftEvent({
@@ -1833,7 +1868,7 @@ export default function Questionnaire() {
       });
       
       // Still queue draft save to capture the error state
-      queueDraftSave(questionId, formData);
+      queueDraftSave(questionId, latestOrganizerFormRef.current);
     }
   }, [formData, textValidation, urlCredentials, createDraftEvent, queueDraftSave]);
 

@@ -2,7 +2,7 @@
   "name": "Express Content Questionnaire (v1)",
   "site": {
     "installCommand": "npm install",
-    "buildCommand": "npm run build",
+    "buildCommand": "npm run build:production",
     "serveCommand": "npm run dev",
     "outputDirectory": "./dist"
   }

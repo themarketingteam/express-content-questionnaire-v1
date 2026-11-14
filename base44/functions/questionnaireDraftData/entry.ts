@@ -278,7 +278,11 @@ Deno.serve(async (req) => {
       '-last_saved_at',
       10,
     );
-    const existing = newestRecord(matches || []);
+    const scopedMatches = matches?.length > 1 ? matches.filter((draft) => draftAllowsAccess(draft, accessKeyHash)) : matches;
+    if (matches && matches.length > 1 && scopedMatches.length !== 1) {
+      return json({ success: false, code: 'AMBIGUOUS_DRAFT_SESSION', error: 'Multiple saved drafts share this session. Recovery review is required before saving or submitting.' }, 409);
+    }
+    const existing = newestRecord(scopedMatches || []);
 
     if (body.action === 'bootstrap_new_client') {
       const requestId = typeof body.newClientRequestId === 'string' ? body.newClientRequestId.trim() : '';
@@ -292,6 +296,9 @@ Deno.serve(async (req) => {
         2,
       );
       const prior = newestRecord(priorMatches || []);
+      if (priorMatches && priorMatches.length > 1) {
+        return json({ success: false, code: 'AMBIGUOUS_DRAFT_SESSION', error: 'Multiple saved drafts share this new-client request. Recovery review is required.' }, 409);
+      }
       if (prior) {
         if (!draftAllowsAccess(prior, accessKeyHash)) {
           return json({ success: false, error: 'Draft access was denied.', code: 'access_denied' }, 403);
@@ -540,6 +547,9 @@ Deno.serve(async (req) => {
       const result = await applyDurableDraftMutation({
         base44,
         draftId: String(existing.id),
+        assertCurrent: (current) => {
+          if (hasScopedAccess(current) && !draftAllowsAccess(current, accessKeyHash)) throw Object.assign(new Error('Draft access was denied.'), { code: 'DRAFT_ACCESS_DENIED', status: 403 });
+        },
         nextValues: {
           ...draft,
           status: existing.status || 'draft',
@@ -562,6 +572,9 @@ Deno.serve(async (req) => {
         saved: Boolean(result.accepted),
         stale: Boolean(result.stale),
         materialized: Boolean(result.accepted),
+        finalized: Boolean(result.finalized),
+        draft: withoutDraftAccessHashes(result.draft),
+        lastSavedAt: result.draft?.last_saved_at || result.draft?.updated_date || "",
         versionId: result.version?.id || '',
         draftId: existing.id,
         lastConfirmedRevision: sanitizeRevision(result.draft?.last_confirmed_revision),
@@ -637,6 +650,10 @@ Deno.serve(async (req) => {
     const result = await applyDurableDraftMutation({
       base44,
       draftId: String(existing.id),
+      assertCurrent: (current) => {
+        if (hasScopedAccess(current) && !draftAllowsAccess(current, accessKeyHash)) throw Object.assign(new Error('Draft access was denied.'), { code: 'DRAFT_ACCESS_DENIED', status: 403 });
+        if (identityConflict(current, { business_name: draft.business_name || '', domain: draft.domain || '' })) throw Object.assign(new Error('This draft is connected to a different client identity.'), { code: 'DRAFT_ACCESS_DENIED', status: 403 });
+      },
       nextValues: nextDraft,
       metadata: {
         mutationId,
@@ -683,7 +700,8 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     const organizerError = error as { code?: string; status?: number; message?: string };
-    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+    if (organizerError.code === 'DRAFT_ACCESS_DENIED') return json({ success: false, code: organizerError.code, error: organizerError.message }, 403);
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE' || ['DRAFT_LEASE_LOST', 'DRAFT_WRITE_UNVERIFIED', 'DRAFT_SNAPSHOT_INVALID'].includes(organizerError?.code || '') || organizerError?.code === 'AMBIGUOUS_DRAFT_SESSION') {
       return json({ success: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, organizerError.status === 409 ? 409 : 400);
     }
     console.error('Questionnaire draft request failed', error);

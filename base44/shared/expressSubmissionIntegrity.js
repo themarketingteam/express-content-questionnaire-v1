@@ -131,3 +131,54 @@ export function inspectExpressSubmissionIntegrity(rawResponses, payload) {
   result.reason = result.ok ? "preserved" : "answer_mismatch";
   return result;
 }
+
+/**
+ * Recovery must verify saved answers before creating or delivering a repaired
+ * mapping. Check every available source, including a newer draft checkpoint;
+ * an unavailable old snapshot may fall back to that checkpoint, never to the
+ * mapped payload itself as invented raw evidence.
+ * @param {unknown} payload
+ * @param {...unknown} rawSnapshots
+ */
+export function requireExpressRecoveryIntegrity(payload, ...rawSnapshots) {
+  const checks = rawSnapshots.map((snapshot) => {
+    let raw = snapshot;
+    if (typeof raw === 'string') {
+      try { raw = JSON.parse(raw); } catch { raw = null; }
+    }
+    return inspectExpressSubmissionIntegrity(raw, payload);
+  }).filter((check) => check.available);
+  if (!checks.length || checks.some((check) => !check.ok)) {
+    const error = Object.assign(new Error('Saved answers do not match the recovery payload. Manual review is required before submission.'), {
+      code: 'payload_integrity_mismatch', status: 422,
+      mismatchedFields: [...new Set(checks.flatMap((check) => check.mismatchedFields))],
+    });
+    throw error;
+  }
+  return { ok: true, checkedFields: [...new Set(checks.flatMap((check) => check.checkedFields))] };
+}
+
+/** Verify an existing final row before treating it as a receipt or redelivering it. */
+export function requireExpressRecoveryReceipt(record, payload, ...rawSnapshots) {
+  try {
+    if (!isObject(record) || typeof record.id !== 'string' || !record.id) throw new Error('Missing final record.');
+    const transformed = typeof record.transformed_payload_json === 'string' ? JSON.parse(record.transformed_payload_json) : null;
+    const normalizeIdentity = (value, domain = false) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      return domain ? normalized.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '') : normalized.replace(/\s+/g, ' ');
+    };
+    const meta = isObject(payload?.metadata) ? payload.metadata : {};
+    if (normalizeIdentity(record.business_name) !== normalizeIdentity(meta.business_name)
+      || normalizeIdentity(record.business_domain, true) !== normalizeIdentity(meta.businessDomain || meta.business_domain, true)) throw new Error('Final identity mismatch.');
+    const snapshots = [...rawSnapshots, record.raw_responses_json];
+    requireExpressRecoveryIntegrity(payload, ...snapshots);
+    requireExpressRecoveryIntegrity(transformed, ...snapshots);
+    requireExpressRecoveryIntegrity({
+      metadata: record.questionnaire_payload_version === undefined ? {} : { questionnaire_payload_version: record.questionnaire_payload_version },
+      userdata: { ...record, company_goals: Array.isArray(record.company_goals) ? record.company_goals.join(', ') : record.company_goals },
+    }, ...snapshots);
+    return { ok: true };
+  } catch {
+    throw Object.assign(new Error('An existing final submission does not preserve the saved answers. Recovery review is required before acknowledging or delivering it.'), { code: 'existing_submission_integrity_mismatch', status: 409 });
+  }
+}

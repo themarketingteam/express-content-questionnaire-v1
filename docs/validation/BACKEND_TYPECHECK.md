@@ -1,74 +1,30 @@
-# Backend type-check comparison
+# Backend validation
 
-On November 13, 2026, the cached Deno check below reported **193 diagnostics** in the unchanged canonical checkout at `28e8729`, and **191 diagnostics** in this local organizer worktree. Comparing diagnostic counts by backend-relative filename and diagnostic heading, with absolute paths and line numbers ignored, found **zero introduced diagnostics**. Two existing `finalPayload` possibly-null diagnostics disappeared.
+On November 14, 2026, the release audit's cached Deno check passes with **zero diagnostics** for all nine critical Express backend files below, including their shared imports. The earlier local implementation had 191 diagnostics, compared with 193 in the unchanged `28e8729` baseline. Those remaining diagnostics have now been corrected rather than waived.
 
-The backend check **still fails** because the remaining 191 diagnostics exist in the baseline. This comparison is not a successful backend type check or hosted-platform verification. A hosted release remains a separate task requiring an isolated Base44 environment; this local work performed no deployment or production calls.
+The corrections declare the dynamic legacy JSON boundaries, repair context and change records, optional intake fields, and Base44 client types. Unknown thrown values are narrowed before reading error properties. AI provider output must parse to an object. Runtime structure and raw-answer validation remain required; the JSON record types do not replace those checks. No `@ts-nocheck`, blanket diagnostic suppression, or relaxed compiler configuration was added.
 
-## Reproduce without network or checkout changes
-
-Run this from the organizer worktree. The baseline command only reads the original checkout. `--cached-only` prevents dependency downloads. Missing cached dependencies must be resolved separately; they must not be counted as application diagnostics.
+Run from the Express organizer checkout:
 
 ```bash
-baseline_root=/Users/isaachines/Desktop/Kaseya-Automation-Repos/Express-Content-Questionnaire-v1
-organizer_root=/Users/isaachines/.codex/worktrees/express-page-organizer/Express-Content-Questionnaire-v1
-validation_dir=$(mktemp -d)
-
-git -C "$baseline_root" rev-parse --short=7 HEAD
-# Expected baseline: 28e8729, with no local modifications.
-git -C "$baseline_root" status --short
-
-backend_files=(
-  base44/functions/autoRepairRetryIntake/entry.ts
-  base44/functions/draftRecoveryData/entry.ts
-  base44/functions/questionnaireDraftData/entry.ts
-  base44/functions/repairExpressQuestionnaireIntakeSubmission/entry.ts
-  base44/functions/retryQuestionnaireIntakeSubmission/entry.ts
-  base44/functions/sendExpressToZapier/entry.ts
-  base44/functions/submitExpressAdminIntake/entry.ts
-  base44/functions/submitExpressQuestionnaireFallback/entry.ts
+deno check --cached-only --no-config \
+  base44/functions/autoRepairRetryIntake/entry.ts \
+  base44/functions/draftRecoveryData/entry.ts \
+  base44/functions/questionnaireDraftData/entry.ts \
+  base44/functions/repairExpressQuestionnaireIntakeSubmission/entry.ts \
+  base44/functions/retryQuestionnaireIntakeSubmission/entry.ts \
+  base44/functions/sendExpressToZapier/entry.ts \
+  base44/functions/submitExpressAdminIntake/entry.ts \
+  base44/functions/submitExpressQuestionnaireFallback/entry.ts \
   base44/shared/durableDraftMutation.ts
-)
 
-(
-  cd "$baseline_root"
-  deno check --cached-only --no-config "${backend_files[@]}"
-) > "$validation_dir/baseline.log" 2>&1 || true
-
-(
-  cd "$organizer_root"
-  deno check --cached-only --no-config "${backend_files[@]}"
-) > "$validation_dir/organizer.log" 2>&1 || true
-
-python3 - "$validation_dir/baseline.log" "$validation_dir/organizer.log" <<'PY'
-import collections
-import pathlib
-import re
-import sys
-
-def diagnostics(path):
-    result = []
-    for block in re.split(r'(?=TS\d+ \[ERROR\]:)', pathlib.Path(path).read_text())[1:]:
-        location = re.search(r'at file://.*?/base44/(.*?):\d+:\d+', block)
-        if location:
-            result.append((location.group(1), block.splitlines()[0]))
-    return collections.Counter(result)
-
-baseline, organizer = map(diagnostics, sys.argv[1:])
-introduced = organizer - baseline
-print('Baseline:', sum(baseline.values()))
-print('Organizer:', sum(organizer.values()))
-print('Introduced:', sum(introduced.values()))
-for diagnostic, count in introduced.items():
-    print(count, diagnostic)
-PY
+npm run typecheck
+npm run lint
+npm test
 ```
 
-Expected comparison for the checked revisions and cached dependencies:
+`--cached-only` prevents Deno dependency downloads. A missing cached dependency is an environment failure, not a passing check. Run the Node suite after dependency installation has finished.
 
-```text
-Baseline: 193
-Organizer: 191
-Introduced: 0
-```
+The release regression tests exercise the actual hosted handlers with synthetic in-memory entities and blocked network access. They cover immutable-write recovery, monotonic mutation replay, finalized-draft protection, verified checkpoint acknowledgements, malformed snapshots, stale clear responses, credential-scoped duplicate-session selection, lease renewal and fenced writes, raw-to-mapped recovery integrity, failed duplicate lookups, compact version-two receipt verification, and the required pre-submit save confirmation.
 
-After the type corrections, 30 focused organizer, submission-integrity, and durable-mutation Node tests passed, as did lint for the changed contract and guards and `git diff --check`.
+Local checks do not prove a hosted deployment. Draft updates now compare the owner token and unexpired lease in the database update and verify the saved values. Cross-entity final-record creation, intake/history updates, and external webhook delivery cannot form one transaction; ambiguous or failed operations must be resolved through the durable receipt lookup and retained recovery evidence. External webhook delivery is not an exactly-once guarantee.

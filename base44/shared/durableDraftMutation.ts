@@ -1,6 +1,6 @@
 import { ORGANIZER_QUESTIONS, guardOrganizedDraftMutation, projectOrganizedPages, preserveOrganizedMappedPayload, validateOrganizedSubmission } from './pageOrganizerContract.js';
 import { withEntityLease } from './entityLease.ts';
-import { createQuestionnaireVersion, snapshotFromDraft } from './questionnaireVersions.ts';
+import { createQuestionnaireVersion, snapshotFromDraft, sha256Hex } from './questionnaireVersions.ts';
 
 export type DraftMutationMetadata = {
   mutationId: string;
@@ -22,6 +22,7 @@ type DurableDraftMutationOptions = {
   sourceVersionId?: string;
   additionalMeaningfulReasons?: string[];
   allowFinalized?: boolean;
+  assertCurrent?: (draft: Record<string, unknown>) => void | Promise<void>;
 };
 
 function safeInteger(value: unknown): number {
@@ -60,6 +61,12 @@ function parseSnapshot(value: unknown): Record<string, unknown> | null {
   }
 }
 
+function requireSnapshot(value: unknown, field: string): Record<string, unknown> {
+  const parsed = parseSnapshot(value);
+  if (!parsed) throw Object.assign(new Error(`The saved ${field} is unreadable. Recovery review is required before overwriting this draft.`), { code: 'DRAFT_SNAPSHOT_INVALID', status: 409 });
+  return parsed;
+}
+
 async function findMutationVersion(entity: any, versionKey: string): Promise<Record<string, any> | null> {
   const records = await entity.filter({ version_key: versionKey }, '-created_date', 1, 0, [
     'id', 'draft_id', 'version_key', 'snapshot_json', 'snapshot_hash', 'captured_at',
@@ -85,6 +92,7 @@ export async function applyDurableDraftMutation({
   sourceVersionId = '',
   additionalMeaningfulReasons = [],
   allowFinalized = false,
+  assertCurrent,
 }: DurableDraftMutationOptions): Promise<Record<string, any>> {
   if (!draftId) throw new Error('A draft ID is required for a durable mutation.');
   const mutationId = String(metadata?.mutationId || '').trim();
@@ -100,9 +108,16 @@ export async function applyDurableDraftMutation({
     purpose: `questionnaire-mutation:${mutationId}`,
     leaseDurationMs: 30_000,
     waitTimeoutMs: 20_000,
-  }, async () => {
+  }, async (lease) => {
     let current = await draftEntity.get(draftId);
-    const currentRevision = safeInteger(current.last_confirmed_revision);
+    if (assertCurrent) await assertCurrent(current);
+    const currentResponses = requireSnapshot(current.responses_json, 'responses');
+    const incomingResponses = Object.hasOwn(nextValues, 'responses_json') ? requireSnapshot(nextValues.responses_json, 'incoming responses') : currentResponses;
+    const storedRevision = current.last_confirmed_revision;
+    if (storedRevision !== undefined && storedRevision !== null && storedRevision !== '' && (!Number.isSafeInteger(Number(storedRevision)) || Number(storedRevision) < 0)) {
+      throw Object.assign(new Error('The saved draft revision is unreadable. Recovery review is required before saving.'), { code: 'DRAFT_SNAPSHOT_INVALID', status: 409 });
+    }
+    const currentRevision = safeInteger(storedRevision);
     const clientSequence = safeInteger(metadata.clientSequence);
     const baseRevision = safeInteger(metadata.baseRevision);
     const clientInstanceId = String(metadata.clientInstanceId || '').slice(0, 300);
@@ -111,15 +126,24 @@ export async function applyDurableDraftMutation({
     const serverTimestamp = metadata.serverTimestamp || new Date().toISOString();
 
     const existingVersion = await findMutationVersion(versionEntity, versionKey);
+    if (!allowFinalized && (String(current.status || '') === 'submitted' || current.final_submission_id)) {
+      return { accepted: false, duplicate: Boolean(existingVersion), stale: true, finalized: true, draft: current, ...(existingVersion ? { version: existingVersion } : {}) };
+    }
     if (existingVersion) {
       if (String(current.last_materialized_version_id || '') !== String(existingVersion.id)) {
         const retainedSnapshot = parseSnapshot(existingVersion.snapshot_json);
         if (!retainedSnapshot) throw new Error('The retained mutation snapshot is unreadable.');
-        const currentResponses = parseSnapshot(current.responses_json) || {};
-        if (ORGANIZER_QUESTIONS.some((question) => Object.hasOwn(currentResponses, question.responseKey)) && safeInteger(retainedSnapshot.last_confirmed_revision) < currentRevision) {
+        if (retainedSnapshot.id !== draftId || retainedSnapshot.session_id !== current.session_id || typeof existingVersion.snapshot_hash !== 'string' || await sha256Hex(existingVersion.snapshot_json) !== existingVersion.snapshot_hash) {
+          throw Object.assign(new Error('The retained mutation snapshot could not be verified. Recovery review is required.'), { code: 'DRAFT_SNAPSHOT_INVALID', status: 409 });
+        }
+        requireSnapshot(retainedSnapshot.responses_json, 'retained responses');
+        // A replay may finish a failed materialization, but must never move an
+        // advanced checkpoint backwards, including legacy drafts and status
+        // changes that leave the questionnaire revision unchanged.
+        if (safeInteger(retainedSnapshot.last_confirmed_revision) <= currentRevision) {
           return { accepted: false, duplicate: true, stale: true, draft: current, version: existingVersion };
         }
-        current = await draftEntity.update(draftId, {
+        current = await lease.update({
           ...withoutEntityMetadata(retainedSnapshot),
           last_mutation_id: mutationId,
           last_materialized_version_id: String(existingVersion.id),
@@ -140,9 +164,6 @@ export async function applyDurableDraftMutation({
       };
     }
 
-    if (!allowFinalized && (String(current.status || '') === 'submitted' || current.final_submission_id)) {
-      return { accepted: false, duplicate: false, stale: true, finalized: true, draft: current };
-    }
     const sameOrderedClient = Boolean(
       clientInstanceId
       && clientInstanceId === String(current.last_client_instance_id || '')
@@ -158,8 +179,6 @@ export async function applyDurableDraftMutation({
       return { accepted: false, duplicate: false, stale: true, draft: current };
     }
 
-    const currentResponses = parseSnapshot(current.responses_json) || {};
-    const incomingResponses = Object.hasOwn(nextValues, 'responses_json') ? (parseSnapshot(nextValues.responses_json) || {}) : currentResponses;
     if (ORGANIZER_QUESTIONS.some((question) => Object.hasOwn(currentResponses, question.responseKey) || Object.hasOwn(incomingResponses, question.responseKey))) {
       const actualOrganizerKeys = ORGANIZER_QUESTIONS.flatMap((question) => [question.responseKey, question.rawField, question.otherField])
         .filter((key) => Object.hasOwn(incomingResponses, key) && JSON.stringify(currentResponses[key]) !== JSON.stringify(incomingResponses[key]));
@@ -174,7 +193,7 @@ export async function applyDurableDraftMutation({
           protectedResponses[question.otherField] = projection.other;
         }
       }
-      const mapped = preserveOrganizedMappedPayload(parseSnapshot(nextValues.mapped_payload_json ?? current.mapped_payload_json) || {}, protectedResponses);
+      const mapped = preserveOrganizedMappedPayload(requireSnapshot(nextValues.mapped_payload_json ?? current.mapped_payload_json, 'mapped payload'), protectedResponses);
       const submissionGuard = validateOrganizedSubmission({ payload: mapped, responses: protectedResponses });
       if (!submissionGuard.ok) throw Object.assign(new Error(submissionGuard.errors.join(' ')), { code: submissionGuard.code, status: submissionGuard.status });
       nextValues = { ...nextValues, responses_json: JSON.stringify(protectedResponses), mapped_payload_json: JSON.stringify(mapped), metadata_json: JSON.stringify(mapped.metadata || {}), userdata_json: JSON.stringify(mapped.userdata || {}) };
@@ -196,6 +215,7 @@ export async function applyDurableDraftMutation({
       authoritative_server_timestamp: serverTimestamp,
     };
 
+    await lease.assertOwned();
     const version = await createQuestionnaireVersion({
       base44,
       draft: nextDraft,
@@ -218,7 +238,7 @@ export async function applyDurableDraftMutation({
     });
     if (!version?.id) throw new Error('The immutable questionnaire version was not retained.');
 
-    const materialized = await draftEntity.update(draftId, {
+    const materialized = await lease.update({
       ...withoutEntityMetadata(snapshotFromDraft(nextDraft)),
       last_materialized_version_id: String(version.id),
     });

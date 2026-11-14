@@ -14,11 +14,23 @@ export function buildPersistedStateFromRemoteDraft(draft, sessionId) {
     version: 2,
     savedAt: draft.last_saved_at || draft.updated_date || draft.created_date || "",
     questionnaireSessionId: draft.session_id || sessionId || "",
-    formData: parseObject(draft.responses_json),
+    formData: parseAuthoritativeDraftResponses(draft),
     validationStatus: parseObject(draft.validation_status_json),
     touchedQuestions: parseObject(draft.touched_questions_json),
     expandedQuestions: parseObject(draft.expanded_questions_json),
   };
+}
+
+export function parseAuthoritativeDraftResponses(draft) {
+  try {
+    const value = typeof draft?.responses_json === 'string' ? JSON.parse(draft.responses_json) : draft?.responses_json;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid answer map');
+    return value;
+  } catch (cause) {
+    throw Object.assign(new Error('The server draft answers could not be read. Reload or contact support before saving; your answers have not been overwritten.'), {
+      status: 409, code: 'DRAFT_SERVER_SNAPSHOT_INVALID', cause,
+    });
+  }
 }
 
 function savedAtMs(state) {

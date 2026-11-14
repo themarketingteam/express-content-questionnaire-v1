@@ -62,7 +62,7 @@ function request(responses, overrides = {}) {
   return {
     responses, businessName: "Synthetic roundtrip", domain: "example.test",
     questionnaireSessionId: "synthetic-session", submitAttemptId: "synthetic-attempt",
-    validationStatus: {}, touchedQuestions: {}, expandedQuestions: {}, credentials: {},
+    validationStatus: {}, touchedQuestions: {}, expandedQuestions: {}, credentials: {}, saveDraftNow: async () => ({ saved: true }),
     ...overrides,
   };
 }
@@ -74,7 +74,7 @@ test("every checkpoint answer reaches persistence and webhook unchanged", async 
   const original = structuredClone(responses);
   const checkpoints = [];
   const result = await submitExpressQuestionnaire(request(responses, {
-    saveDraftNow: async (snapshot) => checkpoints.push(structuredClone(snapshot)),
+    saveDraftNow: async (snapshot) => { checkpoints.push(structuredClone(snapshot)); return { saved: true }; },
   }));
   assert.equal(result.ok, true);
   assert.deepEqual(responses, original);
@@ -111,7 +111,7 @@ test("answer loss detected at the delivery boundary prevents sending and final s
     await assert.rejects(submitExpressQuestionnaire(request(completeAnswers(), {
       onFinalSubmitSuccess: () => { succeeded = true; },
       onFinalSubmitFailure: details => { failure = details; },
-      saveDraftNow: async snapshot => saved.push(structuredClone(snapshot)),
+      saveDraftNow: async snapshot => { saved.push(structuredClone(snapshot)); return { saved: true }; },
     })), error => {
       assert.match(error.message, /could not safely prepare all/i);
       assert.equal(error.failureKind, "integrity");
@@ -136,7 +136,7 @@ test("a damaged existing submission stays out of automatic repair and delivery",
   const saved = [];
   try {
     await assert.rejects(submitExpressQuestionnaire(request(completeAnswers(), {
-      saveDraftNow: async snapshot => saved.push(structuredClone(snapshot)),
+      saveDraftNow: async snapshot => { saved.push(structuredClone(snapshot)); return { saved: true }; },
     })), /contact support/i);
     assert.equal(state.calls.filter(call => call.name === "submitExpressQuestionnaireFallback").length, 1);
     assert.equal(state.calls.some(call => call.name === "sendExpressToZapier"), false);
@@ -145,4 +145,28 @@ test("a damaged existing submission stays out of automatic repair and delivery",
   } finally {
     state.rejectExisting = false;
   }
+});
+
+test('failed, stale, finalized and missing final-save confirmations prevent persistence and delivery', async () => {
+  for (const outcome of [null, undefined, { saved: false, stale: true }, { saved: false, finalized: true }, 'throw']) {
+    state.calls = [];
+    let failure;
+    await assert.rejects(() => submitExpressQuestionnaire(request(completeAnswers(), {
+      saveDraftNow: async () => { if (outcome === 'throw') throw new Error('Synthetic save conflict'); return outcome; },
+      onFinalSubmitFailure: (value) => { failure = value; },
+    })), (error) => error.failureKind === 'persistence' && error.stage === 'submit_checkpoint');
+    assert.equal(failure.intakeCaptured, false);
+    assert.equal(state.calls.length, 0);
+  }
+});
+
+test('draft credentials travel only to the persistence transport and never to outbound content', async () => {
+  state.calls = [];
+  const draftAccessKey = 'synthetic-private-draft-key-1234567890';
+  await submitExpressQuestionnaire(request(completeAnswers(), { draftId: 'draft-123', draftAccessKey }));
+  const persisted = state.calls.find((call) => call.name === 'submitExpressQuestionnaireFallback').body;
+  const webhook = state.calls.find((call) => call.name === 'sendExpressToZapier').body;
+  assert.equal(persisted.draftId, 'draft-123');
+  assert.equal(persisted.draftAccessKey, draftAccessKey);
+  for (const content of [persisted.transformedPayload, persisted.diagnostics, persisted.submitContext, webhook]) assert.equal(JSON.stringify(content).includes(draftAccessKey), false);
 });

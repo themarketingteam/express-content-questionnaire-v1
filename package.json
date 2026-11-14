@@ -26,7 +26,10 @@
     "build:local": "vite build --config vite.local.config.js",
     "local:start": "node scripts/local-preview-daemon.mjs start",
     "local:stop": "node scripts/local-preview-daemon.mjs stop",
-    "local:status": "node scripts/local-preview-daemon.mjs status"
+    "local:status": "node scripts/local-preview-daemon.mjs status",
+    "dev:production": "vite --config vite.config.js",
+    "build:production": "vite build --config vite.config.js",
+    "verify:production-build": "node scripts/verify-deploy-source.mjs --build-only"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.41",
@@ -89,8 +92,7 @@
     "tailwind-merge": "^3.0.2",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.171.0",
-    "vaul": "^1.1.2",
-    "zod": "^3.24.2"
+    "vaul": "^1.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",

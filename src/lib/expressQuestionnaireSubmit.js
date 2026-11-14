@@ -129,11 +129,17 @@ export async function safeDraftSave(args) {
     touchedQuestions,
     expandedQuestions,
     stage,
+    requireConfirmation = false,
   } = args;
   
   try {
     if (saveDraftNow) {
-      await saveDraftNow({ ...draftData, businessName, domain });
+      const result = await saveDraftNow({ ...draftData, businessName, domain });
+      if (requireConfirmation && (!result || result.saved !== true || result.stale || result.finalized)) {
+        throw new Error('The final questionnaire checkpoint was not confirmed.');
+      }
+    } else if (requireConfirmation) {
+      throw new Error('The questionnaire checkpoint service is unavailable.');
     }
     return true;
   } catch (saveErr) {
@@ -199,6 +205,8 @@ export async function submitExpressQuestionnaire(args) {
     credentials,
     domainParam: _domainParam,
     questionnaireSessionId,
+    draftId,
+    draftAccessKey,
     saveDraftNow,
     createDraftEvent,
     onFinalSubmitSuccess,
@@ -251,7 +259,7 @@ export async function submitExpressQuestionnaire(args) {
   }
 
   // Step 4: Save draft with status: submit_attempted
-  await safeDraftSave({
+  const finalCheckpointConfirmed = await safeDraftSave({
     saveDraftNow,
     draftData: {
       status: "submit_attempted",
@@ -271,7 +279,15 @@ export async function submitExpressQuestionnaire(args) {
     touchedQuestions,
     expandedQuestions,
     stage: "submit_attempted",
+    requireConfirmation: true,
   });
+  if (!finalCheckpointConfirmed) {
+    const safeMessage = 'Your latest answers have not been confirmed by the server. Reload the saved draft and resolve any save conflict before submitting.';
+    if (onFinalSubmitFailure) {
+      onFinalSubmitFailure({ error: { code: 'draft_checkpoint_unconfirmed', message: safeMessage }, recoveryCode, failureKind: 'persistence', intakeCaptured: false, sessionId: questionnaireSessionId, submitAttemptId, safeMessage });
+    }
+    throw new SubmitFlowError({ userMessage: safeMessage, recoveryCode, failureKind: 'persistence', stage: 'submit_checkpoint', serializedError: { code: 'draft_checkpoint_unconfirmed' }, intakeId: null, sessionId: questionnaireSessionId, submitAttemptId, safeMessage });
+  }
 
   // Step 5: Build transformed Express payload
   let transformedPayload;
@@ -386,7 +402,8 @@ export async function submitExpressQuestionnaire(args) {
       validationFailed: false,
       validationError: null,
       questionnaireSessionId,
-      draftId: null,
+      draftId: draftId || null,
+      draftAccessKey,
       submitContext,
       diagnostics,
     });
@@ -565,7 +582,8 @@ export async function submitExpressQuestionnaire(args) {
       validationFailed: true,
       validationError: { errors: payloadValidation.errors, warnings: payloadValidation.warnings },
       questionnaireSessionId,
-      draftId: null,
+      draftId: draftId || null,
+      draftAccessKey,
       submitContext: submitContextValidFail,
       diagnostics: diagnosticsValidFail,
     });
@@ -656,7 +674,7 @@ export async function submitExpressQuestionnaire(args) {
     questionnaireSessionId,
     businessNamePresent: !!businessName,
     domainPresent: !!domain,
-    draftIdPresent: false,
+    draftIdPresent: Boolean(draftId),
     payloadFeatureSummary: buildExpressPayloadFeatureSummary(transformedPayload),
     validation_summary: validationSummary,
     timestamp,
@@ -679,7 +697,8 @@ export async function submitExpressQuestionnaire(args) {
     validationFailed: false,
     validationError: null,
     questionnaireSessionId,
-    draftId: null,
+    draftId: draftId || null,
+      draftAccessKey,
     submitContext,
     diagnostics,
   });

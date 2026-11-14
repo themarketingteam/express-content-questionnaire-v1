@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure) {
+    {
       const organizer = validateExpressOrganizerLimits(payload);
       if (!organizer.ok) return Response.json({ success: false, error: organizer.errors.join(' ') }, { status: 400, headers: corsHeaders });
     }
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     } catch (fetchErr) {
       clearTimeout(timeoutId);
       
-      if (fetchErr.name === 'AbortError') {
+      if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
         return Response.json({
           success: false,
           error: 'Express Zapier webhook timed out',
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     return Response.json({
       success: false,
-      error: error.message || 'Unknown Zapier send error',
+      error: error instanceof Error ? error.message : 'Unknown Zapier send error',
     }, {
       status: 500,
       headers: corsHeaders,

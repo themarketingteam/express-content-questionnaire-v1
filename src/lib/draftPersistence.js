@@ -130,12 +130,12 @@ export function createSaveDraftSnapshot({ entities, draftRecordIdRef, findExisti
       normalizedTouchedQuestions = normalizeTouchedQuestions(touchedQuestions || {});
       normalizedExpandedQuestions = normalizeExpandedQuestions(expandedQuestions || {});
     } catch (err) {
-      // If normalization fails, use defaults and continue
-      normalizationError = err?.message || "Normalization failed";
-      normalizedResponses = normalizeExpressFormData({});
-      normalizedValidationStatus = normalizeValidationStatus({});
-      normalizedTouchedQuestions = normalizeTouchedQuestions({});
-      normalizedExpandedQuestions = normalizeExpandedQuestions({});
+      // Invalid/future organizer data must never become an empty valid save.
+      throw Object.assign(new Error('The draft could not be normalized. Your answers were not overwritten.'), {
+        status: 400,
+        code: 'DRAFT_NORMALIZATION_FAILED',
+        cause: err,
+      });
     }
 
     // Find existing draft first — needed for per-field merge

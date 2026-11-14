@@ -6,6 +6,11 @@ import { inspectExpressSubmissionIntegrity } from '../../shared/expressSubmissio
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
+// Legacy recovery JSON has optional, historically inconsistent fields. Validate
+// its wire shape and raw-answer preservation before using it for submission.
+type JsonRecord = Record<string, any>;
+type BackendClient = ReturnType<typeof createClientFromRequest>;
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -14,13 +19,13 @@ const corsHeaders = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function truncate(value, max = 500) {
+function truncate(value: unknown, max = 500) {
   if (value === null || value === undefined) return null;
   const s = typeof value === 'string' ? value : String(value);
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
-function safeJsonStringify(value) {
+function safeJsonStringify(value: unknown) {
   if (value === null || value === undefined) return null;
   try {
     return JSON.stringify(value);
@@ -86,7 +91,8 @@ async function existingSubmissionMatches(existing: any, incoming: any): Promise<
     && existingSubmissionFingerprint === incoming.submissionFingerprint;
 }
 
-function classifyError(error) {
+function classifyError(value: unknown) {
+  const error: JsonRecord | null = value && typeof value === 'object' ? value as JsonRecord : null;
   if (!error) return 'unknown';
   const msg = (error.message || '').toLowerCase();
   const name = (error.name || '').toLowerCase();
@@ -104,9 +110,9 @@ function classifyError(error) {
 }
 
 // Sanitize geographic_area_meta: remove null lat/lon/place_id
-function sanitizeGeoMeta(raw) {
+function sanitizeGeoMeta(raw: JsonRecord | null | undefined) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const out = {};
+  const out: { label?: string; lat?: number; lon?: number; place_id?: string; source?: string } = {};
   if (typeof raw.label === 'string' && raw.label.trim()) out.label = raw.label.trim();
   if (typeof raw.lat === 'number' && isFinite(raw.lat)) out.lat = raw.lat;
   if (typeof raw.lon === 'number' && isFinite(raw.lon)) out.lon = raw.lon;
@@ -115,7 +121,7 @@ function sanitizeGeoMeta(raw) {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function normalizePayload(payload, questionnaireSessionId, primaryError) {
+function normalizePayload(payload: JsonRecord, questionnaireSessionId: string, primaryError: JsonRecord | null | undefined) {
   const meta = { ...(payload?.metadata || {}) };
   const userdata = { ...(payload?.userdata || {}) };
 
@@ -129,11 +135,11 @@ function normalizePayload(payload, questionnaireSessionId, primaryError) {
 }
 
 function mapExpressPayloadToFormSubmissionRecord(
-  payload,
-  questionnaireSessionId,
-  submitAttemptId,
-  rawResponseSnapshot,
-) {
+  payload: JsonRecord,
+  questionnaireSessionId: string,
+  submitAttemptId: string,
+  rawResponseSnapshot: unknown,
+): JsonRecord {
   const meta = payload?.metadata || {};
   const ud = payload?.userdata || {};
 
@@ -148,7 +154,7 @@ function mapExpressPayloadToFormSubmissionRecord(
 
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta ?? meta.geographic_area_meta);
 
-  const record = {
+  const record: JsonRecord = {
     ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name:            ud.business_name        ?? meta.business_name        ?? null,
     business_domain:          ud.business_domain      ?? meta.businessDomain       ?? meta.business_domain ?? null,
@@ -196,7 +202,7 @@ function mapExpressPayloadToFormSubmissionRecord(
   return record;
 }
 
-async function getIntakeBySession(base44, questionnaireSessionId) {
+async function getIntakeBySession(base44: BackendClient, questionnaireSessionId: string) {
   const results = await base44.asServiceRole.entities.FormSubmissionIntake.filter(
     { questionnaire_session_id: questionnaireSessionId },
     '-created_date',
@@ -205,7 +211,7 @@ async function getIntakeBySession(base44, questionnaireSessionId) {
   return results?.[0] || null;
 }
 
-async function upsertIntake(base44, questionnaireSessionId, nextData) {
+async function upsertIntake(base44: BackendClient, questionnaireSessionId: string, nextData: JsonRecord) {
   const existing = await getIntakeBySession(base44, questionnaireSessionId);
   if (existing) {
     return await base44.asServiceRole.entities.FormSubmissionIntake.update(existing.id, nextData);
@@ -229,7 +235,7 @@ function buildDraftSnapshot({
   rawResponseSnapshot,
   diagnostics,
   submitContext,
-}) {
+}: { businessName: unknown; businessDomain: unknown; userEmail: unknown; userId: unknown; submitAttemptId: unknown; transformedPayload: JsonRecord | null; rawResponseSnapshot: unknown; diagnostics: unknown; submitContext: unknown }) {
   const now = nowIso();
   return {
     business_name: truncate(businessName) || '',
@@ -253,7 +259,7 @@ function buildIntakePayload({
   status, intakeReason, businessName, businessDomain, userEmail, userId,
   submitAttemptId, primaryError, fallbackError, transformedPayload,
   rawResponses, diagnostics, source, createdAtClient, linkedSubmissionId,
-}) {
+}: { status: string; intakeReason: string; businessName: unknown; businessDomain: unknown; userEmail: unknown; userId: unknown; submitAttemptId: unknown; primaryError?: JsonRecord | null; fallbackError?: unknown; transformedPayload: JsonRecord | null; rawResponses: unknown; diagnostics: unknown; source: unknown; createdAtClient: unknown; linkedSubmissionId?: unknown }) {
   return {
     status,
     intake_reason:            intakeReason             || null,
@@ -366,6 +372,14 @@ Deno.serve(async (req) => {
       submitContext?.source ||
       'questionnaire_submit_fallback';
 
+    let draftAuthority: { draftId?: string; accessKeyHash?: string } = {};
+    if (body.draftId || body.draftAccessKey) {
+      if (typeof body.draftId !== 'string' || !body.draftId || typeof body.draftAccessKey !== 'string' || !/^[A-Za-z0-9_-]{32,160}$/.test(body.draftAccessKey)) {
+        return Response.json({ success: false, received: false, code: 'DRAFT_ACCESS_DENIED', error: { message: 'Valid draft credentials are required.' } }, { status: 403, headers: corsHeaders });
+      }
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body.draftAccessKey));
+      draftAuthority = { draftId: body.draftId, accessKeyHash: Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('') };
+    }
     const rawResponseSnapshot = rawResponses ?? responseSnapshot ?? {};
     const finalPayloadCandidate = !transformFailed && !validationFailed
       && transformedPayload && transformedPayload.metadata && transformedPayload.userdata;
@@ -390,6 +404,7 @@ Deno.serve(async (req) => {
     return await withSubmissionSessionLease(
       {
         base44,
+        authority: draftAuthority,
         sessionId: questionnaireSessionId,
         purpose: `submission:${questionnaireSessionId}:${submitAttemptId || 'session'}`,
         // A rejected payload must not seed a new coordinator with partial answers.
@@ -400,10 +415,18 @@ Deno.serve(async (req) => {
           metadata_json: '',
           status: 'submit_failed',
         } : draftSnapshot,
-        operation: async (coordinatorDraft) => {
+        operation: async (coordinatorDraft, lease) => {
         let savedResponses: Record<string, unknown> = {};
-        try { const serializedResponses = coordinatorDraft.responses_json; if (typeof serializedResponses === 'string') savedResponses = JSON.parse(serializedResponses); } catch { /* Legacy recovery snapshots can be unavailable. */ }
-        if (savedResponses.serviceOfferingsStructure || savedResponses.targetIndustriesStructure) {
+        try {
+          const serializedResponses = coordinatorDraft.responses_json;
+          if (typeof serializedResponses !== 'string' || !serializedResponses) throw new Error('Missing saved responses');
+          const parsed = JSON.parse(serializedResponses);
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid saved responses');
+          savedResponses = parsed;
+        } catch {
+          return Response.json({ success: false, received: false, code: 'DRAFT_SNAPSHOT_INVALID', error: { message: 'The saved draft is unreadable. Recovery review is required before submission.' } }, { status: 409, headers: corsHeaders });
+        }
+        if (Object.hasOwn(savedResponses, 'serviceOfferingsStructure') || Object.hasOwn(savedResponses, 'targetIndustriesStructure')) {
           const organizerGuard = validateOrganizedSubmission({ payload: transformedPayload, responses: savedResponses });
           if (!organizerGuard.ok) return Response.json({ success: false, received: false, code: organizerGuard.code, error: { message: organizerGuard.errors.join(' ') } }, { status: organizerGuard.status, headers: corsHeaders });
         }
@@ -420,6 +443,13 @@ Deno.serve(async (req) => {
             code: 'draft_identity_conflict',
             error: { message: 'This browser draft belongs to a different client. Start a new client draft before submitting.' },
           }, { status: 409, headers: corsHeaders });
+        }
+        const coordinatorFinalized = coordinatorDraft.status === 'submitted' || Boolean(coordinatorDraft.final_submission_id);
+        if (coordinatorFinalized) {
+          const savedFingerprints = await buildSubmissionFingerprints({ businessName: coordinatorDraft.business_name, businessDomain: coordinatorDraft.domain, rawResponses: savedResponses });
+          if (!finalPayloadCandidate || savedFingerprints.submissionFingerprint !== incomingFingerprints.submissionFingerprint) {
+            return Response.json({ success: false, received: false, code: 'draft_finalized', error: { message: 'This questionnaire has already been finalized. Its saved answers were not changed.' } }, { status: 409, headers: corsHeaders });
+          }
         }
         if (integrityRejected) {
           const integrityError = {
@@ -476,11 +506,17 @@ Deno.serve(async (req) => {
             error: integrityError,
           }, { status: 422, headers: corsHeaders });
         }
+        if (finalPayloadCandidate) {
+          const currentCheckpointIntegrity = inspectExpressSubmissionIntegrity(savedResponses, transformedPayload);
+          if (currentCheckpointIntegrity.available && !currentCheckpointIntegrity.ok) {
+            return Response.json({ success: false, received: false, code: 'draft_changed_before_submit', error: { message: 'The saved draft changed before submission. Reload the current answers before retrying.' } }, { status: 409, headers: corsHeaders });
+          }
+        }
         // Persist the complete incoming snapshot before any validation or create
         // attempt. Anonymous and authenticated clients therefore have the same
         // server-side recovery guarantee.
         const checkpointNext = { ...coordinatorDraft, ...draftSnapshot, id: coordinatorDraft.id };
-        const checkpointVersion = await createQuestionnaireVersion({
+        const checkpointVersion = coordinatorFinalized ? null : await createQuestionnaireVersion({
           base44,
           draft: checkpointNext,
           previous: coordinatorDraft,
@@ -498,10 +534,10 @@ Deno.serve(async (req) => {
             serverTimestamp: String(checkpointNext.submit_attempted_at || nowIso()),
           },
         });
-        if (!checkpointVersion?.id) throw new Error('Submission checkpoint history was not retained.');
-        const checkpointDraft = await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        if (!coordinatorFinalized && !checkpointVersion?.id) throw new Error('Submission checkpoint history was not retained.');
+        const checkpointDraft = coordinatorFinalized ? coordinatorDraft : await lease.update({
           ...draftSnapshot,
-          last_materialized_version_id: checkpointVersion.id,
+          last_materialized_version_id: checkpointVersion?.id,
           last_mutation_id: `submission-checkpoint:${submitAttemptId || questionnaireSessionId}`,
         });
 
@@ -547,7 +583,7 @@ Deno.serve(async (req) => {
         versionKey: `${coordinatorDraft.id}:failed-submission:${submitAttemptId || questionnaireSessionId}:${intakeReason}`,
       });
       if (!failedVersion?.id) throw new Error('Failed-submission history was not retained.');
-      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      await lease.update({
         status: failedNext.status,
         submit_error: failedNext.submit_error,
         last_materialized_version_id: failedVersion.id,
@@ -561,7 +597,7 @@ Deno.serve(async (req) => {
 
     // A submit-attempt receipt is the primary idempotency key. Session-level
     // dedupe is accepted only when both identity and payload fingerprints match.
-    let existingSubmission = null;
+    let existingSubmission: JsonRecord | null = null;
     if (submitAttemptId) {
       try {
         const existingByAttempt = await base44.asServiceRole.entities.FormSubmission.filter(
@@ -570,8 +606,8 @@ Deno.serve(async (req) => {
         if (existingByAttempt && existingByAttempt.length > 0) {
           existingSubmission = existingByAttempt[0];
         }
-      } catch {
-        // filter may not be supported - continue
+      } catch (error) {
+        throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`);
       }
     }
 
@@ -581,8 +617,8 @@ Deno.serve(async (req) => {
           { questionnaire_session_id: questionnaireSessionId }, '-created_date', 1
         );
         if (existingBySession && existingBySession.length > 0) existingSubmission = existingBySession[0];
-      } catch {
-        // filter may not be supported - continue
+      } catch (error) {
+        throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`);
       }
     }
 
@@ -590,7 +626,7 @@ Deno.serve(async (req) => {
       const exactMatch = await existingSubmissionMatches(existingSubmission, incomingFingerprints);
       if (!exactMatch) {
         const conflictAt = nowIso();
-        await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+        await lease.update({
           status: 'submit_failed',
           submit_error: JSON.stringify({
             code: 'submission_identity_conflict',
@@ -618,6 +654,9 @@ Deno.serve(async (req) => {
       }
       const storedPayloadIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, storedTransformedPayload);
       const storedRecordIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, {
+        metadata: existingSubmission.questionnaire_payload_version === undefined ? {} : {
+          questionnaire_payload_version: existingSubmission.questionnaire_payload_version,
+        },
         userdata: {
           ...existingSubmission,
           // FormSubmission stores this scalar questionnaire answer as an array.
@@ -645,6 +684,7 @@ Deno.serve(async (req) => {
         }, { status: 409, headers: corsHeaders });
       }
       const existingSubmissionId = existingSubmission.id;
+      await lease.assertOwned();
       await base44.asServiceRole.entities.FormSubmission.update(existingSubmissionId, {
         linked_draft_id: coordinatorDraft.id,
         submission_fingerprint: incomingFingerprints.submissionFingerprint,
@@ -681,7 +721,7 @@ Deno.serve(async (req) => {
         versionKey: `${coordinatorDraft.id}:submitted:${existingSubmissionId}`,
       });
       if (!submittedVersion?.id) throw new Error('Submitted questionnaire history was not retained.');
-      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      await lease.update({
         status: submittedNext.status,
         submitted_at: submittedNext.submitted_at,
         final_submission_id: submittedNext.final_submission_id,
@@ -710,6 +750,7 @@ Deno.serve(async (req) => {
     let submission = null;
     let submissionError = null;
 
+    await lease.assertOwned();
     try {
       submission = await base44.asServiceRole.entities.FormSubmission.create({
         ...record,
@@ -751,7 +792,7 @@ Deno.serve(async (req) => {
         versionKey: `${coordinatorDraft.id}:submitted:${submissionId || submitAttemptId || questionnaireSessionId}`,
       });
       if (!submittedVersion?.id) throw new Error('Submitted questionnaire history was not retained.');
-      await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+      await lease.update({
         status: submittedNext.status,
         submitted_at: submittedNext.submitted_at,
         final_submission_id: submittedNext.final_submission_id,
@@ -792,7 +833,7 @@ Deno.serve(async (req) => {
       versionKey: `${coordinatorDraft.id}:failed-submission:${submitAttemptId || questionnaireSessionId}:create-failed`,
     });
     if (!failedVersion?.id) throw new Error('Failed-submission history was not retained.');
-    await base44.asServiceRole.entities.FormDraft.update(coordinatorDraft.id, {
+    await lease.update({
       status: failedNext.status,
       submit_error: failedNext.submit_error,
       mapped_payload_json: failedNext.mapped_payload_json,
@@ -808,9 +849,13 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
+    const coordinationError = error as { code?: string; status?: number; message?: string };
+    if (['DRAFT_LEASE_LOST', 'DRAFT_WRITE_UNVERIFIED', 'DRAFT_SNAPSHOT_INVALID', 'DRAFT_ACCESS_DENIED', 'AMBIGUOUS_DRAFT_SESSION'].includes(coordinationError.code || '')) {
+      return Response.json({ success: false, received: false, code: coordinationError.code, error: { message: coordinationError.message } }, { status: coordinationError.code === 'DRAFT_ACCESS_DENIED' ? 403 : 409, headers: corsHeaders });
+    }
     return Response.json({
       success: false, received: false, usedFallback: true,
-      error: { message: error.message },
+      error: { message: (error instanceof Error ? error.message : String(error)) },
     }, { status: 500, headers: corsHeaders });
   }
 });

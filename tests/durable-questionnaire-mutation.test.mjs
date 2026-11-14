@@ -22,6 +22,11 @@ function mockBase44(initialDraft, { failVersionWrites = 0, failMaterializations 
         const actual = draft.idempotency_lock_token ?? null;
         if (expected !== actual) return { updated: 0 };
       }
+      if (query.idempotency_lock_expires_at && typeof query.idempotency_lock_expires_at === 'object' && !(draft.idempotency_lock_expires_at > query.idempotency_lock_expires_at.$gt)) return { updated: 0 };
+      if (Object.hasOwn(update.$set || {}, 'last_materialized_version_id') && materializationFailures > 0) {
+        materializationFailures--;
+        throw new Error('simulated materialization failure');
+      }
       Object.assign(draft, structuredClone(update.$set || {}));
       return { updated: 1 };
     },
@@ -148,6 +153,58 @@ test("a finalized questionnaire cannot be downgraded by an autosave", async () =
   assert.equal(result.finalized, true);
   assert.equal(store.versions().length, 0);
   assert.equal(store.state().status, "submitted");
+});
+
+test("replaying a retained legacy mutation cannot roll back a later checkpoint", async () => {
+  const store = mockBase44(baseDraft());
+  await mutation(store.client);
+  await mutation(store.client, {
+    nextValues: { responses_json: JSON.stringify({ differentiation: "Newest answer" }) },
+    metadata: { mutationId: "mutation-2", clientInstanceId: "tab-a", clientSequence: 2, baseRevision: 1 },
+  });
+  const result = await mutation(store.client);
+  assert.equal(result.accepted, false);
+  assert.equal(result.duplicate, true);
+  assert.equal(result.stale, true);
+  assert.equal(store.state().last_confirmed_revision, 2);
+  assert.equal(JSON.parse(store.state().responses_json).differentiation, "Newest answer");
+  assert.equal(store.versions().length, 2);
+});
+
+test("a replay cannot undo finalization even when its mutation is the last materialized version", async () => {
+  const store = mockBase44(baseDraft());
+  await mutation(store.client);
+  await store.client.asServiceRole.entities.FormDraft.update("draft-1", { status: "submitted", final_submission_id: "submission-1" });
+  const result = await mutation(store.client);
+  assert.equal(result.accepted, false);
+  assert.equal(result.finalized, true);
+  assert.equal(result.duplicate, true);
+  assert.equal(store.state().status, "submitted");
+  assert.equal(store.state().final_submission_id, "submission-1");
+});
+
+test("a retained mutation cannot overwrite an equally recent recovery checkpoint", async () => {
+  const store = mockBase44(baseDraft());
+  await mutation(store.client);
+  await store.client.asServiceRole.entities.FormDraft.update("draft-1", {
+    last_materialized_version_id: "recovery-version", responses_json: JSON.stringify({ differentiation: "Recovered answer" }),
+  });
+  const result = await mutation(store.client);
+  assert.equal(result.accepted, false);
+  assert.equal(result.stale, true);
+  assert.equal(JSON.parse(store.state().responses_json).differentiation, "Recovered answer");
+});
+
+test('corrupt current or incoming raw snapshots cannot be silently replaced by empty state', async () => {
+  for (const malformed of ['null', '[]', '{malformed']) {
+    const store = mockBase44(baseDraft({ responses_json: malformed }));
+    await assert.rejects(() => mutation(store.client), { code: 'DRAFT_SNAPSHOT_INVALID' });
+    assert.equal(store.versions().length, 0);
+    assert.equal(store.state().responses_json, malformed);
+    const clean = mockBase44(baseDraft());
+    await assert.rejects(() => mutation(clean.client, { nextValues: { responses_json: malformed } }), { code: 'DRAFT_SNAPSHOT_INVALID' });
+    assert.equal(clean.versions().length, 0);
+  }
 });
 
 test("explicit deletion metadata differs from missing state", () => {

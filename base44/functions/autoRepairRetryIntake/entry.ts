@@ -1,3 +1,4 @@
+import { requireExpressRecoveryIntegrity, requireExpressRecoveryReceipt } from '../../shared/expressSubmissionIntegrity.js';
 import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateOrganizedPayload, restoreOrganizedProjections, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 /**
  * autoRepairRetryIntake.js
@@ -14,6 +15,14 @@ import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateO
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
+import type { EntityLease } from '../../shared/entityLease.ts';
+
+// Legacy recovery JSON has optional, historically inconsistent fields. Validate
+// its wire shape and raw-answer preservation before using it for submission.
+type JsonRecord = Record<string, any>;
+type BackendClient = ReturnType<typeof createClientFromRequest>;
+type RepairContext = { businessName?: string; sessionId?: string; submitAttemptId?: string };
+type RepairChange = { path: string; before: string; after: string; reason: string };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,23 +43,24 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function parseJson(value) {
+function parseJson(value: unknown): any {
   if (!value) return null;
   if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
   try { return JSON.parse(value); } catch { return null; }
 }
 
-function isPlainObject(v) {
+function isPlainObject(v: unknown): v is JsonRecord {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-function incrementCount(v) {
+function incrementCount(v: unknown) {
   return typeof v === 'number' && !isNaN(v) ? v + 1 : 1;
 }
 
-function sanitizeGeoMeta(raw) {
+function sanitizeGeoMeta(raw: JsonRecord | null | undefined) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const out = {};
+  const out: { label?: string; lat?: number; lon?: number; place_id?: string; source?: string } = {};
   if (typeof raw.label === 'string' && raw.label.trim()) out.label = raw.label.trim();
   if (typeof raw.lat === 'number' && isFinite(raw.lat)) out.lat = raw.lat;
   if (typeof raw.lon === 'number' && isFinite(raw.lon)) out.lon = raw.lon;
@@ -59,12 +69,12 @@ function sanitizeGeoMeta(raw) {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function deterministicRepair(payload, context = {}) {
-  const hasOrganizer = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure;
+function deterministicRepair(payload: JsonRecord, context: RepairContext = {}) {
+  const hasOrganizer = Object.hasOwn(payload?.metadata || {}, 'questionnaire_payload_version') || Object.hasOwn(payload?.userdata || {}, 'service_offerings_structure') || Object.hasOwn(payload?.userdata || {}, 'target_industries_structure');
   if (hasOrganizer && !validateOrganizedPayload(payload).ok) return { payload, changedPaths: [], warnings: ['Page organization requires manual review.'], repaired: false };
-  const changedPaths = [];
-  const warnings = [];
-  const track = (path, before, after, reason) => changedPaths.push({ path, before: String(before ?? 'null'), after: String(after ?? 'null'), reason });
+  const changedPaths: RepairChange[] = [];
+  const warnings: string[] = [];
+  const track = (path: string, before: unknown, after: unknown, reason: string) => changedPaths.push({ path, before: String(before ?? 'null'), after: String(after ?? 'null'), reason });
 
   let working = payload;
   if (!isPlainObject(working)) {
@@ -80,6 +90,7 @@ function deterministicRepair(payload, context = {}) {
   if (meta.service_type !== 'express') { track('metadata.service_type', meta.service_type, 'express', 'normalized'); meta.service_type = 'express'; }
   if (!meta.business_name && context.businessName) { track('metadata.business_name', meta.business_name, context.businessName, 'filled'); meta.business_name = context.businessName; }
   if (!meta.questionnaire_session_id && context.sessionId) { track('metadata.questionnaire_session_id', '', context.sessionId, 'filled'); meta.questionnaire_session_id = context.sessionId; }
+  if (!meta.submit_attempt_id && context.submitAttemptId) meta.submit_attempt_id = context.submitAttemptId;
   if (!meta.submission_datetime || isNaN(new Date(meta.submission_datetime).getTime())) {
     const now = nowIso(); track('metadata.submission_datetime', meta.submission_datetime, now, 'filled'); meta.submission_datetime = now;
   }
@@ -107,8 +118,8 @@ function deterministicRepair(payload, context = {}) {
   return { payload: hasOrganizer ? restoreOrganizedProjections({ metadata: meta, userdata: ud }) : { metadata: meta, userdata: ud }, changedPaths, warnings, repaired: changedPaths.length > 0 };
 }
 
-function validatePayload(payload) {
-  const errors = payload?.metadata?.questionnaire_payload_version !== undefined || payload?.userdata?.service_offerings_structure || payload?.userdata?.target_industries_structure ? [...validateExpressOrganizerLimits(payload).errors] : [];
+function validatePayload(payload: JsonRecord) {
+  const errors = [...validateExpressOrganizerLimits(payload).errors];
   if (!isPlainObject(payload)) { errors.push('payload must be a plain object'); return { ok: false, errors }; }
   if (!isPlainObject(payload.metadata)) { errors.push('metadata must be a plain object'); }
   else {
@@ -123,7 +134,7 @@ function validatePayload(payload) {
   return { ok: errors.length === 0, errors };
 }
 
-function mapToFormSubmissionRecord(payload, rawResponses) {
+function mapToFormSubmissionRecord(payload: JsonRecord, rawResponses: unknown): JsonRecord {
   const meta = payload.metadata || {};
   const ud = payload.userdata || {};
   let companyGoals = ud.company_goals;
@@ -131,7 +142,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
   else if (companyGoals && typeof companyGoals === 'string') { companyGoals = [companyGoals]; }
   else { companyGoals = []; }
   const geoMeta = sanitizeGeoMeta(ud.geographic_area_meta);
-  const record = {
+  const record: JsonRecord = {
     ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: meta.business_name || '',
     business_domain: meta.businessDomain || meta.business_domain || ud.business_domain || '',
@@ -174,7 +185,7 @@ function mapToFormSubmissionRecord(payload, rawResponses) {
   return record;
 }
 
-async function processIntake(base44, intake) {
+async function processIntake(base44: BackendClient, intake: JsonRecord) {
   const now = nowIso();
   const sessionId = intake.questionnaire_session_id || '';
   const businessName = intake.business_name || '';
@@ -216,20 +227,23 @@ async function processIntake(base44, intake) {
     base44,
     sessionId: sessionId || `repair-intake:${intake.id}`,
     purpose: `submission-repair:${sessionId || intake.id}:${intake.submit_attempt_id || 'intake'}`,
-    operation: async (coordinatorDraft) => {
+    operation: async (coordinatorDraft, lease) => {
       let currentResponses: Record<string, unknown> = {};
       try { const serializedResponses = coordinatorDraft?.responses_json; if (typeof serializedResponses === 'string') currentResponses = JSON.parse(serializedResponses); } catch { /* Legacy snapshots can be unavailable. */ }
-      if (currentResponses.serviceOfferingsStructure || currentResponses.targetIndustriesStructure) {
+      requireExpressRecoveryIntegrity(repairResult.payload, intake.raw_responses_json, coordinatorDraft?.responses_json);
+      if (Object.hasOwn(currentResponses, 'serviceOfferingsStructure') || Object.hasOwn(currentResponses, 'targetIndustriesStructure')) {
         const organizerGuard = validateOrganizedSubmission({ payload: repairResult.payload, responses: currentResponses });
         if (!organizerGuard.ok) throw Object.assign(new Error(organizerGuard.errors.join(' ')), { code: organizerGuard.code, status: organizerGuard.status });
       }
   // Dedupe check
-  if (sessionId) {
+  const receiptQueries = [...(sessionId ? [{ questionnaire_session_id: sessionId }] : []), ...(intake.submit_attempt_id ? [{ submit_attempt_id: intake.submit_attempt_id }] : [])];
+  for (const receiptQuery of receiptQueries) {
     try {
       const existing = await base44.asServiceRole.entities.FormSubmission.filter(
-        { questionnaire_session_id: sessionId }, '-created_date', 1
+        receiptQuery, '-created_date', 1
       );
       if (existing && existing.length > 0) {
+        requireExpressRecoveryReceipt(existing[0], repairResult.payload, intake.raw_responses_json, coordinatorDraft.responses_json);
         await base44.asServiceRole.entities.FormSubmissionIntake.update(intake.id, {
           status: 'retry_success',
           linked_submission_id: existing[0].id,
@@ -237,10 +251,10 @@ async function processIntake(base44, intake) {
           ai_repair_applied: true,
           last_ai_repair_at: now,
         });
-        await markDraftSubmitted(base44, sessionId, existing[0].id);
+        await markDraftSubmitted(base44, sessionId, existing[0].id, lease);
         return { ok: true, alreadyExists: true, submissionId: existing[0].id };
       }
-    } catch { /* skip */ }
+    } catch (error) { if ((error as { code?: string })?.code === 'existing_submission_integrity_mismatch') throw error; throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`); }
   }
 
   // Create FormSubmission
@@ -253,22 +267,23 @@ async function processIntake(base44, intake) {
   record.retention_policy_version = '2026-08-18';
   record.retention_protected_at = now;
   let created;
+  await lease.assertOwned();
   try {
     created = await base44.asServiceRole.entities.FormSubmission.create(record);
   } catch (createErr) {
     await base44.asServiceRole.entities.FormSubmissionIntake.update(intake.id, {
       status: 'retry_failed',
       ai_repair_status: 'failed',
-      ai_repair_error_json: JSON.stringify({ message: createErr?.message || 'FormSubmission create failed' }),
+      ai_repair_error_json: JSON.stringify({ message: (createErr instanceof Error ? createErr.message : String(createErr)) || 'FormSubmission create failed' }),
       ai_repaired_payload_json: JSON.stringify(repairResult.payload),
       last_ai_repair_at: now,
       ai_repair_attempt_count: incrementCount(intake.ai_repair_attempt_count),
-      retry_error_json: JSON.stringify({ message: createErr?.message || 'create failed' }),
+      retry_error_json: JSON.stringify({ message: (createErr instanceof Error ? createErr.message : String(createErr)) || 'create failed' }),
       last_retry_at: now,
       retry_count: incrementCount(intake.retry_count),
     });
-    await markDraftAutoRepairFailed(base44, sessionId, createErr?.message || 'create failed');
-    return { ok: false, reason: 'create_failed', error: createErr?.message };
+    await markDraftAutoRepairFailed(base44, sessionId, (createErr instanceof Error ? createErr.message : String(createErr)) || 'create failed');
+    return { ok: false, reason: 'create_failed', error: (createErr instanceof Error ? createErr.message : String(createErr)) };
   }
 
   // Success — update intake and draft
@@ -286,13 +301,14 @@ async function processIntake(base44, intake) {
     ai_repair_source: 'deterministic',
   });
 
-  await markDraftSubmitted(base44, sessionId, created.id);
+  await markDraftSubmitted(base44, sessionId, created.id, lease);
 
   // Best-effort Zapier delivery
   try {
     const webhookUrl = Deno.env.get('EXPRESS_ZAPIER_WEBHOOK_URL')?.trim();
     if (webhookUrl) {
       const zapPayload = { metadata: repairResult.payload.metadata, userdata: repairResult.payload.userdata };
+      await lease.assertOwned();
       const resp = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -312,13 +328,14 @@ async function processIntake(base44, intake) {
   });
 }
 
-async function markDraftAutoRepairFailed(base44, sessionId, reason) {
+async function markDraftAutoRepairFailed(base44: BackendClient, sessionId: string, reason: string) {
   if (!sessionId) return;
   const drafts = await base44.asServiceRole.entities.FormDraft.filter(
     { session_id: sessionId }, '-last_saved_at', 1
   );
   if (drafts && drafts.length > 0) {
     const current = drafts[0];
+    if (current.status === 'submitted' || current.final_submission_id) return;
     const next = { ...current, status: 'auto_repair_failed', save_error: `Auto repair failed: ${reason}` };
     const version = await createQuestionnaireVersion({
       base44, draft: next, previous: current,
@@ -326,13 +343,13 @@ async function markDraftAutoRepairFailed(base44, sessionId, reason) {
       capturedAt: nowIso(), versionKey: `${current.id}:auto-repair-failed:${String(reason).slice(0, 120)}`,
     });
     if (!version?.id) throw new Error('Auto-repair failure history was not retained.');
-    await base44.asServiceRole.entities.FormDraft.update(current.id, {
-      status: next.status, save_error: next.save_error, last_materialized_version_id: version.id,
-    });
+    await base44.asServiceRole.entities.FormDraft.updateMany({
+      id: current.id, status: current.status ?? null, final_submission_id: current.final_submission_id ?? null,
+    }, { $set: { status: next.status, save_error: next.save_error, last_materialized_version_id: version.id } });
   }
 }
 
-async function markDraftSubmitted(base44, sessionId, submissionId) {
+async function markDraftSubmitted(base44: BackendClient, sessionId: string, submissionId: string, lease: EntityLease) {
   if (!sessionId) return;
   const drafts = await base44.asServiceRole.entities.FormDraft.filter(
     { session_id: sessionId }, '-last_saved_at', 1
@@ -346,7 +363,7 @@ async function markDraftSubmitted(base44, sessionId, submissionId) {
       capturedAt: next.submitted_at, versionKey: `${current.id}:submitted:${submissionId}`,
     });
     if (!version?.id) throw new Error('Auto-repair submitted history was not retained.');
-    await base44.asServiceRole.entities.FormDraft.update(current.id, {
+    await lease.update({
       status: next.status, final_submission_id: submissionId, submitted_at: next.submitted_at,
       last_materialized_version_id: version.id,
     });
@@ -370,7 +387,7 @@ Deno.serve(async (req) => {
       { status: 'auto_repair_pending' }
     );
 
-    const eligibleIntakes = (pendingIntakes || []).filter(intake => {
+    const eligibleIntakes = (pendingIntakes || []).filter((intake: JsonRecord) => {
       const createdAt = intake.created_at_server || intake.created_date || '';
       return createdAt < cutoff;
     });
@@ -381,7 +398,7 @@ Deno.serve(async (req) => {
         const result = await processIntake(base44, intake);
         results.push({ intakeId: intake.id, sessionId: intake.questionnaire_session_id, ...result });
       } catch (err) {
-        results.push({ intakeId: intake.id, ok: false, reason: 'unexpected_error', error: err?.message });
+        results.push({ intakeId: intake.id, ok: false, reason: 'unexpected_error', error: (err instanceof Error ? err.message : String(err)) });
       }
     }
 
@@ -396,7 +413,7 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     return Response.json(
-      { ok: false, error: error?.message || 'Unknown error' },
+      { ok: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error' },
       { status: 500, headers: corsHeaders }
     );
   }

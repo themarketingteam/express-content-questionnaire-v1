@@ -177,7 +177,8 @@ test('actual webhook function rejects unsupported versions and over-limit pages 
   const valid = build({ ...raw(), serviceOfferingsStructure: tree() });
   const future = structuredClone(valid); future.metadata.questionnaire_payload_version = 99;
   const excessive = build({ ...raw(), serviceOfferingsStructure: { format: 'page-tree-v1', pages: Array.from({ length: 7 }, (_, index) => node(`p${index}`, `Custom ${index}`, 'custom')) } });
-  for (const payload of [future, excessive]) {
+  const malformed = build(raw()); malformed.userdata.service_offerings_structure = null;
+  for (const payload of [future, excessive, malformed]) {
     const response = await captured.handler(new Request('http://localhost/submit', { method: 'POST', body: JSON.stringify(payload) }));
     assert.equal(response.status, 400);
   }
@@ -204,5 +205,7 @@ test('both actual backend repair helpers preserve valid compact content and reje
     assert.deepEqual(JSON.parse(JSON.stringify(repaired.userdata.service_offerings_structure)), serializePageStructure(tree()));
     const future = structuredClone(payload); future.userdata.service_offerings_structure.format = 'future';
     assert.equal(validatePayload(deterministicRepair(future).payload).ok, false);
+    const malformed = build(raw()); malformed.userdata.service_offerings_structure = null;
+    assert.equal(validatePayload(deterministicRepair(malformed).payload).ok, false);
   }
 });

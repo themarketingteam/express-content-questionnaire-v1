@@ -1,3 +1,4 @@
+import { requireExpressRecoveryIntegrity, requireExpressRecoveryReceipt } from '../../shared/expressSubmissionIntegrity.js';
 import { organizedPayloadRecordFields, validateExpressOrganizerLimits, validateOrganizedSubmission } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
@@ -5,6 +6,11 @@ import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recovery
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
+
+// Legacy recovery JSON has optional, historically inconsistent fields. Validate
+// its wire shape and raw-answer preservation before using it for submission.
+type JsonRecord = Record<string, any>;
+type BackendClient = ReturnType<typeof createClientFromRequest>;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,7 +20,7 @@ const corsHeaders = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const parsePayload = (value) => {
+const parsePayload = (value: unknown): any => {
   if (!value) return null;
   try {
     return typeof value === 'string' ? JSON.parse(value) : value;
@@ -23,19 +29,19 @@ const parsePayload = (value) => {
   }
 };
 
-const safeError = (error) => {
+const safeError = (error: unknown) => {
   try {
     return {
-      message: error?.message || String(error),
-      name: error?.name || 'Error',
-      stack: error?.stack || null,
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : 'Error',
+      stack: error instanceof Error ? error.stack || null : null,
     };
   } catch {
     return { message: String(error) };
   }
 };
 
-const incrementRetryCount = (value) => {
+const incrementRetryCount = (value: unknown) => {
   if (typeof value === 'number' && !isNaN(value)) return value + 1;
   return 1;
 };
@@ -43,9 +49,9 @@ const incrementRetryCount = (value) => {
 const nowIso = () => new Date().toISOString();
 
 // Sanitize geographic_area_meta: remove null lat/lon/place_id
-function sanitizeGeoMeta(raw) {
+function sanitizeGeoMeta(raw: JsonRecord | null | undefined) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const out = {};
+  const out: { label?: string; lat?: number; lon?: number; place_id?: string; source?: string } = {};
   if (typeof raw.label === 'string' && raw.label.trim()) out.label = raw.label.trim();
   if (typeof raw.lat === 'number' && isFinite(raw.lat)) out.lat = raw.lat;
   if (typeof raw.lon === 'number' && isFinite(raw.lon)) out.lon = raw.lon;
@@ -54,18 +60,18 @@ function sanitizeGeoMeta(raw) {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-const mapExpressPayloadToFormSubmissionRecord = (payload, rawResponses) => {
+const mapExpressPayloadToFormSubmissionRecord = (payload: JsonRecord, rawResponses: unknown): JsonRecord => {
   const { metadata, userdata } = payload;
   const normalizedMetadata = { ...metadata, service_type: 'express' };
 
   const geoMeta = sanitizeGeoMeta(userdata.geographic_area_meta);
 
-  const cleanDomain = (domain) => {
+  const cleanDomain = (domain: unknown) => {
     if (!domain) return '';
     return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
 
-  const record = {
+  const record: JsonRecord = {
     ...(payload?.metadata?.questionnaire_payload_version !== undefined ? organizedPayloadRecordFields(payload) : {}),
     business_name: normalizedMetadata.business_name || '',
     business_domain: cleanDomain(normalizedMetadata.businessDomain || normalizedMetadata.business_domain || userdata.business_domain || ''),
@@ -111,7 +117,7 @@ const mapExpressPayloadToFormSubmissionRecord = (payload, rawResponses) => {
   return record;
 };
 
-const getNewestRecord = (records) => {
+const getNewestRecord = (records: JsonRecord[]) => {
   if (!records || records.length === 0) return null;
   if (records.length === 1) return records[0];
   return records.reduce((newest, current) => {
@@ -122,7 +128,7 @@ const getNewestRecord = (records) => {
 };
 
 // Domain is optional - only require metadata, userdata, and business_name
-const hasRequiredExpressPayloadFields = (payload) => {
+const hasRequiredExpressPayloadFields = (payload: JsonRecord) => {
   if (!payload || typeof payload !== 'object') return false;
   if (!payload.metadata || typeof payload.metadata !== 'object') return false;
   if (!payload.userdata || typeof payload.userdata !== 'object' || Array.isArray(payload.userdata)) return false;
@@ -132,13 +138,13 @@ const hasRequiredExpressPayloadFields = (payload) => {
 
 // ─── Zapier delivery ──────────────────────────────────────────────────────────
 
-function buildZapierPayload(payload) {
-  if (payload?.metadata?.questionnaire_payload_version !== undefined) {
+function buildZapierPayload(payload: JsonRecord) {
+  {
     const validation = validateExpressOrganizerLimits(payload);
     if (!validation.ok) throw new Error(validation.errors.join(' '));
   }
   const { metadata = {}, userdata = {} } = payload || {};
-  const cleanDomain = (domain) => {
+  const cleanDomain = (domain: unknown) => {
     if (!domain) return "";
     return String(domain).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').trim();
   };
@@ -160,7 +166,7 @@ function buildZapierPayload(payload) {
   };
 }
 
-async function deliverToZapier(payload) {
+async function deliverToZapier(payload: JsonRecord) {
   const webhookUrl = Deno.env.get('EXPRESS_ZAPIER_WEBHOOK_URL')?.trim();
   if (!webhookUrl) {
     return { ok: false, error: 'EXPRESS_ZAPIER_WEBHOOK_URL not configured' };
@@ -181,7 +187,7 @@ async function deliverToZapier(payload) {
   } catch (err) {
     return {
       ok: false,
-      error: err?.name === 'AbortError' ? 'Zapier delivery timed out' : (err?.message || 'Zapier delivery failed'),
+      error: (err instanceof Error && err.name === 'AbortError') ? 'Zapier delivery timed out' : ((err instanceof Error ? err.message : String(err)) || 'Zapier delivery failed'),
     };
   }
 }
@@ -263,6 +269,8 @@ Deno.serve(async (req) => {
     // the intake has NOT been linked yet. If already linked, admin should use
     // "Force Retry" which always delivers to Zapier.
     if (!forceRetry && intakeRecord && intakeRecord.linked_submission_id) {
+      const linked = await base44.asServiceRole.entities.FormSubmission.get(intakeRecord.linked_submission_id);
+      requireExpressRecoveryReceipt(linked, parsePayload(linked?.transformed_payload_json), intakeRecord.raw_responses_json);
       return Response.json({
         success: true, alreadySubmitted: true,
         linkedSubmissionId: intakeRecord.linked_submission_id,
@@ -274,7 +282,7 @@ Deno.serve(async (req) => {
     // Use provided payload if available; otherwise fall back to intake record's payload
     const transformed = hasProvidedPayload
       ? parsePayload(providedPayload)
-      : parsePayload(intakeRecord.transformed_payload_json);
+      : parsePayload(intakeRecord?.transformed_payload_json);
     if (!transformed) {
       const errorPayload = { message: 'Malformed transformed payload JSON' };
       if (intakeIdActual) {
@@ -282,7 +290,7 @@ Deno.serve(async (req) => {
           status: 'retry_failed',
           retry_error_json: JSON.stringify(errorPayload),
           last_retry_at: nowIso(),
-          retry_count: incrementRetryCount(intakeRecord.retry_count),
+          retry_count: incrementRetryCount(intakeRecord?.retry_count),
         });
       }
       return Response.json(
@@ -305,7 +313,7 @@ Deno.serve(async (req) => {
           status: 'retry_failed',
           retry_error_json: JSON.stringify(errorPayload),
           last_retry_at: nowIso(),
-          retry_count: incrementRetryCount(intakeRecord.retry_count),
+          retry_count: incrementRetryCount(intakeRecord?.retry_count),
         });
       }
       return Response.json(
@@ -324,7 +332,7 @@ Deno.serve(async (req) => {
       null;
 
     // Helper: safely update the intake record if it exists
-    const updateIntake = async (data) => {
+    const updateIntake = async (data: JsonRecord) => {
       if (!intakeIdActual) return;
       try {
         await base44.asServiceRole.entities.FormSubmissionIntake.update(intakeIdActual, data);
@@ -341,10 +349,11 @@ Deno.serve(async (req) => {
       base44,
       sessionId: sessionId || `retry:${submitAttemptId || intakeIdActual || 'manual'}`,
       purpose: `submission-retry:${sessionId || submitAttemptId || intakeIdActual || 'manual'}`,
-      operation: async (coordinatorDraft) => {
+      operation: async (coordinatorDraft, lease) => {
       let currentResponses: Record<string, unknown> = {};
       try { const serializedResponses = coordinatorDraft?.responses_json; if (typeof serializedResponses === 'string') currentResponses = JSON.parse(serializedResponses); } catch { /* Legacy snapshots can be unavailable. */ }
-      if (currentResponses.serviceOfferingsStructure || currentResponses.targetIndustriesStructure) {
+      requireExpressRecoveryIntegrity(transformed, intakeRecord?.raw_responses_json, coordinatorDraft?.responses_json);
+      if (Object.hasOwn(currentResponses, 'serviceOfferingsStructure') || Object.hasOwn(currentResponses, 'targetIndustriesStructure')) {
         const organizerGuard = validateOrganizedSubmission({ payload: transformed, responses: currentResponses });
         if (!organizerGuard.ok) throw Object.assign(new Error(organizerGuard.errors.join(' ')), { code: organizerGuard.code, status: organizerGuard.status });
       }
@@ -359,6 +368,7 @@ Deno.serve(async (req) => {
             { questionnaire_session_id: sessionId }, '-created_date', 1
           );
           if (existingSubmissions && existingSubmissions.length > 0) {
+            requireExpressRecoveryReceipt(existingSubmissions[0], transformed, intakeRecord?.raw_responses_json, coordinatorDraft.responses_json);
             const existingId = existingSubmissions[0].id;
             await updateIntake({
               status: 'retry_success',
@@ -374,7 +384,7 @@ Deno.serve(async (req) => {
               message: 'Already linked. Use Force Retry to re-send to Zapier.',
             }, { headers: corsHeaders });
           }
-        } catch { /* skip */ }
+        } catch (error) { if ((error as { code?: string })?.code === 'existing_submission_integrity_mismatch') throw error; throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`); }
       }
 
       if (submitAttemptId) {
@@ -383,6 +393,7 @@ Deno.serve(async (req) => {
             { submit_attempt_id: submitAttemptId }, '-created_date', 1
           );
           if (existingByAttempt && existingByAttempt.length > 0) {
+            requireExpressRecoveryReceipt(existingByAttempt[0], transformed, intakeRecord?.raw_responses_json, coordinatorDraft.responses_json);
             const existingId = existingByAttempt[0].id;
             await updateIntake({
               status: 'retry_success',
@@ -398,7 +409,7 @@ Deno.serve(async (req) => {
               message: 'Already linked. Use Force Retry to re-send to Zapier.',
             }, { headers: corsHeaders });
           }
-        } catch { /* skip */ }
+        } catch (error) { if ((error as { code?: string })?.code === 'existing_submission_integrity_mismatch') throw error; throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`); }
       }
     }
 
@@ -409,7 +420,7 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════════════════════════════════════════
 
     let submissionId = null;
-    let existingSubmission = null;
+    let existingSubmission: JsonRecord | null = null;
     let isExistingSubmission = false;
 
     // For forceRetry: check if a FormSubmission already exists for this session
@@ -419,16 +430,26 @@ Deno.serve(async (req) => {
           { questionnaire_session_id: sessionId }, '-created_date', 1
         );
         if (existing && existing.length > 0) {
+          requireExpressRecoveryReceipt(existing[0], transformed, intakeRecord?.raw_responses_json, coordinatorDraft.responses_json);
           existingSubmission = existing[0];
           submissionId = existing[0].id;
           isExistingSubmission = true;
         }
-      } catch { /* continue to create */ }
+      } catch (error) { if ((error as { code?: string })?.code === 'existing_submission_integrity_mismatch') throw error; throw new Error(`Submission deduplication is unavailable: ${error instanceof Error ? error.message : "lookup failed"}`); }
     }
 
-    if (isExistingSubmission) {
+    if (forceRetry && !existingSubmission && submitAttemptId) {
+      const byAttempt = await base44.asServiceRole.entities.FormSubmission.filter({ submit_attempt_id: submitAttemptId }, '-created_date', 1);
+      if (byAttempt?.[0]) {
+        requireExpressRecoveryReceipt(byAttempt[0], transformed, intakeRecord?.raw_responses_json, coordinatorDraft.responses_json);
+        existingSubmission = byAttempt[0];
+        submissionId = byAttempt[0].id;
+        isExistingSubmission = true;
+      }
+    }
+    if (isExistingSubmission && existingSubmission) {
       // ── Update existing FormSubmission: increment resubmit_count ──
-      const newResubmitCount = (existingSubmission.resubmit_count || 0) + 1;
+      const newResubmitCount = (existingSubmission?.resubmit_count || 0) + 1;
       try {
         await base44.asServiceRole.entities.FormSubmission.update(submissionId, {
           resubmit_count: newResubmitCount,
@@ -449,6 +470,7 @@ Deno.serve(async (req) => {
       submissionRecord.retention_policy_version = '2026-08-18';
       submissionRecord.retention_protected_at = nowIso();
 
+      await lease.assertOwned();
       try {
         const created = await base44.asServiceRole.entities.FormSubmission.create(submissionRecord);
         submissionId = created.id;
@@ -468,11 +490,12 @@ Deno.serve(async (req) => {
     }
 
     // ── ALWAYS deliver to Zapier (every retry sends the payload) ──
+    await lease.assertOwned();
     const zapierResult = await deliverToZapier(transformed);
     const now = nowIso();
     const currentZapierCount = (existingSubmission?.zapier_attempt_count || 0) + 1;
     const currentResubmitCount = isExistingSubmission
-      ? (existingSubmission.resubmit_count || 0) + 1
+      ? (existingSubmission?.resubmit_count || 0) + 1
       : 1;
 
     try {
@@ -515,7 +538,13 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     const organizerError = error as { code?: string; status?: number; message?: string };
-    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE') {
+    if (organizerError?.code === 'existing_submission_integrity_mismatch') {
+      return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message }, { status: 409, headers: corsHeaders });
+    }
+    if (organizerError?.code === 'payload_integrity_mismatch') {
+      return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message }, { status: 422, headers: corsHeaders });
+    }
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE' || ['DRAFT_LEASE_LOST', 'DRAFT_WRITE_UNVERIFIED', 'DRAFT_SNAPSHOT_INVALID'].includes(organizerError?.code || '') || organizerError?.code === 'AMBIGUOUS_DRAFT_SESSION') {
       return Response.json({ success: false, ok: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, { status: organizerError.status === 409 ? 409 : 400, headers: corsHeaders });
     }
     return Response.json(

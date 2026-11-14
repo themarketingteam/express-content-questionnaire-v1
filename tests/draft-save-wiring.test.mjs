@@ -63,6 +63,27 @@ test('an immediate pending draft is enveloped before pagehide can flush it', () 
   visit(ast); assert.ok(found);
 });
 
+test('submission supplies the current authorized draft separately from modal business identity', () => {
+  const calls = [];
+  const visit = (node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(ast) === 'submitExpressQuestionnaire') calls.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  assert.equal(calls.length, 1);
+  const options = calls[0].arguments[0];
+  assert.ok(ts.isObjectLiteralExpression(options));
+  const property = name => options.properties.find(item => item.name?.getText(ast) === name)?.initializer;
+  assert.equal(property('draftId')?.getText(ast), 'draftRecordIdRef.current');
+  assert.equal(property('draftAccessKey')?.getText(ast), 'draftIdentity.accessKey');
+  const context = { draftRecordIdRef: { current: 'recovered-authorized-row' }, draftIdentity: { accessKey: 'synthetic-recovery-secret' }, businessName: 'Edited modal name', domain: 'edited.example' };
+  const evaluate = name => new Function('draftRecordIdRef', 'draftIdentity', 'businessName', 'domain', `return (${property(name).getText(ast)});`)(context.draftRecordIdRef, context.draftIdentity, context.businessName, context.domain);
+  assert.equal(evaluate('draftId'), 'recovered-authorized-row');
+  assert.equal(evaluate('draftAccessKey'), 'synthetic-recovery-secret');
+  context.draftRecordIdRef.current = 'fresh-bootstrap-authorized-row';
+  assert.equal(evaluate('draftId'), 'fresh-bootstrap-authorized-row', 'Read the current confirmed draft ref at submit time.');
+});
+
 test('pre-submit checkpoint and saveNow coalesce safely behind an in-flight autosave', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'express-submit-wiring-'));
   try {
