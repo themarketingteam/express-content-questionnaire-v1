@@ -396,8 +396,25 @@ try {
   expect(final.raw_responses_json === JSON.stringify(raw), 'final record lost rich raw answers');
   expect(final.questionnaire_payload_version === 2, 'flattened final version missing');
   expect(final.zapier_sent !== true && final.zapier_delivery_status === 'not_attempted', 'unexpected delivery status');
-  const compact = JSON.stringify(final.service_offerings_structure);
-  expect(compact.includes('SYNTHETIC Help Desk') && !compact.includes('catalogId') && !compact.includes('"id":'), 'compact structure is missing or leaked editor identity');
+  const compactStoredDto = (tree) => {
+    expect(tree?.format === 'page-tree-v1' && Array.isArray(tree.pages), 'stored DTO has no page tree');
+    const read = (page, child = false) => {
+      expect(page && Object.keys(page).every((key) => ['id', 'label', 'source', 'catalogId', 'children'].includes(key)), 'stored DTO has unsupported fields');
+      expect(page.id == null && page.catalogId == null, 'new compact DTO has unexpected real editor identity');
+      expect(typeof page.label === 'string' && ['predefined', 'custom'].includes(page.source), 'stored DTO page content is invalid');
+      expect(page.children === undefined || Array.isArray(page.children), 'stored DTO children are invalid');
+      expect(!child || !page.children?.length, 'stored DTO contains grandchildren');
+      return { label: page.label, source: page.source, ...(!child && page.children?.length ? { children: page.children.map((value) => read(value, true)) } : {}) };
+    };
+    return { format: tree.format, pages: tree.pages.map((page) => read(page)) };
+  };
+  const storedPayload = JSON.parse(final.transformed_payload_json);
+  for (const field of ['service_offerings_structure', 'target_industries_structure']) {
+    const wireStructure = JSON.stringify(storedPayload.userdata[field]);
+    expect(!wireStructure.includes('catalogId') && !wireStructure.includes('"id":'), 'serialized submission leaked editor identity');
+    expect(JSON.stringify(compactStoredDto(final[field])) === wireStructure, 'entity DTO differs from compact serialized page content');
+  }
+  expect(JSON.stringify(storedPayload.userdata.service_offerings_structure).includes('SYNTHETIC Help Desk'), 'compact serialized structure is missing pages');
   stage = 'idempotent retry';
   const duplicate = await invoke('submitExpressQuestionnaireFallback', submissionBody);
   expect(duplicate.success && duplicate.alreadySubmitted && duplicate.submissionId === ids.submissionId && duplicate.zapierSent === false, 'retry did not reuse the exact receipt');

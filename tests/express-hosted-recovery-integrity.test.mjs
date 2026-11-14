@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
 import test from 'node:test';
+import { hydrateFormSubmissionEntity } from './helpers/base44EntityHydration.mjs';
 import * as organizer from '../base44/shared/pageOrganizerContract.js';
 import { requireExpressRecoveryIntegrity, requireExpressRecoveryReceipt } from '../base44/shared/expressSubmissionIntegrity.js';
 import { buildExpressSubmissionPayload, getInitialExpressFormData, mapExpressPayloadToFormSubmissionRecord } from '../src/lib/expressQuestionnairePayload.js';
@@ -104,7 +105,7 @@ for (const name of ['retryQuestionnaireIntakeSubmission', 'repairExpressQuestion
       const final = existingFinal(data); final.service_offerings = [];
       if (linked) data.intake.linked_submission_id = final.id;
       const original = structuredClone(final);
-      const harness = await backend(name, { ...data, existingSubmission: final });
+      const harness = await backend(name, { ...data, existingSubmission: hydrateFormSubmissionEntity(final) });
       const result = await harness.send({ intakeId: data.intake.id, mode: 'repair_and_retry' });
       assert.equal(result.status, 409, JSON.stringify(result.body));
       assert.equal(result.body.code, 'existing_submission_integrity_mismatch');
@@ -120,7 +121,7 @@ test('scheduled auto repair verifies an existing receipt rather than acknowledgi
     const data = fixture();
     const final = existingFinal(data);
     if (damaged) final.transformed_payload_json = '{}';
-    const harness = await backend('autoRepairRetryIntake', { ...data, existingSubmission: final });
+    const harness = await backend('autoRepairRetryIntake', { ...data, existingSubmission: hydrateFormSubmissionEntity(final) });
     if (damaged) await assert.rejects(() => harness.processIntake(harness.base44, data.intake), { code: 'existing_submission_integrity_mismatch' });
     else assert.equal((await harness.processIntake(harness.base44, data.intake)).alreadyExists, true);
     assert.equal(harness.calls.creates, 0);

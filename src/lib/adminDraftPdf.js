@@ -1,3 +1,4 @@
+import { normalizeStoredOrganizedRecord } from '../../base44/shared/pageOrganizerContract.js';
 import { EXPRESS_PDF_TEMPLATE_VERSION } from "../components/questionnaire/PDFGenerator.js";
 import { buildExpressDraftSubmissionPreview } from "./expressDraftSubmissionPreview.js";
 import { normalizeExpressDisplayFormData, retainMappedPageStructures } from "./pageOrganizerDisplay.js";
@@ -42,6 +43,7 @@ function canonicalPayloadToFormData(payload) {
 
 function submissionToCanonicalPayload(submission) {
   if (!submission) return null;
+  submission = normalizeStoredOrganizedRecord(submission);
   return retainMappedPageStructures({ metadata: submission, userdata: submission }, {
     metadata: {
       business_name: String(submission.business_name || ""),

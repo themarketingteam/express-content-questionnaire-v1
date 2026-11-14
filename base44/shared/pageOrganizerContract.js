@@ -131,6 +131,37 @@ export const serializePageStructure = (structure) => {
   };
 };
 
+/** Base44 entity-read normalization; editor and incoming wire validators stay strict. */
+export const serializeStoredPageStructure = (structure) => {
+  if (validateMappedPageStructure(structure).ok) return serializePageStructure(structure);
+  const invalid = () => { throw Object.assign(new Error('The stored page structure requires recovery review.'), { code: 'INVALID_PAGE_STRUCTURE', status: 400 }); };
+  if (!plain(structure) || structure.format !== PAGE_STRUCTURE_FORMAT || !Array.isArray(structure.pages) || structure.pages.length > 100 || Object.keys(structure).some((key) => !['format', 'pages'].includes(key))) invalid();
+  const read = (node, child = false) => {
+    if (!plain(node) || Object.keys(node).some((key) => !['id', 'label', 'source', 'catalogId', 'children'].includes(key))) invalid();
+    if ((own(node, 'id') && node.id !== null) || (own(node, 'catalogId') && node.catalogId !== null)) invalid();
+    if (own(node, 'children') && !Array.isArray(node.children)) invalid();
+    if (child && node.children?.length) invalid();
+    if (node.children?.length > 100) invalid();
+    return { label: node.label, source: node.source, ...(!child && node.children?.length ? { children: node.children.map((value) => read(value, true)) } : {}) };
+  };
+  return serializePageStructure({ format: structure.format, pages: structure.pages.map((node) => read(node)) });
+};
+
+/** Normalize optional organization fields injected by the stored entity schema. */
+export const normalizeStoredOrganizedRecord = (record) => {
+  if (!plain(record)) throw Object.assign(new Error('The stored submission is unreadable.'), { code: 'INVALID_PAGE_STRUCTURE', status: 400 });
+  const normalized = { ...record };
+  if (normalized.questionnaire_payload_version === null) delete normalized.questionnaire_payload_version;
+  for (const question of ORGANIZER_QUESTIONS) {
+    if (!own(record, question.structureField)) continue;
+    if (record[question.structureField] === null) delete normalized[question.structureField];
+    else normalized[question.structureField] = serializeStoredPageStructure(record[question.structureField]);
+  }
+  const validation = validateOrganizedPayload({ metadata: normalized.questionnaire_payload_version === undefined ? {} : { questionnaire_payload_version: normalized.questionnaire_payload_version }, userdata: normalized });
+  if (!validation.ok) throw Object.assign(new Error(validation.errors.join(' ')), { code: validation.code, status: 400 });
+  return normalized;
+};
+
 /** Invalid or unknown formats never compare equal, even to themselves. */
 export const samePageStructure = (left, right) => {
   try { return same(serializePageStructure(left), serializePageStructure(right)); }

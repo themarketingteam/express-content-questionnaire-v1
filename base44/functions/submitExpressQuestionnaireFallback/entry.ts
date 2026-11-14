@@ -2,7 +2,7 @@ import { organizedPayloadRecordFields, validateOrganizedSubmission } from '../..
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { withSubmissionSessionLease } from '../../shared/submissionCoordinator.ts';
 import { createQuestionnaireVersion } from '../../shared/questionnaireVersions.ts';
-import { inspectExpressSubmissionIntegrity } from '../../shared/expressSubmissionIntegrity.js';
+import { inspectExpressSubmissionIntegrity, payloadFromStoredExpressSubmission } from '../../shared/expressSubmissionIntegrity.js';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -653,18 +653,12 @@ Deno.serve(async (req) => {
         // Missing or malformed stored evidence must fail closed below.
       }
       const storedPayloadIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, storedTransformedPayload);
-      const storedRecordIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, {
-        metadata: existingSubmission.questionnaire_payload_version === undefined ? {} : {
-          questionnaire_payload_version: existingSubmission.questionnaire_payload_version,
-        },
-        userdata: {
-          ...existingSubmission,
-          // FormSubmission stores this scalar questionnaire answer as an array.
-          company_goals: Array.isArray(existingSubmission.company_goals)
-            ? existingSubmission.company_goals.join(', ')
-            : existingSubmission.company_goals,
-        },
-      });
+      let storedRecordIntegrity: { ok: boolean; mismatchedFields: string[] };
+      try {
+        storedRecordIntegrity = inspectExpressSubmissionIntegrity(rawResponseSnapshot, payloadFromStoredExpressSubmission(existingSubmission));
+      } catch {
+        storedRecordIntegrity = { ok: false, mismatchedFields: ['stored_submission'] };
+      }
       if (!storedPayloadIntegrity.ok || !storedRecordIntegrity.ok) {
         return Response.json({
           success: false,

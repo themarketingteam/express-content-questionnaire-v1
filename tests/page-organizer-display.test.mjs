@@ -117,3 +117,17 @@ test('admin PDFs preserve compact pages from drafts and flattened final submissi
   const reordered = compact(); reordered.pages.reverse();
   assert.notEqual(await createPdfPayloadFingerprint({ ...fromDraft, formData: { ...fromDraft.formData, serviceOfferingsStructure: reordered } }), originalHash);
 });
+
+test('stored entity null identity padding renders the same PDF priorities as compact JSON', async () => {
+  const { hydrateFormSubmissionEntity } = await import('./helpers/base44EntityHydration.mjs');
+  const source = payload();
+  const submission = hydrateFormSubmissionEntity({
+    id: 'stored-hydrated', business_name: 'Local Example', business_domain: 'example.test', submission_datetime: '2026-11-13T13:00:00Z',
+    questionnaire_payload_version: 2, ...source.userdata,
+  });
+  const result = prepareDraftPdfInput({ draft: { id: 'empty-draft', responses_json: '{}', last_saved_at: '2026-11-13T12:00:00Z' }, submission });
+  assert.equal(result.source, 'form_submission');
+  assert.deepEqual(result.formData.serviceOfferingsStructure, compact());
+  assert.match(formatAnswer('serviceOfferings', result.formData, 'serviceOfferingsOther'), /1\. Cloud Services\n {4}1\. Microsoft 365/);
+  assert.equal(result.payloadSnapshot.metadata.questionnaire_payload_version, 2);
+});

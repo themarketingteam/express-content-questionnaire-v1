@@ -1,3 +1,4 @@
+import { normalizeStoredOrganizedRecord } from '../../shared/pageOrganizerContract.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.41';
 import { secrets } from 'base44:runtime';
 import { authorizeRecoveryRequest, safeRecoveryLog } from '../../shared/recoveryAuthorization.ts';
@@ -203,6 +204,7 @@ function versionSummary({
 }
 
 function submissionAsDraft(submission: Record<string, any>, owningDraft: Record<string, any>): Record<string, unknown> {
+  submission = normalizeStoredOrganizedRecord(submission);
   const transformed = parseObject(submission.transformed_payload_json);
   const metadata = parseObject(transformed.metadata);
   const userdata = parseObject(transformed.userdata);

@@ -1,4 +1,4 @@
-import { ORGANIZER_QUESTIONS, validateOrganizedSubmission, validatePageStructure, projectOrganizedPages, samePageStructure, validateExpressOrganizerLimits } from './pageOrganizerContract.js';
+import { ORGANIZER_QUESTIONS, validateOrganizedSubmission, validatePageStructure, projectOrganizedPages, samePageStructure, validateExpressOrganizerLimits, normalizeStoredOrganizedRecord } from './pageOrganizerContract.js';
 // Shared by the browser and backend. Return field names only: answer values
 // must never become diagnostic messages or telemetry.
 const ANSWER_FIELDS = [
@@ -173,12 +173,18 @@ export function requireExpressRecoveryReceipt(record, payload, ...rawSnapshots) 
     const snapshots = [...rawSnapshots, record.raw_responses_json];
     requireExpressRecoveryIntegrity(payload, ...snapshots);
     requireExpressRecoveryIntegrity(transformed, ...snapshots);
-    requireExpressRecoveryIntegrity({
-      metadata: record.questionnaire_payload_version === undefined ? {} : { questionnaire_payload_version: record.questionnaire_payload_version },
-      userdata: { ...record, company_goals: Array.isArray(record.company_goals) ? record.company_goals.join(', ') : record.company_goals },
-    }, ...snapshots);
+    requireExpressRecoveryIntegrity(payloadFromStoredExpressSubmission(record), ...snapshots);
     return { ok: true };
   } catch {
     throw Object.assign(new Error('An existing final submission does not preserve the saved answers. Recovery review is required before acknowledging or delivering it.'), { code: 'existing_submission_integrity_mismatch', status: 409 });
   }
+}
+
+/** Integrity adapter only: full stored row fields are never outbound wire content. */
+export function payloadFromStoredExpressSubmission(record) {
+  const normalized = normalizeStoredOrganizedRecord(record);
+  return {
+    metadata: normalized.questionnaire_payload_version === undefined ? {} : { questionnaire_payload_version: normalized.questionnaire_payload_version },
+    userdata: { ...normalized, company_goals: Array.isArray(normalized.company_goals) ? normalized.company_goals.join(', ') : normalized.company_goals },
+  };
 }

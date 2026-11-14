@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import vm from "node:vm";
 import test from "node:test";
-import { inspectExpressSubmissionIntegrity } from "../base44/shared/expressSubmissionIntegrity.js";
+import { hydrateFormSubmissionEntity } from "./helpers/base44EntityHydration.mjs";
+import { inspectExpressSubmissionIntegrity, payloadFromStoredExpressSubmission } from "../base44/shared/expressSubmissionIntegrity.js";
 import { buildExpressSubmissionPayload, getInitialExpressFormData, mapExpressPayloadToFormSubmissionRecord } from "../src/lib/expressQuestionnairePayload.js";
 
 function completeAnswers() {
@@ -103,7 +104,7 @@ async function backendHarness({ failRetention = false, existingSubmission = null
   let handler;
   vm.runInNewContext(executable, {
     Response, TextEncoder, crypto, console,
-    inspectExpressSubmissionIntegrity,
+    inspectExpressSubmissionIntegrity, payloadFromStoredExpressSubmission,
     Deno: { serve(value) { handler = value; } },
     createClientFromRequest() {
       return { asServiceRole: { entities: {
@@ -256,7 +257,7 @@ test("deduplication accepts an intact version-two flattened record and rejects d
     const existingSubmission = storedSubmission(raw, payload);
     assert.equal(existingSubmission.questionnaire_payload_version, 2);
     if (damaged) delete existingSubmission.questionnaire_payload_version;
-    const harness = await backendHarness({ existingSubmission });
+    const harness = await backendHarness({ existingSubmission: hydrateFormSubmissionEntity(existingSubmission) });
     const result = await harness.send(raw, payload);
     assert.equal(result.status, damaged ? 409 : 200);
     assert.equal(result.body.success, !damaged);
@@ -306,4 +307,17 @@ test('a failed duplicate lookup cannot authorize another final record', async ()
   assert.equal(result.status, 500);
   assert.match(result.body.error.message, /deduplication is unavailable/);
   assert.equal(harness.captures.finalWrites, 0);
+});
+
+
+test('legacy receipts remain readable when Base44 adds null organizer fields', async () => {
+  const raw = completeAnswers();
+  const payload = build(raw);
+  const hydrated = hydrateFormSubmissionEntity(storedSubmission(raw, payload));
+  assert.equal(hydrated.questionnaire_payload_version, null);
+  assert.equal(hydrated.service_offerings_structure, null);
+  const harness = await backendHarness({ existingSubmission: hydrated });
+  const result = await harness.send(raw, payload);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.alreadySubmitted, true);
 });
