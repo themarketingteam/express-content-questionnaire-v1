@@ -12,7 +12,10 @@ const nodeStorage = {
 	removeItem: (key) => memoryStorage.delete(key),
 };
 const windowObj = isNode ? { localStorage: nodeStorage } : window;
-const storage = windowObj.localStorage;
+const storage = (() => {
+	try { return windowObj.localStorage; }
+	catch { return null; }
+})();
 
 export const EXPRESS_BASE44_APP_ID = '6913611c0ea0f6b631343af8';
 export const EXPRESS_BASE44_BACKEND_URL = 'https://base44.app';

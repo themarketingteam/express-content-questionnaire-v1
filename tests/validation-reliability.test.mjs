@@ -238,6 +238,33 @@ test("the production SDK client starts with the guarded app and function endpoin
   );
 });
 
+test("published runtime remains canonical when the localStorage getter throws", async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const location = new URL('https://expressform.tmtwebsiteresources.xyz/?app_id=forged-app&server_url=https%3A%2F%2Fforged.invalid&functions_version=stale&access_token=synthetic-login#draft=synthetic-recovery');
+  const browser = { location, history: { replaceState(_state, _title, value) { location.href = new URL(value, location).href; } } };
+  Object.defineProperty(browser, 'localStorage', { get() { throw new DOMException('Storage blocked', 'SecurityError'); } });
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: browser });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { title: 'Synthetic test' } });
+  try {
+    // A fresh native module import exercises the actual browser bootstrap,
+    // before safeStorageGet/Set can otherwise catch the denied access.
+    const { appParams } = await import('../src/lib/app-params.js?storage-getter-denied');
+    assert.equal(appParams.appId, APP_ID);
+    assert.equal(appParams.serverUrl, SERVER_URL);
+    assert.equal(appParams.functionsVersion, undefined);
+    assert.equal(appParams.token, 'synthetic-login');
+    assert.equal(location.hash, '#draft=synthetic-recovery');
+    assert.equal(location.search.includes('access_token'), false);
+    assert.equal(buildBase44FunctionEndpoint(appParams, 'questionnaireDraftData'), `${SERVER_URL}/api/apps/${APP_ID}/functions/questionnaireDraftData`);
+  } finally {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
+    else delete globalThis.window;
+    if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument);
+    else delete globalThis.document;
+  }
+});
+
 test("the deployed function CORS policy supports credentialless live and preview requests", async () => {
   const source = await readFile(
     new URL("../base44/functions/validateExpressQuestionText/entry.ts", import.meta.url),
