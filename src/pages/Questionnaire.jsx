@@ -1838,7 +1838,10 @@ export default function Questionnaire() {
       setConfirmedRevisionHref(href);
       // Reload gives every callback/queue/validation hook the new confirmed
       // identity together. No captured old-session save can enter the revision.
-      window.location.assign(href);
+      // A fragment-only assign keeps this completed document and its old refs
+      // alive. Install the confirmed identity, then explicitly remount the app.
+      window.history.replaceState(window.history.state, '', href);
+      window.location.reload();
     } catch (error) {
       setRevisionStartError(error?.message || 'The new revision could not be confirmed. Retry; your completed answers and recovery copy are preserved.');
     } finally { setIsStartingRevision(false); }
@@ -2113,7 +2116,11 @@ export default function Questionnaire() {
             }}>Download answers and browser recovery copy</button>
           </div>
           {revisionStartError && <p role="alert" className="mt-3 font-medium text-red-800">{revisionStartError}</p>}
-          {confirmedRevisionHref && <a href={confirmedRevisionHref} className="mt-3 inline-block font-semibold underline">Open the saved new revision</a>}
+          {confirmedRevisionHref && <a href={confirmedRevisionHref} className="mt-3 inline-block font-semibold underline" onClick={(event) => {
+            event.preventDefault();
+            window.history.replaceState(window.history.state, '', confirmedRevisionHref);
+            window.location.reload();
+          }}>Open the saved new revision</a>}
         </aside>}
 
         {organizerRecoveryNotice && <aside role="status" className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">

@@ -262,3 +262,57 @@ test('reload timestamps cannot authorize replay of a stale or unknown-base full 
   assert.equal(browserDraftRequiresReview(local, { formData: {} }, null, 0), false, 'Legacy browser recovery may populate a newly bootstrapped empty server draft.');
   assert.equal(browserDraftRequiresReview({ ...local, formData: remote.formData }, remote, null, 5), false);
 });
+
+test('real revision handoff explicitly reloads after the confirmed fragment identity; hash-only navigation cannot leave completed refs alive', async () => {
+  const sourceUrl = 'https://example.test/?businessName=Synthetic#draft=completed-source&key=old-secret';
+  const request = { sourceSessionId: 'completed-source', targetSessionId: 'new-working-session', targetAccessKey: 'new-synthetic-secret', revisionRequestId: 'retained-request', draft: { responses_json: '{}' } };
+  const calls = [];
+  let completedView = true;
+  const location = {
+    href: sourceUrl,
+    assign(href) { this.href = href; calls.push('assign'); /* Browsers keep the document for a hash-only change. */ },
+    reload() { calls.push(['reload', new URL(this.href).hash]); completedView = false; },
+  };
+  // This model would reproduce the reported bug if production reverted to assign.
+  location.assign(`${sourceUrl}-changed-fragment`);
+  assert.equal(completedView, true);
+  location.href = sourceUrl; calls.length = 0;
+  const storageValues = new Map();
+  const storage = { getItem: (key) => storageValues.get(key) || null, setItem(key, value) { storageValues.set(key, value); calls.push('acknowledged-request'); } };
+  let confirm;
+  const acknowledgement = new Promise(resolve => { confirm = resolve; });
+  const context = {
+    ...completed, isStartingRevision: false, completedRecoveryRef: { current: {} }, revisionRequestRef: { current: request },
+    setIsStartingRevision() {}, setRevisionStartError(value) { if (value) calls.push(['error', value]); },
+    draftApi: { startRevision: async (sent) => { assert.equal(sent, request); return acknowledgement; } },
+    getOrganizerBrowserStorage: () => storage, setConfirmedRevisionHref(value) { calls.push(['confirmed-href', value]); },
+    window: { location, history: { state: { existing: true }, replaceState(state, _title, href) { assert.deepEqual(state, { existing: true }); location.href = href; calls.push(['replace', new URL(href).hash]); } } },
+  };
+  const pending = callback('startCompletedRevision', context)();
+  assert.equal(location.href, sourceUrl, 'The completed identity stays active while persistence is unconfirmed.');
+  assert.equal(completedView, true);
+  assert.deepEqual(calls, []);
+  confirm({ revisionStarted: true, saved: true, lastConfirmedRevision: 1, draft: { id: 'confirmed-new-draft', session_id: request.targetSessionId } });
+  await pending;
+  assert.equal(completedView, false, 'The new identity must mount a fresh questionnaire, not retain completed refs.');
+  const transitions = calls.filter(value => Array.isArray(value) && ['replace', 'reload'].includes(value[0]));
+  assert.deepEqual(transitions.map(value => value[0]), ['replace', 'reload']);
+  assert.equal(transitions[0][1], transitions[1][1], 'Reload observes the confirmed target credentials already in the URL.');
+  assert.equal(new URLSearchParams(new URL(location.href).hash.slice(1)).get('draft'), request.targetSessionId);
+  assert.equal(calls.includes('assign'), false);
+});
+
+test('unconfirmed revision response never replaces the source URL or reloads the page', async () => {
+  const sourceUrl = 'https://example.test/#draft=completed-source&key=old-secret';
+  const calls = [];
+  const context = {
+    ...completed, isStartingRevision: false, completedRecoveryRef: { current: {} },
+    revisionRequestRef: { current: { sourceSessionId: 'completed-source', targetSessionId: 'new-working-session', revisionRequestId: 'retained-request' } },
+    setIsStartingRevision() {}, setRevisionStartError(value) { calls.push(value); },
+    draftApi: { startRevision: async () => ({ revisionStarted: false, saved: false }) },
+    window: { location: { href: sourceUrl, reload() { assert.fail('No reload before a durable ACK'); } }, history: { replaceState() { assert.fail('No identity change before a durable ACK'); } } },
+  };
+  await callback('startCompletedRevision', context)();
+  assert.equal(context.window.location.href, sourceUrl);
+  assert.ok(calls.some(value => value.includes('has not been confirmed')));
+});
