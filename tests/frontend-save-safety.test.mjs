@@ -12,6 +12,9 @@ import { getInitialExpressFormData } from '../src/lib/expressQuestionnairePayloa
 import { createPageStructure } from '../src/lib/pageOrganizerModel.js';
 import { parseAuthoritativeDraftResponses, buildPersistedStateFromRemoteDraft } from '../src/lib/remoteDraftState.js';
 import * as recovery from '../src/lib/expressOrganizerRecovery.js';
+import * as completed from '../src/lib/completedDraftRevision.js';
+import { hasForeignDraftRevision } from '../src/lib/draftRevisionConflict.js';
+import { browserDraftRequiresReview } from '../src/lib/draftRevisionConflict.js';
 
 const root = path.resolve(new URL('../', import.meta.url).pathname);
 const source = fs.readFileSync(path.join(root, 'src/pages/Questionnaire.jsx'), 'utf8');
@@ -50,13 +53,15 @@ function harness({ failCheckpoint = false } = {}) {
   const gate = new Promise(resolve => { release = resolve; });
   let heldSave = false;
   const context = {
-    ...recovery, createLatestDraftSaveQueue, createDraftMutationEnvelope, retryDraftOperation,
-    reserveClientSequence, synchronizeClientSequence, parseAuthoritativeDraftResponses,
+    ...recovery, ...completed, hasForeignDraftRevision, createLatestDraftSaveQueue, createDraftMutationEnvelope, retryDraftOperation,
+    reserveClientSequence, synchronizeClientSequence, parseAuthoritativeDraftResponses, buildPersistedStateFromRemoteDraft,
     getInitialExpressFormData, buildImmediateDraftRecord, getDefaultExpandedQuestions, buildPersistedState,
     clearInProgressRef: { current: false }, lastClearSequenceRef: { current: 0 },
     draftRequestVersionRef: { current: 0 }, draftSaveTimeoutRef: { current: null },
     draftRevisionRef: { current: 1 }, clientInstanceIdRef: { current: 'callback-tab' },
     submitInFlightRef: { current: false }, hasFinalSubmittedRef: { current: false },
+    requiresDraftReloadRef: { current: false }, completedRecoveryRef: { current: null }, revisionRequestRef: { current: null },
+    organizerRecoveryArchiveRef: { current: null }, FIELD_TO_QUESTION: { differentiation: '3', idealClient: '12' },
     draftBootstrapReadyRef: { current: true }, lockedOrganizerQuestionsRef: { current: new Set() },
     remoteDraftRef: { current: boot.draft }, lastConfirmedRevisionRef: { current: 0 },
     latestOrganizerFormRef: { current: original }, latestPendingDraftRef: { current: null },
@@ -71,6 +76,9 @@ function harness({ failCheckpoint = false } = {}) {
     writeStateMarkerCookie() {}, getOrganizerBrowserStorage: () => null,
     toast: { error: value => effects.push(['error', value]), success: value => effects.push(['success', value]) },
     console: { error() {} }, clearTimeout,
+    setRequiresDraftReload(value) { effects.push(['reload-required', value]); },
+    setOrganizerRecoveryNotice(value) { effects.push(['recovery', value]); },
+    setCompletedRecovery(value) { effects.push(['completed', value]); }, setShowConfirmModal() {}, setHasPendingRevisionRequest() {},
   };
   for (const key of ['setIsClearingAll', 'setShowClearAllConfirm', 'setTouchedQuestions', 'setOpenQuestions', 'setSubmitValidationIssues', 'setSubmitValidationWarnings', 'setSubmitError', 'setRecoveryCode']) context[key] = () => {};
   context.draftApi = createQuestionnaireDraftApi({ ...identity, invoke: async (_name, body) => {
@@ -79,7 +87,10 @@ function harness({ failCheckpoint = false } = {}) {
     effects.push(['wire', body]);
     return { data: local.invoke('questionnaireDraftData', body) };
   } });
+  context.recognizeCompletedDraft = callback('recognizeCompletedDraft', context);
+  context.holdForeignDraftConflict = callback('holdForeignDraftConflict', context);
   context.reconcileAuthoritativeOrganizerDraft = callback('reconcileAuthoritativeOrganizerDraft', context);
+  context.assertOrganizerDraftCurrent = callback('assertOrganizerDraftCurrent', context);
   context.enqueueDraftSave = callback('enqueueDraftSave', context, true);
   const clear = callback('performClearAllAnswers', context);
   const pending = createDraftMutationEnvelope(buildImmediateDraftRecord({ sessionId: identity.sessionId, responses: original, validationStatus: {}, touchedQuestions: {}, expandedQuestions: {}, clientRevision: 1 }), { clientInstanceId: 'callback-tab', baseRevision: 0, previousDraft: boot.draft });
@@ -132,6 +143,7 @@ test('late validation completion saves current answers after edits and after a c
     let release;
     const gate = new Promise((resolve, reject) => { release = () => rejectValidation ? reject(new Error('unavailable')) : resolve({ status: 'complete' }); });
     const context = {
+      hasFinalSubmittedRef: { current: false }, requiresDraftReloadRef: { current: false },
       formData: { differentiation: 'Before validation' }, latestOrganizerFormRef: { current: { differentiation: 'Before validation' } },
       FIELD_TO_QUESTION: { differentiation: '3' }, getQuestionMetaForField: () => ({ type: 'textarea' }),
       createDraftEvent() {}, urlCredentials: {}, textValidation: { validateField: () => gate },
@@ -147,6 +159,7 @@ test('late validation completion saves current answers after edits and after a c
 test('saveNow treats HTTP 200 stale/finalized responses as unconfirmed snapshots', async () => {
   for (const result of [{ saved: false, stale: true }, { saved: false, stale: true, finalized: true }]) {
     const context = {
+      hasFinalSubmittedRef: { current: false }, requiresDraftReloadRef: { current: false },
       clearInProgressRef: { current: false }, draftBootstrapReadyRef: { current: true }, isHydratedRef: { current: true },
       draftRevisionRef: { current: 10 }, reserveClientSequence, openQuestions: [],
       questionnaireSessionId: 'session', latestOrganizerFormRef: { current: { differentiation: 'Reviewed answer' } },
@@ -185,4 +198,67 @@ test('a normalization exception never calls persistence with blank replacement a
   await assert.rejects(save({ sessionId: 'session', responses }), error => error.code === 'DRAFT_NORMALIZATION_FAILED');
   assert.equal(saves, 0);
   assert.equal(responses.differentiation, 'Keep this answer');
+});
+
+test('real acknowledgement holds a foreign flat-answer revision, archives unrelated pending edits, and stops queued replay', async () => {
+  const h = harness();
+  try {
+    const serverResponses = { ...JSON.parse(h.context.remoteDraftRef.current.responses_json), differentiation: 'Other tab saved this answer.' };
+    const server = { ...h.context.remoteDraftRef.current, responses_json: JSON.stringify(serverResponses), last_confirmed_revision: 1, last_client_instance_id: 'other-tab', last_client_sequence: 1 };
+    const localResponses = { ...h.original, idealClient: 'Unrelated unsaved browser edit.' };
+    h.context.latestOrganizerFormRef.current = localResponses;
+    h.context.latestPendingDraftRef.current = h.pending;
+    h.context.reconcileAuthoritativeOrganizerDraft(server, h.pending);
+    assert.equal(h.context.requiresDraftReloadRef.current, true);
+    assert.equal(h.context.latestPendingDraftRef.current, null);
+    assert.equal(h.context.latestOrganizerFormRef.current.differentiation, serverResponses.differentiation);
+    const notice = h.effects.find(([type]) => type === 'recovery')[1];
+    assert.equal(notice.archive.conflicts[0].formData.idealClient, localResponses.idealClient);
+    assert.equal(notice.storageSaved, false, 'The download remains available in memory when storage is denied.');
+    await assert.rejects(h.context.enqueueDraftSave(h.pending), error => error.code === 'DRAFT_RELOAD_REQUIRED');
+    await assert.rejects(h.context.enqueueDraftSave(h.pending), error => error.code === 'DRAFT_RELOAD_REQUIRED');
+    assert.equal(h.effects.some(([type]) => type === 'wire'), false, 'Do not stamp the new foreign base on the old full snapshot.');
+    assert.equal(h.context.lastConfirmedRevisionRef.current, 1);
+  } finally { h.release(); h.cleanup(); }
+});
+
+test('ordered own-tab acknowledgements allow the next rapid edit while preserving its captured original base', async () => {
+  const h = harness();
+  try {
+    const server = { ...h.context.remoteDraftRef.current, responses_json: JSON.stringify(h.original), last_confirmed_revision: 1, last_client_instance_id: 'callback-tab', last_client_sequence: 1 };
+    const pending = createDraftMutationEnvelope({ ...h.pending, client_revision: 2 }, { clientInstanceId: 'callback-tab', baseRevision: 1, previousDraft: server });
+    assert.equal(pending.__captured_base_revision, 0);
+    assert.equal(hasForeignDraftRevision(pending, server), false);
+    h.context.reconcileAuthoritativeOrganizerDraft(server, pending);
+    assert.equal(h.context.requiresDraftReloadRef.current, false);
+    assert.equal(h.effects.some(([type]) => type === 'recovery'), false);
+  } finally { h.release(); h.cleanup(); }
+});
+
+test('completed acknowledgement preserves pending answers and blocks autosave without generic retry status', async () => {
+  const h = harness();
+  try {
+    const pendingAnswers = { ...h.original, differentiation: 'Browser edits after submission.' };
+    h.context.latestOrganizerFormRef.current = pendingAnswers;
+    h.context.latestPendingDraftRef.current = h.pending;
+    const server = { ...h.context.remoteDraftRef.current, status: 'submitted', final_submission_id: 'retained-receipt' };
+    h.context.reconcileAuthoritativeOrganizerDraft(server, h.pending);
+    assert.equal(h.context.hasFinalSubmittedRef.current, true);
+    assert.equal(h.context.latestPendingDraftRef.current, null);
+    assert.equal(h.context.completedRecoveryRef.current.localState.formData.differentiation, pendingAnswers.differentiation);
+    assert.equal(h.effects.filter(([type]) => type === 'status').at(-1)[1].state, 'submit_success');
+    assert.equal(await h.context.enqueueDraftSave(h.pending).then(result => result.finalized), true);
+    assert.equal(h.effects.some(([type]) => type === 'wire'), false);
+  } finally { h.release(); h.cleanup(); }
+});
+
+test('reload timestamps cannot authorize replay of a stale or unknown-base full answer map', () => {
+  const remote = { savedAt: '2026-11-17T15:30:00Z', formData: { differentiation: 'Server answer', idealClient: '' } };
+  const local = { savedAt: '2026-11-17T15:45:00Z', formData: { differentiation: 'Old answer', idealClient: 'Unsaved answer' } };
+  assert.equal(browserDraftRequiresReview(local, remote, null, 5), true);
+  assert.equal(browserDraftRequiresReview(local, remote, 4, 5), true);
+  assert.equal(browserDraftRequiresReview(local, remote, 5, 5), false);
+  assert.equal(browserDraftRequiresReview(null, remote, null, 5), false);
+  assert.equal(browserDraftRequiresReview(local, { formData: {} }, null, 0), false, 'Legacy browser recovery may populate a newly bootstrapped empty server draft.');
+  assert.equal(browserDraftRequiresReview({ ...local, formData: remote.formData }, remote, null, 5), false);
 });

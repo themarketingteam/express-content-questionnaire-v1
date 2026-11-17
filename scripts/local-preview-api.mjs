@@ -79,6 +79,7 @@ export function createLocalApi(root, { dataDirectory = path.join(root, '.local-p
   };
   const save = (body) => {
     const draft = authorizedDraft(body);
+    if (draft.status === 'submitted' || draft.final_submission_id) return { success: true, saved: false, stale: true, finalized: true, draftId: draft.id, lastConfirmedRevision: draft.last_confirmed_revision, draft: publicDraft(draft) };
     const incoming = body.draft || {};
     const mutationId = incoming.mutation_id;
     const clientId = incoming.client_instance_id;
@@ -108,6 +109,34 @@ export function createLocalApi(root, { dataDirectory = path.join(root, '.local-p
     draft.clients[clientId] = sequence; draft.mutations[mutationId] = draft.last_confirmed_revision; persist();
     return { success: true, saved: true, stale: false, draftId: draft.id, lastSavedAt: draft.last_saved_at, lastConfirmedRevision: draft.last_confirmed_revision, mutationId, versionId: draft.versions.at(-1).id, draft: publicDraft(draft) };
   };
+  const startRevision = (body) => {
+    const source = authorizedDraft(body);
+    if (source.status !== 'submitted' && !source.final_submission_id) fail('Only a completed questionnaire can start a new revision.', 409, 'DRAFT_NOT_COMPLETED');
+    if (!/^[A-Za-z0-9_-]{16,200}$/.test(body.revisionRequestId || '') || body.targetSessionId === source.session_id) fail('A valid new revision identity is required.');
+    const requestHash = hash(`${source.id}:${body.revisionRequestId}`);
+    const prior = Object.values(state.drafts).find((draft) => draft.revision_request_id_hash === requestHash);
+    if (prior) {
+      if (prior.session_id !== body.targetSessionId || prior.access_key_hash !== hash(body.targetAccessKey)) fail('Revision access was denied.', 403);
+      return { success: true, revisionStarted: true, saved: true, duplicate: true, draftId: prior.id, lastConfirmedRevision: prior.last_confirmed_revision, lastSavedAt: prior.last_saved_at, draft: publicDraft(prior) };
+    }
+    if (findSession(body.targetSessionId)) fail('The new revision session is already in use.', 409);
+    const originalResponses = parse(source.responses_json);
+    const incomingResponses = body.draft?.responses_json ? parse(body.draft.responses_json) : originalResponses;
+    assertValid(guardOrganizedDraftMutation({ currentResponses: originalResponses, incomingResponses,
+      changedKeys: [...new Set([...Object.keys(originalResponses), ...Object.keys(incomingResponses)])].filter((key) => JSON.stringify(originalResponses[key]) !== JSON.stringify(incomingResponses[key])), deletedKeys: [], baseRevision: 0, currentRevision: 0 }));
+    const responses = { ...originalResponses, ...incomingResponses };
+    const mapped = preserveOrganizedMappedPayload(buildExpressSubmissionPayload({ formData: responses, businessName: source.business_name, domain: source.domain, sessionId: body.targetSessionId }), responses);
+    assertValid(validateOrganizedSubmission({ payload: mapped, responses }));
+    const target = createDraft(body.targetSessionId, body.targetAccessKey, 'blank', { business_name: source.business_name, domain: source.domain });
+    Object.assign(target, { responses_json: JSON.stringify(responses), mapped_payload_json: JSON.stringify(mapped),
+      revision_source_draft_id: source.id, revision_source_submission_id: source.final_submission_id || '', revision_request_id_hash: requestHash,
+      revision_created_at: now(), last_confirmed_revision: 1, client_revision: 1,
+      user_id: source.user_id || '', user_name: source.user_name || '', user_email: source.user_email || '',
+      submit_attempt_id: '', final_submission_id: '', submitted_at: '', submit_attempted_at: '',
+      ...Object.fromEntries(['validation_status_json', 'touched_questions_json', 'expanded_questions_json', 'last_non_empty_answers_json', 'field_history_json'].filter((key) => body.draft?.[key] !== undefined || source[key] !== undefined).map((key) => [key, body.draft?.[key] ?? source[key]])) });
+    target.versions = [version(target, 'explicit_completed_revision')]; persist();
+    return { success: true, revisionStarted: true, saved: true, duplicate: false, draftId: target.id, lastConfirmedRevision: 1, lastSavedAt: target.last_saved_at, draft: publicDraft(target) };
+  };
   const submission = (body) => {
     const payload = body.transformedPayload;
     const responses = body.rawResponses || body.responseSnapshot;
@@ -134,6 +163,7 @@ export function createLocalApi(root, { dataDirectory = path.join(root, '.local-p
     const fingerprint = hash(JSON.stringify({ session: draft.session_id, responses, business: payload.metadata.business_name, domain: payload.metadata.businessDomain }));
     const prior = state.submissions.find((record) => record.local_fingerprint === fingerprint);
     if (prior) { persist(); return { success: true, received: true, submissionCreated: true, submissionId: prior.id, submission: clone(prior), duplicate: true, localOnly: true }; }
+    if (draft.status === 'submitted' || draft.final_submission_id) fail('This questionnaire has already been finalized. Start a revision before submitting different answers.', 409, 'draft_finalized');
     const clean = { metadata: clone(payload.metadata), userdata: clone(payload.userdata) };
     const record = { ...mapExpressPayloadToFormSubmissionRecord(payload), id: id('localsubmission'), created_date: now(), raw_responses: clone(responses), local_payload: clean, local_fingerprint: fingerprint };
     state.submissions.push(record); draft.versions.push(version(draft, 'before_submission'));
@@ -146,6 +176,7 @@ export function createLocalApi(root, { dataDirectory = path.join(root, '.local-p
       if (['bootstrap', 'bootstrap_new_client'].includes(body.action)) return bootstrap(body);
       if (body.action === 'load') return { success: true, draft: publicDraft(authorizedDraft(body)) };
       if (['save', 'checkpoint'].includes(body.action)) return save(body);
+      if (body.action === 'start_revision') return startRevision(body);
       if (body.action === 'telemetry') { authorizedDraft(body); state.events.push({ id: id('telemetry'), eventType: body.eventType, created_date: now() }); persist(); return { success: true, recorded: true }; }
       fail('Unsupported local draft action.');
     }

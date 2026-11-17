@@ -3,6 +3,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Save, Cloud, CloudOff, AlertCircle, CheckCircle2, Loader2, Clock } from "lucide-react";
 
 const STATUS_CONFIG = {
+  review_required: {
+    icon: AlertCircle,
+    iconClass: 'text-amber-600',
+    text: 'Draft changed in another tab — recovery copy preserved. Reload before editing.',
+    textClass: 'text-amber-800',
+    spin: false,
+  },
   initializing: {
     icon: Clock,
     iconClass: "text-slate-400",

@@ -265,7 +265,10 @@ test('reload hydration cannot rewind sequences when newer autosaves finish befor
   assert.equal(responses.differentiation, 'Second rapid edit during hydration.');
   assert.equal(api.invoke('submitExpressQuestionnaireFallback', { questionnaireSessionId: sessionId, rawResponses: responses, transformedPayload: payloadOf(responses) }).submissionCreated, true);
   const stale = mutation(api, {}, { client_instance_id: 'reloaded-client', client_revision: 26, client_sequence: 26, mutation_id: 'reused-sequence-with-new-id' });
-  assert.throws(() => api.invoke('questionnaireDraftData', stale), /newer saved mutation/);
+  const finalized = api.invoke('questionnaireDraftData', stale);
+  assert.equal(finalized.finalized, true);
+  assert.equal(finalized.saved, false);
+  assert.equal(responsesOf(api).differentiation, 'Second rapid edit during hydration.');
 });
 
 test('client acknowledgment is scoped to its client sequence, never the server revision or another tab', () => {

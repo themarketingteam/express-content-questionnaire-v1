@@ -5,6 +5,7 @@ import {
   normalizeIdentityValue,
 } from '../../shared/questionnaireVersions.ts';
 import { applyDurableDraftMutation } from '../../shared/durableDraftMutation.ts';
+import { startQuestionnaireRevision } from '../../shared/startQuestionnaireRevision.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -283,6 +284,21 @@ Deno.serve(async (req) => {
       return json({ success: false, code: 'AMBIGUOUS_DRAFT_SESSION', error: 'Multiple saved drafts share this session. Recovery review is required before saving or submitting.' }, 409);
     }
     const existing = newestRecord(scopedMatches || []);
+
+    if (body.action === 'start_revision') {
+      if (!existing || !draftAllowsAccess(existing, accessKeyHash)) return json({ success: false, error: 'Draft access was denied.', code: 'DRAFT_ACCESS_DENIED' }, 403);
+      const targetSessionId = body.targetSessionId;
+      const targetAccessKey = body.targetAccessKey;
+      const requestId = typeof body.revisionRequestId === 'string' ? body.revisionRequestId.trim() : '';
+      if (!isValidIdentity(targetSessionId, targetAccessKey) || targetSessionId === sessionId || !NEW_CLIENT_REQUEST_PATTERN.test(requestId)) return json({ success: false, error: 'A valid new revision identity is required.', code: 'INVALID_REVISION_REQUEST' }, 400);
+      const clientDraft = body.draft === undefined ? null : sanitizeDraft(body.draft, targetSessionId);
+      if (body.draft !== undefined && !clientDraft) return json({ success: false, error: 'Revision answers are invalid.', code: 'INVALID_REVISION_REQUEST' }, 400);
+      const result = await startQuestionnaireRevision({ base44, sourceDraftId: String(existing.id), sourceAccessHash: accessKeyHash,
+        targetSessionId, targetAccessHash: await hashAccessKey(targetAccessKey as string), requestHash: await hashOpaqueValue(`${existing.id}:${requestId}`), clientDraft });
+      return json({ success: true, revisionStarted: true, saved: true, duplicate: Boolean(result.duplicate), draftId: result.draft.id,
+        lastConfirmedRevision: sanitizeRevision(result.draft.last_confirmed_revision), lastSavedAt: result.draft.last_saved_at,
+        draft: withoutDraftAccessHashes(result.draft) });
+    }
 
     if (body.action === 'bootstrap_new_client') {
       const requestId = typeof body.newClientRequestId === 'string' ? body.newClientRequestId.trim() : '';
@@ -701,7 +717,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     const organizerError = error as { code?: string; status?: number; message?: string };
     if (organizerError.code === 'DRAFT_ACCESS_DENIED') return json({ success: false, code: organizerError.code, error: organizerError.message }, 403);
-    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE' || ['DRAFT_LEASE_LOST', 'DRAFT_WRITE_UNVERIFIED', 'DRAFT_SNAPSHOT_INVALID'].includes(organizerError?.code || '') || organizerError?.code === 'AMBIGUOUS_DRAFT_SESSION') {
+    if (organizerError?.code?.startsWith('ORGANIZER_') || organizerError?.code === 'INVALID_PAGE_STRUCTURE' || ['DRAFT_NOT_COMPLETED', 'REVISION_SESSION_CONFLICT', 'REVISION_NOT_CONFIRMED', 'DRAFT_LEASE_LOST', 'DRAFT_WRITE_UNVERIFIED', 'DRAFT_SNAPSHOT_INVALID'].includes(organizerError?.code || '') || organizerError?.code === 'AMBIGUOUS_DRAFT_SESSION') {
       return json({ success: false, code: organizerError.code, error: organizerError.message || 'Page organization requires review.' }, organizerError.status === 409 ? 409 : 400);
     }
     console.error('Questionnaire draft request failed', error);

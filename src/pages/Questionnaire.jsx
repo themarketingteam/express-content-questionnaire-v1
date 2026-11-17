@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { base44, getBase44FunctionEndpoint } from "@/api/base44Client";
-import { getOrCreateQuestionnaireDraftIdentity, clearQuestionnaireSessionId } from "@/lib/sessionId";
+import { getOrCreateQuestionnaireDraftIdentity } from "@/lib/sessionId";
 import { getInitialExpressFormData, serializeExpressError } from "@/lib/expressQuestionnairePayload";
 import { EXPRESS_COOKIE_KEY, EXPRESS_LS_KEY_GLOBAL, parsePersistedStateCookie, buildPersistedState, serializePersistedState, getDefaultExpandedQuestions, saveStateToLocalStorage, loadStateFromLocalStorage, writeStateMarkerCookie, clearStateFromLocalStorage } from "@/lib/expressPersistedState";
 import { createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
@@ -78,6 +78,8 @@ import SubmitRecoveryCard from "@/components/questionnaire/SubmitRecoveryCard";
 import ExpressDraftSaveStatus from "@/components/questionnaire/ExpressDraftSaveStatus";
 import { HELPER_COPY } from "@/lib/questionnaireHelperCopy";
 import { assertCurrentOrganizerSnapshot, getOrganizerBrowserStorage, parseOrganizerResponses, prepareOrganizerWireDraft, preserveOrganizerRecoveryCopy, preserveUnchangedOrganizerQuestions, readOrganizerBaseRevision, readOrganizerRecoveryArchive, reconcileOrganizerAcknowledgement, reconcileOrganizerHydration, reconcilePendingOrganizerDraft, rememberOrganizerBaseRevision } from "@/lib/expressOrganizerRecovery";
+import { acknowledgeCompletedRevisionRequest, completedDraftRecovery, confirmedRevisionUrl, isCompletedQuestionnaireDraft, prepareCompletedRevisionRequest, preserveCompletedRecovery, readCompletedRecovery, readCompletedRevisionRequest, revisionStateFromCompleted } from '@/lib/completedDraftRevision';
+import { browserDraftRequiresReview, hasForeignDraftRevision } from '@/lib/draftRevisionConflict';
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
 
@@ -140,6 +142,13 @@ export default function Questionnaire() {
   const [identityConflict, setIdentityConflict] = useState(null);
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [isDraftHydrating, setIsDraftHydrating] = useState(true);
+  const [completedRecovery, setCompletedRecovery] = useState(null);
+  const [includeCompletedBrowserEdits, setIncludeCompletedBrowserEdits] = useState(true);
+  const [isStartingRevision, setIsStartingRevision] = useState(false);
+  const [revisionStartError, setRevisionStartError] = useState('');
+  const [confirmedRevisionHref, setConfirmedRevisionHref] = useState('');
+  const [hasPendingRevisionRequest, setHasPendingRevisionRequest] = useState(false);
+  const [requiresDraftReload, setRequiresDraftReload] = useState(false);
   const [draftSaveStatus, setDraftSaveStatus] = useState(/** @type {{ state: string, lastServerSavedAt?: string, lastLocalSavedAt?: string, pendingLocalChanges?: boolean, lastError?: string, pendingRevision?: number, lastConfirmedRevision?: number }} */ ({ state: "initializing" }));
 
   // Last-failed submit context — drives the recovery card
@@ -228,6 +237,9 @@ export default function Questionnaire() {
   const draftRequestVersionRef = useRef(0);
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
+  const completedRecoveryRef = useRef(null);
+  const revisionRequestRef = useRef(null);
+  const requiresDraftReloadRef = useRef(false);
   const draftBootstrapReadyRef = useRef(false);
   const clearInProgressRef = useRef(false);
   const lastClearSequenceRef = useRef(0);
@@ -316,10 +328,62 @@ export default function Questionnaire() {
     setOrganizerRecoveryNotice({ ...preserved, requiresReload: true });
   }, [questionnaireSessionId]);
 
+  const recognizeCompletedDraft = useCallback((serverDraft, localState = null) => {
+    if (!isCompletedQuestionnaireDraft(serverDraft)) return false;
+    const serverState = buildPersistedStateFromRemoteDraft(serverDraft, questionnaireSessionId);
+    const currentState = localState || buildPersistedState({ formData: latestOrganizerFormRef.current, questionnaireSessionId, validationStatus: {}, touchedQuestions: {}, expandedQuestions: {} });
+    const recovery = completedDraftRecovery(serverDraft, currentState, serverState);
+    const prior = completedRecoveryRef.current || readCompletedRecovery(getOrganizerBrowserStorage(), questionnaireSessionId);
+    if (!recovery.localState && prior?.localState) recovery.localState = prior.localState;
+    const storageSaved = preserveCompletedRecovery(getOrganizerBrowserStorage(), recovery);
+    completedRecoveryRef.current = recovery;
+    hasFinalSubmittedRef.current = true;
+    if (draftSaveTimeoutRef.current) { clearTimeout(draftSaveTimeoutRef.current); draftSaveTimeoutRef.current = null; }
+    latestPendingDraftRef.current = null;
+    latestOrganizerFormRef.current = { ...getInitialExpressFormData(), ...serverState.formData };
+    setFormData(latestOrganizerFormRef.current);
+    setCompletedRecovery({ ...recovery, storageSaved });
+    const pendingRequest = revisionRequestRef.current || readCompletedRevisionRequest(getOrganizerBrowserStorage(), questionnaireSessionId);
+    revisionRequestRef.current = pendingRequest;
+    setHasPendingRevisionRequest(Boolean(pendingRequest));
+    setOpenQuestions(Array.from({ length: 12 }, (_, index) => index + 1));
+    setShowConfirmModal(false);
+    remoteDraftRef.current = serverDraft;
+    setDraftSaveStatus({ state: 'submit_success', pendingLocalChanges: false, lastConfirmedRevision: Number(serverDraft.last_confirmed_revision || 0) });
+    return true;
+  }, [questionnaireSessionId]);
+
+  const holdForeignDraftConflict = useCallback((serverDraft) => {
+    const formData = structuredClone(latestOrganizerFormRef.current);
+    const preserved = preserveOrganizerRecoveryCopy(getOrganizerBrowserStorage(), questionnaireSessionId,
+      { questionIds: [...new Set(Object.values(FIELD_TO_QUESTION))], formData, reason: 'another_tab_updated_answers', serverRevision: serverDraft.last_confirmed_revision }, organizerRecoveryArchiveRef.current);
+    organizerRecoveryArchiveRef.current = preserved.archive;
+    setOrganizerRecoveryNotice({ ...preserved, scope: 'all_answers', requiresReload: true });
+    requiresDraftReloadRef.current = true;
+    setRequiresDraftReload(true);
+    if (draftSaveTimeoutRef.current) { clearTimeout(draftSaveTimeoutRef.current); draftSaveTimeoutRef.current = null; }
+    latestPendingDraftRef.current = null;
+    latestOrganizerFormRef.current = { ...getInitialExpressFormData(), ...parseAuthoritativeDraftResponses(serverDraft) };
+    setFormData(latestOrganizerFormRef.current);
+    setDraftSaveStatus({ state: 'review_required', pendingLocalChanges: false, lastConfirmedRevision: Number(serverDraft.last_confirmed_revision || 0) });
+  }, [questionnaireSessionId]);
+
   const reconcileAuthoritativeOrganizerDraft = useCallback((serverDraft, sentDraft) => {
     if (!serverDraft?.responses_json) throw Object.assign(new Error('The current server draft could not be loaded. Reload before saving.'), { status: 409, code: 'ORGANIZER_SERVER_SNAPSHOT_REQUIRED' });
     const serverRevision = Number(serverDraft.last_confirmed_revision || 0);
     if (serverRevision < lastConfirmedRevisionRef.current) return;
+    if (recognizeCompletedDraft(serverDraft)) {
+      lastConfirmedRevisionRef.current = serverRevision;
+      synchronizeClientSequence(draftRevisionRef, serverRevision, serverDraft.client_revision);
+      return;
+    }
+    if (sentDraft && hasForeignDraftRevision(sentDraft, serverDraft)) {
+      holdForeignDraftConflict(serverDraft);
+      remoteDraftRef.current = serverDraft;
+      lastConfirmedRevisionRef.current = serverRevision;
+      synchronizeClientSequence(draftRevisionRef, serverRevision, serverDraft.client_revision);
+      return;
+    }
     const serverFormData = parseAuthoritativeDraftResponses(serverDraft);
     const reconciliation = reconcileOrganizerAcknowledgement({ currentFormData: latestOrganizerFormRef.current, sentFormData: parseOrganizerResponses(sentDraft?.responses_json), serverFormData });
     if (reconciliation.conflict) {
@@ -335,18 +399,24 @@ export default function Questionnaire() {
     lastConfirmedRevisionRef.current = Math.max(lastConfirmedRevisionRef.current, serverRevision);
     synchronizeClientSequence(draftRevisionRef, serverRevision, serverDraft.client_revision);
     return reconciliation;
-  }, [preserveOrganizerConflict]);
+  }, [holdForeignDraftConflict, preserveOrganizerConflict, recognizeCompletedDraft]);
 
   const assertOrganizerDraftCurrent = useCallback((draftRecord) => {
+    if (requiresDraftReloadRef.current) throw Object.assign(new Error('This draft changed in another tab. Your browser copy is preserved. Reload before editing.'), { status: 409, code: 'DRAFT_RELOAD_REQUIRED', draftSaveSuperseded: true });
+    if (hasForeignDraftRevision(draftRecord, remoteDraftRef.current)) {
+      holdForeignDraftConflict(remoteDraftRef.current);
+      throw Object.assign(new Error('This draft changed in another tab. Your browser copy is preserved. Reload before editing.'), { status: 409, code: 'DRAFT_RELOAD_REQUIRED', draftSaveSuperseded: true });
+    }
     try { assertCurrentOrganizerSnapshot(parseOrganizerResponses(draftRecord.responses_json), parseOrganizerResponses(remoteDraftRef.current?.responses_json), lockedOrganizerQuestionsRef.current); }
     catch (error) {
       preserveOrganizerConflict({ questionIds: error.questionIds || [], formData: parseOrganizerResponses(draftRecord.responses_json), reason: 'queued_stale_organizer_snapshot', baseRevision: draftRecord.base_revision, serverRevision: lastConfirmedRevisionRef.current });
       throw error;
     }
-  }, [preserveOrganizerConflict]);
+  }, [holdForeignDraftConflict, preserveOrganizerConflict]);
 
   const enqueueDraftSave = useMemo(
     () => createLatestDraftSaveQueue(async (draftRecord) => {
+      if (hasFinalSubmittedRef.current) return { saved: false, finalized: true, draft: remoteDraftRef.current };
       assertOrganizerDraftCurrent(draftRecord);
       const result = await retryDraftOperation(
       () => {
@@ -393,10 +463,12 @@ export default function Questionnaire() {
   const findExistingDraftBySessionId = useCallback(async () => remoteDraftRef.current, []);
 
   const persistDraftRecord = useCallback(async (draftRecord) => {
+    if (hasFinalSubmittedRef.current) return { saved: false, finalized: true, draft: remoteDraftRef.current };
     if (clearInProgressRef.current || Number(draftRecord.client_revision || 0) <= lastClearSequenceRef.current) {
       throw Object.assign(new Error('This save was superseded by Clear all.'), { status: 409, draftSaveSuperseded: true });
     }
-    const mutationRecord = createDraftMutationEnvelope(draftRecord, {
+    const capturedPending = Number(latestPendingDraftRef.current?.client_revision) === Number(draftRecord.client_revision) ? latestPendingDraftRef.current : null;
+    const mutationRecord = createDraftMutationEnvelope({ ...draftRecord, __captured_base_revision: draftRecord.__captured_base_revision ?? capturedPending?.__captured_base_revision ?? lastConfirmedRevisionRef.current }, {
       clientInstanceId: clientInstanceIdRef.current,
       baseRevision: lastConfirmedRevisionRef.current,
       previousDraft: remoteDraftRef.current,
@@ -431,6 +503,11 @@ export default function Questionnaire() {
         }
         throw error;
       }
+      if (result.finalized || hasFinalSubmittedRef.current) {
+        recognizeCompletedDraft(result.draft || await draftApi.load());
+        return result;
+      }
+      if (requiresDraftReloadRef.current) return result;
       if (requestVersion !== draftRequestVersionRef.current) return result;
 
       if (result.stale) {
@@ -477,7 +554,7 @@ export default function Questionnaire() {
     };
 
     return performSave();
-  }, [draftApi, draftIdentity.storageAvailable, enqueueDraftSave, reconcileAuthoritativeOrganizerDraft]);
+  }, [draftApi, draftIdentity.storageAvailable, enqueueDraftSave, recognizeCompletedDraft, reconcileAuthoritativeOrganizerDraft]);
 
   const saveDraftSnapshot = useCallback(
     createSaveDraftSnapshot({
@@ -490,6 +567,8 @@ export default function Questionnaire() {
   );
 
   const saveDraftNow = useCallback(async (options = {}) => {
+    if (requiresDraftReloadRef.current) throw Object.assign(new Error('Reload the current saved draft before submitting. Your browser copy is preserved.'), { status: 409, code: 'DRAFT_RELOAD_REQUIRED' });
+    if (hasFinalSubmittedRef.current) throw Object.assign(new Error('This questionnaire has already been submitted. Choose Edit a new revision to make changes.'), { status: 409, code: 'DRAFT_COMPLETED' });
     const {
       status,
       submitError,
@@ -536,6 +615,7 @@ export default function Questionnaire() {
   }, [saveDraftSnapshot, questionnaireSessionId, formData, touchedQuestions, openQuestions, businessNameParam, domainParam, textValidation]);
 
   const queueDraftSave = useCallback((changedQuestionId, nextFormData, historySnapshot) => {
+    if (requiresDraftReloadRef.current) return;
     if (hasFinalSubmittedRef.current) return;
     if (clearInProgressRef.current) return;
     if (!isHydratedRef.current || !draftBootstrapReadyRef.current) return;
@@ -629,12 +709,14 @@ export default function Questionnaire() {
   }, [answerHistory, businessNameParam, domainParam, draftIdentity.storageAvailable, openQuestions, questionnaireSessionId, saveDraftSnapshot, textValidation, touchedQuestions]);
 
   const retryLatestDraft = useCallback(async () => {
+    if (requiresDraftReloadRef.current) return;
     if (clearInProgressRef.current || !draftBootstrapReadyRef.current || hasFinalSubmittedRef.current) return;
     const pendingDraft = latestPendingDraftRef.current;
     if (!pendingDraft) return;
     try {
       await persistDraftRecord(pendingDraft);
     } catch (error) {
+      if (requiresDraftReloadRef.current || hasFinalSubmittedRef.current) return;
       const failure = classifyDraftFailure(error);
       setDraftSaveStatus((previous) => ({
         ...previous,
@@ -656,7 +738,7 @@ export default function Questionnaire() {
   useEffect(() => attachDraftLifecycleFlush({
     documentTarget: document,
     windowTarget: window,
-    getPendingDraft: () => draftBootstrapReadyRef.current && !hasFinalSubmittedRef.current && !clearInProgressRef.current
+    getPendingDraft: () => draftBootstrapReadyRef.current && !hasFinalSubmittedRef.current && !clearInProgressRef.current && !requiresDraftReloadRef.current
       ? latestPendingDraftRef.current
       : null,
     flushDraft: async (draftRecord) => {
@@ -673,6 +755,7 @@ export default function Questionnaire() {
           latestPendingDraftRef.current = null;
         }
       } catch (error) {
+        if (requiresDraftReloadRef.current || hasFinalSubmittedRef.current) return;
         const failure = classifyDraftFailure(error);
         setDraftSaveStatus((previous) => ({
           ...previous,
@@ -934,17 +1017,25 @@ export default function Questionnaire() {
       };
       setKnownBusinessDetails(businessDetailsRef.current);
       const remoteState = buildPersistedStateFromRemoteDraft(remoteDraft, questionnaireSessionId);
-      const selected = selectNewestPersistedState(localResult?.state || null, remoteState);
-      const reconciledHydration = reconcileOrganizerHydration({
+      const completed = isCompletedQuestionnaireDraft(remoteDraft);
+      if (completed) recognizeCompletedDraft(remoteDraft, localResult?.state || remoteState);
+      const knownBaseRevision = readOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, localResult?.state);
+      const reviewBrowserCopy = !completed && browserDraftRequiresReview(localResult?.state, remoteState, knownBaseRevision, remoteRevision);
+      if (reviewBrowserCopy) {
+        latestOrganizerFormRef.current = localResult.state.formData;
+        holdForeignDraftConflict(remoteDraft);
+      }
+      const selected = completed || reviewBrowserCopy ? { state: remoteState, source: 'server_draft' } : selectNewestPersistedState(localResult?.state || null, remoteState);
+      const reconciledHydration = completed || reviewBrowserCopy ? { state: remoteState, conflict: null } : reconcileOrganizerHydration({
         selectedState: selected.state, localState: localResult?.state || null, remoteState,
-        knownBaseRevision: readOrganizerBaseRevision(getOrganizerBrowserStorage(), questionnaireSessionId, localResult?.state), serverRevision: remoteRevision,
+        knownBaseRevision, serverRevision: remoteRevision,
       });
       const restoredState = reconciledHydration.state;
       if (reconciledHydration.conflict) preserveOrganizerConflict(reconciledHydration.conflict);
       else {
         const archive = readOrganizerRecoveryArchive(getOrganizerBrowserStorage(), questionnaireSessionId);
         organizerRecoveryArchiveRef.current = archive;
-        if (archive) setOrganizerRecoveryNotice({ archive, storageSaved: true, requiresReload: false });
+        if (archive && !reviewBrowserCopy) setOrganizerRecoveryNotice({ archive, storageSaved: true, requiresReload: false });
       }
 
       if (restoredState?.formData) {
@@ -973,6 +1064,7 @@ export default function Questionnaire() {
         writeStateMarkerCookie(questionnaireSessionId, restoredState.savedAt);
         if (!storageResult.confirmed) storageTelemetrySentRef.current = false;
       }
+      if (completed) setOpenQuestions(Array.from({ length: 12 }, (_, index) => index + 1));
 
       const remoteHistory = selected.source === "server_draft"
         ? parseRemoteAnswerHistory(remoteDraft)
@@ -1007,7 +1099,7 @@ export default function Questionnaire() {
         if (launchIntent.promptIdentity) setShowNewClientIdentity(true);
       }
       setDraftSaveStatus({
-        state: selected.source === "local"
+        state: completed ? 'submit_success' : reviewBrowserCopy ? 'review_required' : selected.source === "local"
           ? (draftIdentity.storageAvailable ? "changes_pending" : "storage_blocked_pending")
           : (draftIdentity.storageAvailable ? "saved_server" : "saved_server_no_local"),
         lastServerSavedAt: bootstrapResult.lastSavedAt || remoteDraft?.last_saved_at || remoteDraft?.updated_date || "",
@@ -1031,7 +1123,7 @@ export default function Questionnaire() {
       }
 
       // Upload a newer browser snapshot (including legacy cookie data) immediately.
-      if (restoredState && selected.source === "local") {
+      if (!completed && restoredState && selected.source === "local") {
         const hydrationSequence = reserveClientSequence(draftRevisionRef);
         try {
           await saveDraftSnapshot({
@@ -1080,7 +1172,7 @@ export default function Questionnaire() {
 
   // Auto-save with validation status
   useEffect(() => {
-    if (hasFinalSubmittedRef.current) {
+    if (hasFinalSubmittedRef.current || requiresDraftReloadRef.current) {
       return;
     }
     if (!isHydratedRef.current) {
@@ -1126,7 +1218,7 @@ export default function Questionnaire() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       // Skip autosave after final submission
-      if (hasFinalSubmittedRef.current) return;
+      if (hasFinalSubmittedRef.current || requiresDraftReloadRef.current) return;
       
       // Save versioned persisted state to localStorage (primary)
       const validationStatus = textValidation.getAllFieldStatuses();
@@ -1168,6 +1260,7 @@ export default function Questionnaire() {
 
 
   const updateField = useCallback((field, value) => {
+    if (hasFinalSubmittedRef.current) return;
     const questionId = FIELD_TO_QUESTION[field] || "";
     const { id: qId, type: qType } = getQuestionMetaForField(field);
     setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
@@ -1211,6 +1304,7 @@ export default function Questionnaire() {
   }, [queueDraftSave, questionnaireSessionId, textValidation, createDraftEvent]);
 
   const updateArrayField = useCallback((field, value, limit = 3, otherField = null) => {
+    if (hasFinalSubmittedRef.current) return;
     const questionId = FIELD_TO_QUESTION[field] || "";
     const { id: qId, type: qType } = getQuestionMetaForField(field);
     setTouchedQuestions(prev => questionId ? { ...prev, [questionId]: true } : prev);
@@ -1238,6 +1332,7 @@ export default function Questionnaire() {
   }, [queueDraftSave, questionnaireSessionId, answerHistory]);
 
   const updateOrganizedPages = useCallback((field, structure) => {
+    if (hasFinalSubmittedRef.current) return;
     const questionId = field === "serviceOfferings" ? "2" : "8";
     if (lockedOrganizerQuestionsRef.current.has(questionId)) { toast.error('This page organization changed in another tab. Reload before editing it; your recovery copy is preserved.'); return; }
     const structureField = `${field}Structure`;
@@ -1326,6 +1421,7 @@ export default function Questionnaire() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (hasFinalSubmittedRef.current) { toast.info('Choose Edit a new revision to update this submitted questionnaire.'); return; }
 
     if (!draftBootstrapReadyRef.current) {
       toast.error("Your secure recovery draft is still connecting. Please wait before submitting.");
@@ -1549,10 +1645,11 @@ export default function Questionnaire() {
             return;
           }
           
-          // Full success: clear cookie, session, reset form silently
-          deleteCookie(STORAGE_KEY);
-          clearQuestionnaireSessionId();
-          resetQuestionnaireStateAfterFullSuccess();
+          // Keep the submitted answers and recovery identity available for an
+          // explicit new revision; the completed receipt is immutable.
+          recognizeCompletedDraft({ ...(remoteDraftRef.current || {}), id: draftRecordIdRef.current,
+            session_id: questionnaireSessionId, status: 'submitted', final_submission_id: successResult.submissionId || '',
+            responses_json: JSON.stringify(rawFormData) });
           setShowThankYouModal(true);
         },
         onFinalSubmitFailure: (_failureResult) => {
@@ -1721,28 +1818,31 @@ export default function Questionnaire() {
   }, [createDraftEvent, draftApi, enqueueDraftSave, questionnaireSessionId, reconcileAuthoritativeOrganizerDraft, textValidation, urlCredentials]);
 
   // Silent reset after full successful submission (no confirmation modal)
-  const resetQuestionnaireStateAfterFullSuccess = useCallback(() => {
-    const clearedFormData = getInitialExpressFormData();
-    const clearedTouchedQuestions = {};
-    const defaultExpanded = getDefaultExpandedQuestions();
-    const defaultOpenQuestions = Object.entries(defaultExpanded)
-      .filter(([_, isOpen]) => isOpen)
-      .map(([num]) => Number(num));
-    
-    // Reset state silently
-    setFormData(clearedFormData);
-    textValidation.resetAllFields();
-    setTouchedQuestions(clearedTouchedQuestions);
-    setOpenQuestions(defaultOpenQuestions.length > 0 ? defaultOpenQuestions : [1]);
-    setSubmitValidationIssues([]);
-    setSubmitValidationWarnings([]);
-    setSubmitError(null);
-    setRecoveryCode("");
-    setLocalRecoveryBackupId("");
-    setLatestLocalRecoveryBackup(null);
-    
-    // Do NOT save to draft, do NOT create events, do NOT open confirmation modal
-  }, [textValidation]);
+  const startCompletedRevision = useCallback(async () => {
+    if (isStartingRevision || !completedRecoveryRef.current) return;
+    setIsStartingRevision(true);
+    setRevisionStartError('');
+    try {
+      if (!revisionRequestRef.current) {
+        const state = revisionStateFromCompleted(completedRecoveryRef.current, includeCompletedBrowserEdits);
+        const draft = buildImmediateDraftRecord({ sessionId: questionnaireSessionId, responses: state.formData,
+          validationStatus: state.validationStatus || {}, touchedQuestions: state.touchedQuestions || {}, expandedQuestions: state.expandedQuestions || {},
+          credentials: urlCredentials, businessName: businessDetailsRef.current.businessName, domain: businessDetailsRef.current.domain });
+        revisionRequestRef.current = prepareCompletedRevisionRequest({ storage: getOrganizerBrowserStorage(), sourceSessionId: questionnaireSessionId, draft });
+        setHasPendingRevisionRequest(true);
+      }
+      const request = revisionRequestRef.current;
+      const result = await draftApi.startRevision(request);
+      const href = confirmedRevisionUrl(request, result, window.location);
+      acknowledgeCompletedRevisionRequest(getOrganizerBrowserStorage(), request, result);
+      setConfirmedRevisionHref(href);
+      // Reload gives every callback/queue/validation hook the new confirmed
+      // identity together. No captured old-session save can enter the revision.
+      window.location.assign(href);
+    } catch (error) {
+      setRevisionStartError(error?.message || 'The new revision could not be confirmed. Retry; your completed answers and recovery copy are preserved.');
+    } finally { setIsStartingRevision(false); }
+  }, [draftApi, includeCompletedBrowserEdits, isStartingRevision, questionnaireSessionId]);
 
   const handleReset = () => {
     setShowClearAllConfirm(true);
@@ -1961,6 +2061,7 @@ export default function Questionnaire() {
           <button
             type="button"
             onClick={handleCollapseAll}
+            disabled={Boolean(completedRecovery)}
             className="px-6 py-3 hover:opacity-90 font-bold transition-all text-sm tracking-wider uppercase"
             style={{ 
               backgroundColor: '#7D868D', 
@@ -1995,9 +2096,29 @@ export default function Questionnaire() {
           <ExpressDraftSaveStatus saveStatus={draftSaveStatus} />
         </div>
 
+        {completedRecovery && <aside role="status" className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-5 text-sm text-blue-950">
+          <p className="font-semibold">This questionnaire has been submitted</p>
+          <p className="mt-1">The submitted answers are read-only. Start a new revision to make changes; your original submission and receipt stay available.</p>
+          {hasPendingRevisionRequest && <p className="mt-3 font-medium">A saved revision request is waiting for confirmation. Retry resumes its original answer copy.</p>}
+          {!completedRecovery.storageSaved && <p className="mt-2 font-medium">Browser storage is unavailable. Download your recovery copy before closing this page.</p>}
+          {completedRecovery.localState && !hasPendingRevisionRequest && <label className="mt-3 flex items-start gap-2">
+            <input type="checkbox" className="mt-1" checked={includeCompletedBrowserEdits} disabled={isStartingRevision || Boolean(revisionRequestRef.current)} onChange={(event) => setIncludeCompletedBrowserEdits(event.target.checked)} />
+            <span>Include the different browser answers preserved before this page became read-only. These answers have not been submitted.</span>
+          </label>}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button type="button" disabled={isStartingRevision} className="min-h-11 rounded bg-blue-800 px-4 py-2 font-semibold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2" onClick={startCompletedRevision}>{isStartingRevision ? 'Creating saved revision…' : 'Start a revision'}</button>
+            <button type="button" className="min-h-11 rounded border border-blue-800 px-4 py-2 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2" onClick={() => {
+              const url = URL.createObjectURL(new Blob([JSON.stringify({ ...completedRecovery, pendingRevisionDraft: revisionRequestRef.current?.draft }, null, 2)], { type: 'application/json' }));
+              const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'express-completed-questionnaire-recovery.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}>Download answers and browser recovery copy</button>
+          </div>
+          {revisionStartError && <p role="alert" className="mt-3 font-medium text-red-800">{revisionStartError}</p>}
+          {confirmedRevisionHref && <a href={confirmedRevisionHref} className="mt-3 inline-block font-semibold underline">Open the saved new revision</a>}
+        </aside>}
+
         {organizerRecoveryNotice && <aside role="status" className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-          <p className="font-semibold">Page organization recovery copy preserved</p>
-          <p className="mt-1">The current server pages are shown. A different browser copy was kept separately for review.{organizerRecoveryNotice.requiresReload ? ' Reload before editing the affected service or industry pages.' : ''}</p>
+          <p className="font-semibold">{organizerRecoveryNotice.scope === 'all_answers' ? 'Answer recovery copy preserved' : 'Page organization recovery copy preserved'}</p>
+          <p className="mt-1">{organizerRecoveryNotice.scope === 'all_answers' ? 'This questionnaire changed in another tab. The current server answers are shown and your different browser answers were kept separately. Download the copy for review, then reload before editing.' : <>The current server pages are shown. A different browser copy was kept separately for review.{organizerRecoveryNotice.requiresReload ? ' Reload before editing the affected service or industry pages.' : ''}</>}</p>
           {!organizerRecoveryNotice.storageSaved && <p className="mt-1 font-medium">Browser storage is unavailable. Download this copy before closing the page.</p>}
           <div className="mt-3 flex flex-wrap gap-3">
             <button type="button" className="min-h-10 rounded border border-amber-700 px-3 py-2 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700" onClick={() => {
@@ -2013,6 +2134,7 @@ export default function Questionnaire() {
           aria-busy={isDraftHydrating}
           className={`space-y-16 transition-opacity ${isDraftHydrating ? "pointer-events-none opacity-60" : ""}`}
         >
+          <fieldset disabled={isDraftHydrating || Boolean(completedRecovery) || requiresDraftReload} className="m-0 min-w-0 space-y-16 border-0 p-0">
           <section className="space-y-8">
             <div className="pb-6 border-b-2" style={{ borderColor: '#009ADD' }}>
               <h2 className="text-2xl font-bold" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>Section 1: About Your Business</h2>
@@ -2521,6 +2643,7 @@ export default function Questionnaire() {
               Use this only if the form appears stuck or old browser data will not clear.
             </p>
           </div>
+          </fieldset>
         </form>
 
         <div className="mt-16 rounded-xl p-6" style={{ backgroundColor: '#E6F4FF', border: '1px solid #009ADD' }}>

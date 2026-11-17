@@ -67,6 +67,9 @@ export function createDraftMutationEnvelope(draft, {
     client_instance_id: instance,
     client_sequence: sequence,
     base_revision: Math.max(0, Number(baseRevision || 0) || 0),
+    // Local execution guard only; backend sanitation ignores this field. Keep
+    // the originally observed base when a rejected pending draft is retried.
+    __captured_base_revision: Math.max(0, Number(draft?.__captured_base_revision ?? draft?.base_revision ?? baseRevision) || 0),
     changed_keys_json: JSON.stringify(changedKeys),
     deleted_keys_json: JSON.stringify(deletedKeys),
   };

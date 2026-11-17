@@ -25,6 +25,7 @@ const SNAPSHOT_FIELDS = [
   'retention_hold', 'retention_policy', 'retention_policy_version',
   'retention_protected_at', 'recovery_copy_source_draft_id',
   'recovery_copy_source_version_id', 'recovery_copy_created_at',
+  'revision_source_draft_id', 'revision_source_submission_id', 'revision_request_id_hash', 'revision_created_at',
 ] as const;
 
 const QUESTION_FIELDS = [

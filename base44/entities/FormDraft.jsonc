@@ -308,6 +308,22 @@
       "type": "string",
       "description": "Latest client submit attempt identifier persisted with this draft"
     },
+    "revision_source_draft_id": {
+      "type": "string",
+      "description": "Completed draft that the client explicitly copied into this editable revision"
+    },
+    "revision_source_submission_id": {
+      "type": "string",
+      "description": "Original completed submission receipt; the receipt itself remains unchanged"
+    },
+    "revision_request_id_hash": {
+      "type": "string",
+      "description": "Scoped idempotency key for an explicit completed-draft revision request"
+    },
+    "revision_created_at": {
+      "type": "string",
+      "description": "ISO timestamp when the explicit revision was created"
+    },
     "recovery_copy_source_draft_id": {
       "type": "string",
       "description": "Original draft used to create this independent editable recovery copy"
