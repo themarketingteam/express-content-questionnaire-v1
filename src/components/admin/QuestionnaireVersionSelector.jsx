@@ -118,7 +118,7 @@ export default function QuestionnaireVersionSelector({
             <div className="questionnaire-version-panel__readonly">
               <div>
                 <strong>Read-only historical version</strong>
-                <p>Editing, retrying, AI repair, and deletion are disabled for this retained snapshot. The original questionnaire link remains available below.</p>
+                <p>Editing, retrying, AI repair, and deletion are disabled for this retained snapshot. The original questionnaire link remains available.</p>
               </div>
               <Button
                 type="button"
