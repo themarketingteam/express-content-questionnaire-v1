@@ -5,7 +5,6 @@ import {
   normalizeIdentityValue,
 } from '../../shared/questionnaireVersions.ts';
 import { applyDurableDraftMutation } from '../../shared/durableDraftMutation.ts';
-import { startQuestionnaireRevision } from '../../shared/startQuestionnaireRevision.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -286,18 +285,10 @@ Deno.serve(async (req) => {
     const existing = newestRecord(scopedMatches || []);
 
     if (body.action === 'start_revision') {
-      if (!existing || !draftAllowsAccess(existing, accessKeyHash)) return json({ success: false, error: 'Draft access was denied.', code: 'DRAFT_ACCESS_DENIED' }, 403);
-      const targetSessionId = body.targetSessionId;
-      const targetAccessKey = body.targetAccessKey;
-      const requestId = typeof body.revisionRequestId === 'string' ? body.revisionRequestId.trim() : '';
-      if (!isValidIdentity(targetSessionId, targetAccessKey) || targetSessionId === sessionId || !NEW_CLIENT_REQUEST_PATTERN.test(requestId)) return json({ success: false, error: 'A valid new revision identity is required.', code: 'INVALID_REVISION_REQUEST' }, 400);
-      const clientDraft = body.draft === undefined ? null : sanitizeDraft(body.draft, targetSessionId);
-      if (body.draft !== undefined && !clientDraft) return json({ success: false, error: 'Revision answers are invalid.', code: 'INVALID_REVISION_REQUEST' }, 400);
-      const result = await startQuestionnaireRevision({ base44, sourceDraftId: String(existing.id), sourceAccessHash: accessKeyHash,
-        targetSessionId, targetAccessHash: await hashAccessKey(targetAccessKey as string), requestHash: await hashOpaqueValue(`${existing.id}:${requestId}`), clientDraft });
-      return json({ success: true, revisionStarted: true, saved: true, duplicate: Boolean(result.duplicate), draftId: result.draft.id,
-        lastConfirmedRevision: sanitizeRevision(result.draft.last_confirmed_revision), lastSavedAt: result.draft.last_saved_at,
-        draft: withoutDraftAccessHashes(result.draft) });
+      // A client capability grants access to this questionnaire, never the
+      // ability to start another editable submission after completion. Team
+      // revisions use the separately authorized recovery createVersionCopy.
+      return json({ success: false, code: 'REVISION_REQUIRES_TEAM', error: 'Submitted questionnaires are read-only. Contact your team to request a revision.' }, 403);
     }
 
     if (body.action === 'bootstrap_new_client') {
@@ -419,6 +410,14 @@ Deno.serve(async (req) => {
           lastSavedAt: existing?.last_saved_at || existing?.updated_date || '',
           lastConfirmedRevision: sanitizeRevision(existing?.last_confirmed_revision),
           identityConflict: conflicts,
+          draft: withoutDraftAccessHashes(existing),
+        });
+      }
+      if (existing && (existing.status === 'submitted' || existing.final_submission_id)) {
+        return json({
+          success: true, bootstrapConfirmed: true, created: false, finalized: true,
+          draftId: existing.id, lastSavedAt: existing.last_saved_at || existing.updated_date || '',
+          lastConfirmedRevision: sanitizeRevision(existing.last_confirmed_revision),
           draft: withoutDraftAccessHashes(existing),
         });
       }

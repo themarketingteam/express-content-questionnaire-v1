@@ -62,7 +62,19 @@ async function harness(initial = record(), { failMaterialization = false, dropCr
     draftAllowsAccess, withoutDraftAccessHashes, normalizeIdentityValue, createQuestionnaireVersion, applyDurableDraftMutation, startQuestionnaireRevision,
     createClientFromRequest: () => base44, Deno: { serve: (value) => { handler = value; } },
   });
-  return { rows, versions, base44, send: async (body) => {
+  return { rows, versions, base44, teamRevision: async (body) => {
+    // Exercise the retained internal copy helper separately from the public
+    // client endpoint, which no longer authorizes revision creation.
+    try {
+      const result = await startQuestionnaireRevision({ base44, sourceDraftId: initial.id,
+        sourceAccessHash: await hash(body.accessKey || accessKey),
+        targetSessionId: body.targetSessionId, targetAccessHash: await hash(body.targetAccessKey),
+        requestHash: await hash(`${initial.id}:${body.revisionRequestId}`), clientDraft: body.draft || null });
+      return { status: 200, body: { success: true, revisionStarted: true, saved: true,
+        duplicate: Boolean(result.duplicate), draftId: result.draft.id,
+        lastConfirmedRevision: result.draft.last_confirmed_revision, draft: withoutDraftAccessHashes(result.draft) } };
+    } catch (error) { return { status: error.status || 500, body: { success: false, code: error.code } }; }
+  }, send: async (body) => {
     const response = await handler(new Request('https://example.test/draft', { method: 'POST', body: JSON.stringify({ sessionId, accessKey, ...body }) }));
     return { status: response.status, body: await response.json() };
   } };
@@ -76,7 +88,7 @@ test('completed save is explicitly finalized; revision preserves receipt and IDs
   const lateSave = await server.send({ action: 'save', draft: { responses_json: '{"differentiation":"Late browser edit"}', client_revision: 10 } });
   assert.equal(lateSave.body.finalized, true);
   assert.equal(lateSave.body.saved, false);
-  const created = await server.send(request());
+  const created = await server.teamRevision(request());
   assert.equal(created.status, 200);
   assert.equal(created.body.revisionStarted, true);
   const draft = created.body.draft;
@@ -90,7 +102,7 @@ test('completed save is explicitly finalized; revision preserves receipt and IDs
   assert.equal(JSON.parse(draft.mapped_payload_json).metadata.questionnaire_session_id, targetSessionId);
   assert.equal(JSON.parse(draft.mapped_payload_json).metadata.questionnaire_payload_version, 2);
   assert.deepEqual(sourceAnswers(server.rows[0]), original);
-  const retried = await server.send(request());
+  const retried = await server.teamRevision(request());
   assert.equal(retried.body.draftId, draft.id);
   assert.equal(retried.body.duplicate, true);
   assert.equal(server.rows.length, 2);
@@ -101,17 +113,17 @@ test('completed save is explicitly finalized; revision preserves receipt and IDs
 
 test('lost materialization response resumes retained version; subsequent revision edits are not rewound by original request', async () => {
   const server = await harness(record(), { failMaterialization: true });
-  assert.equal((await server.send(request())).status, 500);
+  assert.equal((await server.teamRevision(request())).status, 500);
   assert.equal(server.rows.length, 2);
   assert.equal(server.versions.length, 1, 'The initial copy is retained before acknowledging it.');
-  const resumed = await server.send(request());
+  const resumed = await server.teamRevision(request());
   assert.equal(resumed.body.saved, true);
   assert.equal(server.versions.length, 1);
   const responses = { ...JSON.parse(resumed.body.draft.responses_json), differentiation: 'Edited inside the new revision' };
   const payload = buildExpressSubmissionPayload({ formData: responses, businessName: 'Synthetic Revision Test', domain: 'revision.example', sessionId: targetSessionId });
   const edit = await server.send({ action: 'save', sessionId: targetSessionId, accessKey: targetAccessKey, mutationId: 'revision-edit', baseRevision: 1, clientSequence: 2, clientInstanceId: 'revision-tab', draft: { responses_json: JSON.stringify(responses), mapped_payload_json: JSON.stringify({ metadata: payload.metadata, userdata: payload.userdata }), client_revision: 2 } });
   assert.equal(edit.body.saved, true);
-  const retry = await server.send(request());
+  const retry = await server.teamRevision(request());
   assert.equal(retry.body.saved, true);
   assert.equal(JSON.parse(retry.body.draft.responses_json).differentiation, responses.differentiation);
   assert.equal(server.rows[0].final_submission_id, 'original-receipt');
@@ -119,19 +131,19 @@ test('lost materialization response resumes retained version; subsequent revisio
 
 test('revision requires source credential, completed source, and matching target credential on replay', async () => {
   const server = await harness();
-  assert.equal((await server.send({ ...request(), accessKey: 'wrong-source-key-1234567890123456789012345' })).status, 403);
+  assert.equal((await server.teamRevision({ ...request(), accessKey: 'wrong-source-key-1234567890123456789012345' })).status, 403);
   assert.equal(server.rows.length, 1);
-  await server.send(request());
-  assert.equal((await server.send({ ...request(), targetAccessKey: 'wrong-target-key-1234567890123456789012345' })).status, 403);
+  await server.teamRevision(request());
+  assert.equal((await server.teamRevision({ ...request(), targetAccessKey: 'wrong-target-key-1234567890123456789012345' })).status, 403);
   const active = await harness({ ...record(), status: 'draft', final_submission_id: '' });
-  assert.equal((await active.send(request())).status, 409);
+  assert.equal((await active.teamRevision(request())).status, 409);
   assert.equal(active.rows.length, 1);
 });
 
 test('legacy revision remains flat without adopting a v2 marker', async () => {
   const responses = { serviceOfferings: ['Managed IT', 'Cloud Services'], serviceOfferingsOther: 'Custom, comma retained', targetIndustries: ['Financial / Accounting / CPA'], targetIndustriesOther: '' };
   const server = await harness(record(responses));
-  const result = await server.send(request());
+  const result = await server.teamRevision(request());
   assert.equal(result.status, 200);
   assert.deepEqual(JSON.parse(result.body.draft.responses_json), responses);
   const payload = JSON.parse(result.body.draft.mapped_payload_json);
@@ -141,12 +153,12 @@ test('legacy revision remains flat without adopting a v2 marker', async () => {
 
 test('a missing historical receipt does not trap authenticated completed answers, while unreadable answers fail closed', async () => {
   const server = await harness({ ...record(), final_submission_id: '' });
-  const started = await server.send(request());
+  const started = await server.teamRevision(request());
   assert.equal(started.body.revisionStarted, true);
   assert.equal(started.body.draft.revision_source_draft_id, 'completed-source');
   assert.equal(started.body.draft.revision_source_submission_id, '');
   const malformed = await harness({ ...record(), responses_json: '{broken' });
-  assert.equal((await malformed.send(request())).status, 409);
+  assert.equal((await malformed.teamRevision(request())).status, 409);
   assert.equal(malformed.rows.length, 1);
 });
 
@@ -154,7 +166,7 @@ test('silent deployed-schema drops cannot acknowledge a non-retryable revision i
   for (const key of ['revision_request_id_hash', 'revision_source_draft_id', 'revision_created_at', 'draft_access_key_hash', 'responses_json']) {
     const server = await harness(record(), { dropCreatedFields: [key] });
     const original = sourceAnswers(server.rows[0]);
-    const result = await server.send(request());
+    const result = await server.teamRevision(request());
     assert.equal(result.status, 409, `${key} must be verified by reading the created entity.`);
     assert.equal(result.body.code, 'REVISION_NOT_CONFIRMED');
     assert.notEqual(result.body.revisionStarted, true);
@@ -199,7 +211,7 @@ test('completed browser edits are archived, explicitly selected, and cannot swit
   assert.equal(store.getItem(QUESTIONNAIRE_SESSION_STORAGE_KEY), sessionId);
 });
 
-test('local preview finalizes once and creates one independent revision that survives restart without external requests', () => {
+test('local preview retains read-only completed answers across restart and rejects client revisions', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'express-completed-revision-'));
   const root = path.resolve(new URL('../', import.meta.url).pathname);
   const fetch = test.mock.method(globalThis, 'fetch', () => { throw new Error('No external requests are allowed'); });
@@ -208,22 +220,33 @@ test('local preview finalizes once and creates one independent revision that sur
     const boot = api.invoke('questionnaireDraftData', { sessionId, accessKey, action: 'bootstrap' });
     const responses = JSON.parse(boot.draft.responses_json);
     const payload = buildExpressSubmissionPayload({ formData: responses, businessName: boot.draft.business_name, domain: boot.draft.domain, sessionId });
-    const receipt = api.invoke('submitExpressQuestionnaireFallback', { questionnaireSessionId: sessionId, rawResponses: responses, transformedPayload: payload });
+    api.invoke('submitExpressQuestionnaireFallback', { questionnaireSessionId: sessionId, rawResponses: responses, transformedPayload: payload });
     const original = api.invoke('questionnaireDraftData', { sessionId, accessKey, action: 'load' }).draft;
-    const lateSave = api.invoke('questionnaireDraftData', { sessionId, accessKey, action: 'save', draft: { responses_json: '{}' } });
-    assert.equal(lateSave.finalized, true);
-    const body = { sessionId, accessKey, ...request() };
-    const revision = api.invoke('questionnaireDraftData', body);
-    assert.equal(revision.revisionStarted, true);
-    assert.equal(revision.draft.revision_source_submission_id, receipt.submissionId);
-    assert.equal(revision.draft.final_submission_id, '');
-    assert.deepEqual(JSON.parse(revision.draft.responses_json), responses);
-    assert.equal(api.invoke('questionnaireDraftData', body).draftId, revision.draftId);
+    assert.equal(api.invoke('questionnaireDraftData', { sessionId, accessKey, action: 'save', draft: { responses_json: '{}' } }).finalized, true);
+    assert.throws(() => api.invoke('questionnaireDraftData', { sessionId, accessKey, ...request() }), { status: 403, code: 'REVISION_REQUIRES_TEAM' });
     const restarted = createLocalApi(root, { dataDirectory: directory });
-    assert.deepEqual(restarted.invoke('questionnaireDraftData', { sessionId, accessKey, action: 'load' }).draft, original);
-    assert.equal(restarted.invoke('questionnaireDraftData', body).draftId, revision.draftId);
+    assert.deepEqual(restarted.invoke('questionnaireDraftData', { sessionId, accessKey, action: 'bootstrap' }).draft, original);
     assert.equal(restarted.state.submissions.length, 1);
-    assert.equal(Object.keys(restarted.state.drafts).length, 2);
+    assert.equal(Object.keys(restarted.state.drafts).length, 1);
     assert.equal(fetch.mock.callCount(), 0);
   } finally { fetch.mock.restore(); fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('public completed links remain readable but cannot start revisions or change saved answers', async () => {
+  const server = await harness();
+  const original = structuredClone(server.rows[0]);
+  for (const action of ['bootstrap', 'load']) {
+    const result = await server.send({ action });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.draft.responses_json, original.responses_json);
+    assert.equal(result.body.draft.status, 'submitted');
+    assert.equal(Object.hasOwn(result.body.draft, 'draft_access_key_hash'), false);
+  }
+  assert.deepEqual(server.rows[0], original, 'Review must not change submitted metadata or materialize versions.');
+  assert.equal(server.versions.length, 0);
+  const denied = await server.send(request());
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.code, 'REVISION_REQUIRES_TEAM');
+  assert.equal(server.rows.length, 1);
+  assert.deepEqual(server.rows[0], original);
 });

@@ -20,6 +20,7 @@ import {
   snapshotFromDraft,
 } from '../../shared/questionnaireVersions.ts';
 import { applyDurableDraftMutation } from '../../shared/durableDraftMutation.ts';
+import { withEntityLease } from '../../shared/entityLease.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -941,12 +942,18 @@ Deno.serve(async (req) => {
 
         const accessKey = randomBase64Url();
         const accessKeyHash = await hashAccessKey(accessKey);
-        const recoveryHashes = appendDraftRecoveryAccessHash(
-          draft.draft_recovery_access_key_hashes,
-          accessKeyHash,
-        );
-        await base44.asServiceRole.entities.FormDraft.update(draft.id, {
-          draft_recovery_access_key_hashes: recoveryHashes,
+        await withEntityLease({
+          entity: base44.asServiceRole.entities.FormDraft,
+          entityId: String(draft.id),
+          purpose: 'create-client-questionnaire-link',
+        }, async (lease) => {
+          const current = await base44.asServiceRole.entities.FormDraft.get(String(draft.id));
+          await lease.update({
+            draft_recovery_access_key_hashes: appendDraftRecoveryAccessHash(
+              current.draft_recovery_access_key_hashes,
+              accessKeyHash,
+            ),
+          });
         });
 
         return json({

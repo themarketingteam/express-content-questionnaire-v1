@@ -79,9 +79,6 @@ export function createQuestionnaireDraftApi({ invoke, sessionId, accessKey, requ
     async save(draft) {
       return request({ action: "save", draft });
     },
-    async startRevision({ targetSessionId, targetAccessKey, revisionRequestId, draft }) {
-      return request({ action: 'start_revision', targetSessionId, targetAccessKey, revisionRequestId, draft });
-    },
     async checkpoint(draft, checkpointType) {
       return request({ action: "checkpoint", draft, checkpointType });
     },

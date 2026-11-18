@@ -24,8 +24,8 @@ test("a generated recovery key authorizes the same draft without replacing its p
   assert.equal(draftAllowsAccess(draft, "c".repeat(64)), false);
 });
 
-test("generated recovery hashes are de-duplicated, bounded, and never exposed to clients", () => {
-  const hashes = appendDraftRecoveryAccessHash([PRIMARY_HASH, PRIMARY_HASH], RECOVERY_HASH, 2);
+test("generated recovery hashes are de-duplicated, preserved, and never exposed to clients", () => {
+  const hashes = appendDraftRecoveryAccessHash([PRIMARY_HASH, PRIMARY_HASH], RECOVERY_HASH);
   assert.deepEqual(hashes, [PRIMARY_HASH, RECOVERY_HASH]);
 
   const safe = withoutDraftAccessHashes({
@@ -54,13 +54,9 @@ test("admin action and questionnaire load are wired to the secondary recovery ke
   assert.match(pageSource, /const link = draftRecoveryLink \|\| await requestDraftRecoveryLink\(\)/);
   assert.match(pageSource, /await copyTextToClipboard\(link\)/);
   assert.match(pageSource, /#?draftRecoveryData/);
-  const actionsMarkup = pageSource.slice(
-    pageSource.indexOf('<p className="brand-action-label">Actions</p>'),
-    pageSource.indexOf('<p className="brand-action-label">AI Actions</p>'),
-  );
   assert.ok(
-    actionsMarkup.indexOf("Copy Draft Link") < actionsMarkup.indexOf("Edit Draft"),
-    "Copy Draft Link should be the first action, before Edit Draft",
+    pageSource.indexOf('                Copy Draft Link') < pageSource.indexOf('          <QuestionnaireVersionSelector'),
+    "The original Draft Link is available independently of version loading, selection, or an editable copy.",
   );
 });
 

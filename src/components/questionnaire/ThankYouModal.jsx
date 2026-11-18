@@ -4,7 +4,8 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { generatePDF } from "./PDFGenerator.js";
 
-export default function ThankYouModal({ businessName, domain, formData }) {
+/** @param {any} props */
+export default function ThankYouModal({ businessName, domain, formData, onViewAnswers, onCopyLink, receivedForProcessing = false }) {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const handleDownloadPDF = async () => {
@@ -45,6 +46,7 @@ export default function ThankYouModal({ businessName, domain, formData }) {
             We've received your questionnaire for{" "}
             <span className="font-semibold text-slate-900">{businessName}</span>.
           </p>
+          {receivedForProcessing && <p className="mt-3 text-sm text-slate-600">Your answers were safely received for processing. Final submission confirmation is pending.</p>}
         </div>
 
         {/* What happens next */}
@@ -70,6 +72,8 @@ export default function ThankYouModal({ businessName, domain, formData }) {
 
         {/* Download Button */}
         <div className="px-8 pb-8 space-y-3">
+          {onViewAnswers && <button type="button" onClick={onViewAnswers} className="min-h-12 w-full rounded bg-blue-900 px-4 py-3 font-bold text-white">{receivedForProcessing ? 'View saved answers' : 'View submitted answers'}</button>}
+          {onCopyLink && <button type="button" onClick={onCopyLink} className="min-h-12 w-full rounded border border-blue-900 px-4 py-3 font-semibold text-blue-900">Copy questionnaire link</button>}
           <button
             onClick={handleDownloadPDF}
             disabled={isGeneratingPDF}

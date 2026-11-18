@@ -27,7 +27,6 @@ export function draftAllowsAccess(
 export function appendDraftRecoveryAccessHash(
   currentValue: unknown,
   nextHash: string,
-  maximumHashes = 20,
 ): string[] {
   const currentHashes = Array.isArray(currentValue) ? currentValue : [];
   const uniqueHashes = [...currentHashes, nextHash]
@@ -35,7 +34,9 @@ export function appendDraftRecoveryAccessHash(
       typeof value === 'string' && ACCESS_KEY_HASH_PATTERN.test(value)
     ))
     .filter((value, index, values) => values.indexOf(value) === index);
-  return uniqueHashes.slice(-maximumHashes);
+  // A new team-generated link must not revoke an earlier client link. Access
+  // is removed only through an explicit administrative revocation/deletion.
+  return uniqueHashes;
 }
 
 export function withoutDraftAccessHashes(

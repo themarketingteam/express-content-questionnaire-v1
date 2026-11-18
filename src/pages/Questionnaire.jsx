@@ -78,7 +78,10 @@ import SubmitRecoveryCard from "@/components/questionnaire/SubmitRecoveryCard";
 import ExpressDraftSaveStatus from "@/components/questionnaire/ExpressDraftSaveStatus";
 import { HELPER_COPY } from "@/lib/questionnaireHelperCopy";
 import { assertCurrentOrganizerSnapshot, getOrganizerBrowserStorage, parseOrganizerResponses, prepareOrganizerWireDraft, preserveOrganizerRecoveryCopy, preserveUnchangedOrganizerQuestions, readOrganizerBaseRevision, readOrganizerRecoveryArchive, reconcileOrganizerAcknowledgement, reconcileOrganizerHydration, reconcilePendingOrganizerDraft, rememberOrganizerBaseRevision } from "@/lib/expressOrganizerRecovery";
-import { acknowledgeCompletedRevisionRequest, completedDraftRecovery, confirmedRevisionUrl, isCompletedQuestionnaireDraft, prepareCompletedRevisionRequest, preserveCompletedRecovery, readCompletedRecovery, readCompletedRevisionRequest, revisionStateFromCompleted } from '@/lib/completedDraftRevision';
+import { completedDraftRecovery, isCompletedQuestionnaireDraft, preserveCompletedRecovery, readCompletedRecovery } from '@/lib/completedDraftRevision';
+import SubmittedQuestionnaireReview from '@/components/questionnaire/SubmittedQuestionnaireReview';
+import { copyTextToClipboard } from '@/lib/clipboard';
+import { generatePDF } from '@/components/questionnaire/PDFGenerator.js';
 import { browserDraftRequiresReview, hasForeignDraftRevision } from '@/lib/draftRevisionConflict';
 
 const STORAGE_KEY = EXPRESS_COOKIE_KEY;
@@ -143,11 +146,8 @@ export default function Questionnaire() {
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [isDraftHydrating, setIsDraftHydrating] = useState(true);
   const [completedRecovery, setCompletedRecovery] = useState(null);
-  const [includeCompletedBrowserEdits, setIncludeCompletedBrowserEdits] = useState(true);
-  const [isStartingRevision, setIsStartingRevision] = useState(false);
-  const [revisionStartError, setRevisionStartError] = useState('');
-  const [confirmedRevisionHref, setConfirmedRevisionHref] = useState('');
-  const [hasPendingRevisionRequest, setHasPendingRevisionRequest] = useState(false);
+  const [receivedForProcessing, setReceivedForProcessing] = useState(false);
+  const [isGeneratingReviewPdf, setIsGeneratingReviewPdf] = useState(false);
   const [requiresDraftReload, setRequiresDraftReload] = useState(false);
   const [draftSaveStatus, setDraftSaveStatus] = useState(/** @type {{ state: string, lastServerSavedAt?: string, lastLocalSavedAt?: string, pendingLocalChanges?: boolean, lastError?: string, pendingRevision?: number, lastConfirmedRevision?: number }} */ ({ state: "initializing" }));
 
@@ -238,7 +238,6 @@ export default function Questionnaire() {
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
   const completedRecoveryRef = useRef(null);
-  const revisionRequestRef = useRef(null);
   const requiresDraftReloadRef = useRef(false);
   const draftBootstrapReadyRef = useRef(false);
   const clearInProgressRef = useRef(false);
@@ -343,9 +342,6 @@ export default function Questionnaire() {
     latestOrganizerFormRef.current = { ...getInitialExpressFormData(), ...serverState.formData };
     setFormData(latestOrganizerFormRef.current);
     setCompletedRecovery({ ...recovery, storageSaved });
-    const pendingRequest = revisionRequestRef.current || readCompletedRevisionRequest(getOrganizerBrowserStorage(), questionnaireSessionId);
-    revisionRequestRef.current = pendingRequest;
-    setHasPendingRevisionRequest(Boolean(pendingRequest));
     setOpenQuestions(Array.from({ length: 12 }, (_, index) => index + 1));
     setShowConfirmModal(false);
     remoteDraftRef.current = serverDraft;
@@ -568,7 +564,7 @@ export default function Questionnaire() {
 
   const saveDraftNow = useCallback(async (options = {}) => {
     if (requiresDraftReloadRef.current) throw Object.assign(new Error('Reload the current saved draft before submitting. Your browser copy is preserved.'), { status: 409, code: 'DRAFT_RELOAD_REQUIRED' });
-    if (hasFinalSubmittedRef.current) throw Object.assign(new Error('This questionnaire has already been submitted. Choose Edit a new revision to make changes.'), { status: 409, code: 'DRAFT_COMPLETED' });
+    if (hasFinalSubmittedRef.current) throw Object.assign(new Error('This questionnaire has already been submitted. Contact your team to request a revision.'), { status: 409, code: 'DRAFT_COMPLETED' });
     const {
       status,
       submitError,
@@ -1421,7 +1417,7 @@ export default function Questionnaire() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (hasFinalSubmittedRef.current) { toast.info('Choose Edit a new revision to update this submitted questionnaire.'); return; }
+    if (hasFinalSubmittedRef.current) { toast.info('This submitted questionnaire is read-only. Contact your team to request a revision.'); return; }
 
     if (!draftBootstrapReadyRef.current) {
       toast.error("Your secure recovery draft is still connecting. Please wait before submitting.");
@@ -1636,17 +1632,14 @@ export default function Questionnaire() {
             formData: rawFormData 
           });
           setShowConfirmModal(false);
-          
-          // Intake-only receipt: do NOT reset form or clear cookie/session
+          setReceivedForProcessing(Boolean(successResult.receivedViaIntake));
           if (successResult.receivedViaIntake) {
-            // Keep formData intact, preserve cookie, keep session id
-            toast.success(`Your submission was safely received. Recovery code: ${questionnaireSessionId}`);
+            // Intake is a durable receipt of the answers, not proof that final
+            // submission completed. Reopen this same URL to resolve its state.
+            toast.success(`Your answers were received for processing. Recovery code: ${questionnaireSessionId}`);
             setShowThankYouModal(true);
             return;
           }
-          
-          // Keep the submitted answers and recovery identity available for an
-          // explicit new revision; the completed receipt is immutable.
           recognizeCompletedDraft({ ...(remoteDraftRef.current || {}), id: draftRecordIdRef.current,
             session_id: questionnaireSessionId, status: 'submitted', final_submission_id: successResult.submissionId || '',
             responses_json: JSON.stringify(rawFormData) });
@@ -1817,35 +1810,27 @@ export default function Questionnaire() {
     }
   }, [createDraftEvent, draftApi, enqueueDraftSave, questionnaireSessionId, reconcileAuthoritativeOrganizerDraft, textValidation, urlCredentials]);
 
-  // Silent reset after full successful submission (no confirmation modal)
-  const startCompletedRevision = useCallback(async () => {
-    if (isStartingRevision || !completedRecoveryRef.current) return;
-    setIsStartingRevision(true);
-    setRevisionStartError('');
+  const copyQuestionnaireLink = useCallback(async () => {
     try {
-      if (!revisionRequestRef.current) {
-        const state = revisionStateFromCompleted(completedRecoveryRef.current, includeCompletedBrowserEdits);
-        const draft = buildImmediateDraftRecord({ sessionId: questionnaireSessionId, responses: state.formData,
-          validationStatus: state.validationStatus || {}, touchedQuestions: state.touchedQuestions || {}, expandedQuestions: state.expandedQuestions || {},
-          credentials: urlCredentials, businessName: businessDetailsRef.current.businessName, domain: businessDetailsRef.current.domain });
-        revisionRequestRef.current = prepareCompletedRevisionRequest({ storage: getOrganizerBrowserStorage(), sourceSessionId: questionnaireSessionId, draft });
-        setHasPendingRevisionRequest(true);
-      }
-      const request = revisionRequestRef.current;
-      const result = await draftApi.startRevision(request);
-      const href = confirmedRevisionUrl(request, result, window.location);
-      acknowledgeCompletedRevisionRequest(getOrganizerBrowserStorage(), request, result);
-      setConfirmedRevisionHref(href);
-      // Reload gives every callback/queue/validation hook the new confirmed
-      // identity together. No captured old-session save can enter the revision.
-      // A fragment-only assign keeps this completed document and its old refs
-      // alive. Install the confirmed identity, then explicitly remount the app.
-      window.history.replaceState(window.history.state, '', href);
-      window.location.reload();
-    } catch (error) {
-      setRevisionStartError(error?.message || 'The new revision could not be confirmed. Retry; your completed answers and recovery copy are preserved.');
-    } finally { setIsStartingRevision(false); }
-  }, [draftApi, includeCompletedBrowserEdits, isStartingRevision, questionnaireSessionId]);
+      await copyTextToClipboard(window.location.href);
+      toast.success('Questionnaire link copied.');
+    } catch { toast.error('The link could not be copied. Copy the complete address from your browser.'); }
+  }, []);
+
+  const viewSavedAnswers = useCallback(() => {
+    if (receivedForProcessing) window.location.reload();
+    else setShowThankYouModal(false);
+  }, [receivedForProcessing]);
+
+  const downloadSubmittedPdf = useCallback(async () => {
+    if (isGeneratingReviewPdf || !completedRecoveryRef.current) return;
+    setIsGeneratingReviewPdf(true);
+    try {
+      const result = await generatePDF(completedRecoveryRef.current.sourceState.formData, businessDetailsRef.current.businessName, businessDetailsRef.current.domain);
+      if (!result.success) throw new Error('PDF generation failed');
+    } catch { toast.error('The PDF could not be generated. Your saved answers remain available.'); }
+    finally { setIsGeneratingReviewPdf(false); }
+  }, [isGeneratingReviewPdf]);
 
   const handleReset = () => {
     setShowClearAllConfirm(true);
@@ -2045,7 +2030,7 @@ export default function Questionnaire() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-12">
-        <div className="flex flex-wrap gap-3 mb-8">
+        {!completedRecovery && <div className="flex flex-wrap gap-3 mb-8">
           <button
             type="button"
             onClick={handleExpandAll}
@@ -2093,34 +2078,24 @@ export default function Questionnaire() {
             <Info className="w-4 h-4" />
             Answer Quality Guide
           </button>
-        </div>
+        </div>}
 
         <div className="mb-6 min-h-5">
           <ExpressDraftSaveStatus saveStatus={draftSaveStatus} />
         </div>
 
         {completedRecovery && <aside role="status" className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-5 text-sm text-blue-950">
-          <p className="font-semibold">This questionnaire has been submitted</p>
-          <p className="mt-1">The submitted answers are read-only. Start a new revision to make changes; your original submission and receipt stay available.</p>
-          {hasPendingRevisionRequest && <p className="mt-3 font-medium">A saved revision request is waiting for confirmation. Retry resumes its original answer copy.</p>}
+          <p className="font-semibold">{receivedForProcessing ? 'Your questionnaire was received for processing' : 'This questionnaire has been submitted'}</p>
+          {receivedForProcessing && <p className="mt-1">Your answers were safely received. Final submission confirmation is pending.</p>}
+          <p className="mt-1">Your saved answers are read-only. You can return to this same link to review them. Contact your team if a separate revision is needed.</p>
           {!completedRecovery.storageSaved && <p className="mt-2 font-medium">Browser storage is unavailable. Download your recovery copy before closing this page.</p>}
-          {completedRecovery.localState && !hasPendingRevisionRequest && <label className="mt-3 flex items-start gap-2">
-            <input type="checkbox" className="mt-1" checked={includeCompletedBrowserEdits} disabled={isStartingRevision || Boolean(revisionRequestRef.current)} onChange={(event) => setIncludeCompletedBrowserEdits(event.target.checked)} />
-            <span>Include the different browser answers preserved before this page became read-only. These answers have not been submitted.</span>
-          </label>}
+          {completedRecovery.localState && <p className="mt-3">Different browser answers were preserved separately for your team to review. They have not changed this submission.</p>}
           <div className="mt-4 flex flex-wrap gap-3">
-            <button type="button" disabled={isStartingRevision} className="min-h-11 rounded bg-blue-800 px-4 py-2 font-semibold text-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2" onClick={startCompletedRevision}>{isStartingRevision ? 'Creating saved revision…' : 'Start a revision'}</button>
             <button type="button" className="min-h-11 rounded border border-blue-800 px-4 py-2 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2" onClick={() => {
-              const url = URL.createObjectURL(new Blob([JSON.stringify({ ...completedRecovery, pendingRevisionDraft: revisionRequestRef.current?.draft }, null, 2)], { type: 'application/json' }));
+              const url = URL.createObjectURL(new Blob([JSON.stringify(completedRecovery, null, 2)], { type: 'application/json' }));
               const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'express-completed-questionnaire-recovery.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
             }}>Download answers and browser recovery copy</button>
           </div>
-          {revisionStartError && <p role="alert" className="mt-3 font-medium text-red-800">{revisionStartError}</p>}
-          {confirmedRevisionHref && <a href={confirmedRevisionHref} className="mt-3 inline-block font-semibold underline" onClick={(event) => {
-            event.preventDefault();
-            window.history.replaceState(window.history.state, '', confirmedRevisionHref);
-            window.location.reload();
-          }}>Open the saved new revision</a>}
         </aside>}
 
         {organizerRecoveryNotice && <aside role="status" className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
@@ -2136,7 +2111,16 @@ export default function Questionnaire() {
           </div>
         </aside>}
 
-        <form
+        {completedRecovery && <SubmittedQuestionnaireReview
+          formData={completedRecovery.sourceState.formData}
+          receivedForProcessing={receivedForProcessing}
+          businessName={knownBusinessDetails.businessName}
+          domain={knownBusinessDetails.domain}
+          onCopyLink={copyQuestionnaireLink}
+          onDownloadPdf={downloadSubmittedPdf}
+          isGeneratingPdf={isGeneratingReviewPdf}
+        />}
+        {!completedRecovery && <form
           onSubmit={handleSubmit}
           aria-busy={isDraftHydrating}
           className={`space-y-16 transition-opacity ${isDraftHydrating ? "pointer-events-none opacity-60" : ""}`}
@@ -2651,7 +2635,7 @@ export default function Questionnaire() {
             </p>
           </div>
           </fieldset>
-        </form>
+        </form>}
 
         <div className="mt-16 rounded-xl p-6" style={{ backgroundColor: '#E6F4FF', border: '1px solid #009ADD' }}>
           <h3 className="font-semibold mb-2" style={{ color: '#004B87', fontFamily: 'Raleway, sans-serif' }}>💾 Auto-Save</h3>
@@ -2700,6 +2684,9 @@ export default function Questionnaire() {
           businessName={submittedData.businessName}
           domain={submittedData.domain}
           formData={submittedData.formData}
+          receivedForProcessing={receivedForProcessing}
+          onViewAnswers={viewSavedAnswers}
+          onCopyLink={copyQuestionnaireLink}
         />
       )}
 

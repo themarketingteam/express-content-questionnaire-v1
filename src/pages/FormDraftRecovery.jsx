@@ -500,7 +500,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
   }, [draftRecoveryLink, draftSummary.id, recoveryGrant]);
 
   useEffect(() => {
-    if (!expanded || !fullDraft || !versionCatalog || !selectedVersion || isHistoricalVersion
+    if (!expanded
       || draftRecoveryLink || draftRecoveryLinkLoading || draftRecoveryLinkError) return;
     requestDraftRecoveryLink().catch(() => {
       // The persistent row surfaces the error and the copy action can retry.
@@ -511,7 +511,6 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
     draftRecoveryLinkLoading,
     expanded,
     fullDraft,
-    isHistoricalVersion,
     requestDraftRecoveryLink,
     selectedVersion,
     versionCatalog,
@@ -649,6 +648,40 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
 
       {expanded && (
         <div className="brand-expanded-panel">
+          <div className="brand-draft-link" aria-live="polite">
+            <span className="brand-draft-link__label">Draft Link</span>
+            {draftRecoveryLink ? (
+              <a
+                className="brand-draft-link__value"
+                href={draftRecoveryLink}
+                target="_blank"
+                rel="noreferrer"
+                title="Open the original questionnaire; submitted answers are read-only"
+              >
+                {draftRecoveryLink}
+              </a>
+            ) : draftRecoveryLinkLoading ? (
+              <span className="brand-draft-link__status">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing secure draft link…
+              </span>
+            ) : (
+              <span className="brand-draft-link__error">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {draftRecoveryLinkError || "Secure draft link is not available yet."}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-600">This link opens the original questionnaire for this record{activeDraft.business_name ? ` (${activeDraft.business_name})` : ''}. Submitted answers are read-only. Selecting a historical version does not change this link.</p>
+
+          <div className="mb-5">
+              <Button size="sm" variant="outline" className="brand-button-secondary"
+                disabled={draftRecoveryLinkLoading}
+                onClick={handleCopyDraftLink}
+                title="Copies the original questionnaire link. Submitted answers open read-only; no editable copy is needed.">
+                {actionLoading === "copyDraftLink" || draftRecoveryLinkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                Copy Draft Link
+              </Button>
+          </div>
           {detailLoading ? (
             <div className="draft-recovery-brand__loading" role="status">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading complete draft…
@@ -755,44 +788,10 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
             recoveryGrant={recoveryGrant}
           />
 
-          <div className="brand-draft-link" aria-live="polite">
-            <span className="brand-draft-link__label">Draft Link</span>
-            {isHistoricalVersion ? (
-              <span className="brand-draft-link__status">
-                Select the current draft or create an editable recovery copy to generate a client link.
-              </span>
-            ) : draftRecoveryLink ? (
-              <a
-                className="brand-draft-link__value"
-                href={draftRecoveryLink}
-                target="_blank"
-                rel="noreferrer"
-                title="Open this draft recovery link in a new tab"
-              >
-                {draftRecoveryLink}
-              </a>
-            ) : draftRecoveryLinkLoading ? (
-              <span className="brand-draft-link__status">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing secure draft link…
-              </span>
-            ) : (
-              <span className="brand-draft-link__error">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                {draftRecoveryLinkError || "Secure draft link is not available yet."}
-              </span>
-            )}
-          </div>
-
           <div className="brand-action-group">
             <p className="brand-action-label">Actions</p>
             <div className="brand-action-buttons">
-              <Button size="sm" variant="outline" className="brand-button-secondary"
-                disabled={isLoading || draftRecoveryLinkLoading || isHistoricalVersion}
-                onClick={handleCopyDraftLink}
-                title="Creates a secure link that restores this draft and keeps future saves attached to the same session.">
-                {actionLoading === "copyDraftLink" || draftRecoveryLinkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
-                Copy Draft Link
-              </Button>
+
               <Button size="sm" variant="outline" className="brand-button-secondary"
                 disabled={isLoading || isHistoricalVersion}
                 onClick={() => setPayloadEditorOpen(value => !value)}
