@@ -39,6 +39,10 @@ function countAnswer(container, field, mapped = false) {
     return container.unansweredIsZero ? { present: true, count: 0 } : missing;
   }
   if (!mapped && ((owns(value, listKey) && value[listKey] === null) || (owns(value, otherKey) && value[otherKey] === null))) return unreadable;
+  // Base44 pads an uncaptured receipt with [] plus null Other. That is no
+  // evidence of an answered question. Explicit Other:'' establishes known
+  // empty mapped answers; a valid raw draft map remains authoritative above.
+  if (mapped && (value[listKey] == null || (Array.isArray(value[listKey]) && value[listKey].length === 0)) && value[otherKey] == null) return missing;
   const selections = value[listKey] ?? [];
   const custom = value[otherKey] ?? '';
   if (!Array.isArray(selections) || selections.some((item) => typeof item !== 'string') || typeof custom !== 'string') return unreadable;

@@ -99,6 +99,11 @@ test('historical counts use the selected version and never another root or recei
 test('missing or unreadable answers show unknown counts; malformed adoption never falls back to flat projections', async () => {
   const unknown = { services: null, industries: null, total: null };
   assert.deepEqual(buildExpressSeoPageCounts(), unknown);
+  const emptyReceipt = hydrateFormSubmissionEntity({ id: 'receipt-without-captured-answers' });
+  assert.deepEqual(emptyReceipt.service_offerings, []);
+  assert.equal(emptyReceipt.service_offerings_other, null);
+  assert.deepEqual(buildExpressSeoPageCounts({ submission: emptyReceipt }), unknown, 'Schema padding cannot invent known zero counts.');
+  assert.deepEqual(buildExpressSeoPageCounts({ submission: { ...emptyReceipt, service_offerings_other: '', target_industries_other: '' } }), { services: 0, industries: 0, total: 0 });
   assert.deepEqual(buildExpressSeoPageCounts({ draft: { responses_json: '{broken' } }), unknown);
   assert.deepEqual(buildExpressSeoPageCounts({ draft: { status: 'submitted', responses_json: '{}' } }), unknown);
   for (const value of [null, 'Broken list', { unsupported: true }]) {
