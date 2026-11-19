@@ -1,3 +1,5 @@
+import { hasExplicitQuestionnaireDraftReference } from './questionnaireDraftIdentity.js';
+
 const IDENTITY_QUERY_KEYS = [
   "businessName",
   "business_name",
@@ -64,6 +66,14 @@ export function parseQuestionnaireLaunchIntent(search = "", cryptoApi = globalTh
     userId: clean(params.get("userId")),
     userEmail: clean(params.get("userEmail")),
     userName: clean(params.get("userName")),
+  };
+}
+
+/** Capture entry provenance before browser identity recovery adds a URL hash. */
+export function readInitialQuestionnaireLaunchIntent(location = globalThis.location) {
+  return {
+    ...parseQuestionnaireLaunchIntent(location?.search || ""),
+    hasExplicitDraftReference: hasExplicitQuestionnaireDraftReference(location),
   };
 }
 

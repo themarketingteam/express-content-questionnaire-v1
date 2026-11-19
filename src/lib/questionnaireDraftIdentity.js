@@ -33,6 +33,26 @@ export function readDraftIdentityFromHash(hash = "") {
   return { sessionId, accessKey };
 }
 
+/** Presence matters even when a supplied recovery link is incomplete. */
+export function hasExplicitQuestionnaireDraftReference(location = globalThis.location) {
+  const keys = [HASH_SESSION_KEY, HASH_ACCESS_KEY, LEGACY_HASH_SESSION_KEY, LEGACY_HASH_ACCESS_KEY];
+  return [location?.search || "", location?.hash || ""].some((value) => {
+    const params = new URLSearchParams(String(value).replace(/^[?#]/, ""));
+    return keys.some((key) => params.has(key));
+  });
+}
+
+/** Error-boundary diagnostics must not create identity or alter entry provenance. */
+export function readQuestionnaireSessionIdForDiagnostics({ location = globalThis.location, storage = globalThis.localStorage } = {}) {
+  const linked = readDraftIdentityFromHash(location?.hash || "");
+  if (linked) return linked.sessionId;
+  if (hasExplicitQuestionnaireDraftReference(location)) return "unknown-session";
+  try {
+    const cached = storage?.getItem(SESSION_STORAGE_KEY) || "";
+    return SESSION_PATTERN.test(cached) ? cached : "unknown-session";
+  } catch { return "unknown-session"; }
+}
+
 export function readNewClientRequestFromHash(hash = "") {
   const params = new URLSearchParams(String(hash).replace(/^#/, ""));
   return params.get(HASH_NEW_CLIENT_REQUEST_KEY) || "";
@@ -66,6 +86,10 @@ export function getOrCreateQuestionnaireDraftIdentity(options = {}) {
   const hashRequestId = readNewClientRequestFromHash(location?.hash || "");
   const mayReuseHash = !forceNew || (newClientRequestId && hashRequestId === newClientRequestId);
   const hashIdentity = mayReuseHash ? readDraftIdentityFromHash(location?.hash || "") : null;
+  if (!forceNew && hasExplicitQuestionnaireDraftReference(location) && !hashIdentity) {
+    // Never replace a malformed explicit link with a different browser client.
+    return { sessionId: "", accessKey: "", storageAvailable: false, urlCredentialPersisted: false, invalidExplicitReference: true };
+  }
   let sessionId = hashIdentity?.sessionId || "";
   let accessKey = hashIdentity?.accessKey || "";
   let storageAvailable = true;
@@ -123,7 +147,7 @@ export function getOrCreateQuestionnaireDraftIdentity(options = {}) {
     }
   }
 
-  return { sessionId, accessKey, storageAvailable, urlCredentialPersisted };
+  return { sessionId, accessKey, storageAvailable, urlCredentialPersisted, invalidExplicitReference: false };
 }
 
 export function clearQuestionnaireDraftIdentity({

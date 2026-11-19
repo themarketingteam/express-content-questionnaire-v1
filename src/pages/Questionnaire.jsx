@@ -12,7 +12,7 @@ import {
   ensureNewClientRequestInUrl,
   findQuestionnaireIdentityConflict,
   navigateToNewClient,
-  parseQuestionnaireLaunchIntent,
+  readInitialQuestionnaireLaunchIntent,
   removeIncomingIdentityParameters,
 } from "@/lib/questionnaireLaunchIntent";
 import {
@@ -238,6 +238,7 @@ export default function Questionnaire() {
   const lastChangedQuestionIdRef = useRef("");
   const hasFinalSubmittedRef = useRef(false);
   const completedRecoveryRef = useRef(null);
+  const completedEntryHandoffRef = useRef(false);
   const requiresDraftReloadRef = useRef(false);
   const draftBootstrapReadyRef = useRef(false);
   const clearInProgressRef = useRef(false);
@@ -259,7 +260,7 @@ export default function Questionnaire() {
   );
 
   const [launchIntent] = useState(() => {
-    const intent = parseQuestionnaireLaunchIntent(window.location.search);
+    const intent = readInitialQuestionnaireLaunchIntent(window.location);
     ensureNewClientRequestInUrl(intent);
     return intent;
   });
@@ -348,6 +349,20 @@ export default function Questionnaire() {
     setDraftSaveStatus({ state: 'submit_success', pendingLocalChanges: false, lastConfirmedRevision: Number(serverDraft.last_confirmed_revision || 0) });
     return true;
   }, [questionnaireSessionId]);
+
+  const startNewClientAfterCompletedRestore = useCallback((serverDraft, localState = null) => {
+    if (launchIntent.newClient || launchIntent.hasExplicitDraftReference || !isCompletedQuestionnaireDraft(serverDraft)) return false;
+    if (completedEntryHandoffRef.current) return true;
+    // Keep the completed record and any different local answers recoverable;
+    // the new-client launch carries only identity explicitly supplied in the URL.
+    recognizeCompletedDraft(serverDraft, localState);
+    completedEntryHandoffRef.current = true;
+    navigateToNewClient({
+      promptIdentity: !(launchIntent.businessName && launchIntent.domain),
+      identity: { businessName: launchIntent.businessName, domain: launchIntent.domain },
+    });
+    return true;
+  }, [launchIntent, recognizeCompletedDraft]);
 
   const holdForeignDraftConflict = useCallback((serverDraft) => {
     const formData = structuredClone(latestOrganizerFormRef.current);
@@ -880,6 +895,10 @@ export default function Questionnaire() {
     let active = true;
 
     const hydrateDraft = async () => {
+      if (draftIdentity.invalidExplicitReference) {
+        setDraftSaveStatus({ state: 'bootstrap_blocked', pendingLocalChanges: false, lastConfirmedRevision: 0, lastError: 'This saved questionnaire link is incomplete. Open the full secure link to continue.' });
+        return;
+      }
       let localResult = null;
       let localSource = null;
       const lsResult = launchIntent.newClient
@@ -983,6 +1002,8 @@ export default function Questionnaire() {
       }
 
       if (!active || !bootstrapResult) return;
+
+      if (startNewClientAfterCompletedRestore(remoteDraft, localResult?.state)) return;
 
       const detectedIdentityConflict = bootstrapResult.identityConflict || (
         !launchIntent.newClient

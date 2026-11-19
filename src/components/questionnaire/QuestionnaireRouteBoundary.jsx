@@ -1,16 +1,24 @@
-import React, { useMemo, useCallback } from "react";
+import React from "react";
 import QuestionnaireErrorBoundary from "./QuestionnaireErrorBoundary";
 import { clearExpressQuestionnaireLocalState, createLocalStateResetDiagnostic } from "@/lib/localQuestionnaireReset";
-import { getOrCreateQuestionnaireSessionId } from "@/lib/sessionId";
+import { readQuestionnaireSessionIdForDiagnostics } from "@/lib/questionnaireDraftIdentity";
 
 export default function QuestionnaireRouteBoundary({ children }) {
-  // Get or create session id safely - this should not throw
-  const questionnaireSessionId = React.useMemo(() => {
+  // Diagnostics must not create identity or add a recovery hash before the form
+  // distinguishes an explicitly linked questionnaire from a bare URL visit.
+  const [questionnaireSessionId, setQuestionnaireSessionId] = React.useState(() => {
     try {
-      return getOrCreateQuestionnaireSessionId();
+      return readQuestionnaireSessionIdForDiagnostics();
     } catch {
       return "unknown-session";
     }
+  });
+
+  // The child initializes its actual draft identity during render. Resolve the
+  // diagnostic code afterward without changing how that child entered the app.
+  React.useEffect(() => {
+    try { setQuestionnaireSessionId(readQuestionnaireSessionIdForDiagnostics()); }
+    catch { /* A blocked browser store cannot prevent the form from opening. */ }
   }, []);
 
   // Handle reset - clear local state without touching server data
