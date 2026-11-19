@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import ClientDataDeletionDialog from "@/components/admin/ClientDataDeletionDialog";
+import ExpressSeoPageCounts from "@/components/admin/ExpressSeoPageCounts";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
 
 function displayDate(value) {
@@ -78,6 +79,7 @@ export default function StandaloneSubmissionRow({ submission: summary, onLoadDet
                     <p className="brand-detail"><span className="brand-detail__label">Business Name:</span><span>{record.business_name || "—"}</span></p>
                     <p className="brand-detail"><span className="brand-detail__label">Domain:</span><span>{record.business_domain || "—"}</span></p>
                     <p className="brand-detail"><span className="brand-detail__label">User Email:</span><span>{record.user_email || "—"}</span></p>
+                    <ExpressSeoPageCounts submission={record} />
                   </div>
                   <div className="brand-detail-column">
                     <p className="brand-detail"><span className="brand-detail__label">Submission ID:</span><span className="font-mono">{record.id}</span></p>

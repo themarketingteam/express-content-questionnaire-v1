@@ -23,6 +23,7 @@ import ClientDataDeletionDialog from "@/components/admin/ClientDataDeletionDialo
 import RetentionRecoveryPanel from "@/components/admin/RetentionRecoveryPanel";
 import StandaloneSubmissionRow from "@/components/admin/StandaloneSubmissionRow";
 import QuestionnaireVersionSelector from "@/components/admin/QuestionnaireVersionSelector";
+import ExpressSeoPageCounts from "@/components/admin/ExpressSeoPageCounts";
 import { EXPRESS_TEMPLATE_LOGO_DATA_URI } from "@/components/questionnaire/expressTemplateLogo.js";
 import { useDraftRecoveryAccess } from "@/lib/DraftRecoveryAccessContext";
 import { getBackendErrorMessage } from "@/lib/draftRecoveryAccess";
@@ -730,6 +731,7 @@ function DraftRow({ draft: draftSummary, isDuplicate, onRefresh, onLoadDetail, r
               <Detail label="User Email" value={draft.user_email} />
               <Detail label="User ID" value={draft.user_id} mono />
               <Detail label="Final Submission ID" value={draft.final_submission_id} mono />
+              <ExpressSeoPageCounts draft={draft} submission={linkedSubmission} version={selectedVersion} />
               <Detail label="Submit Attempt ID" value={metadata?.submit_attempt_id} mono />
             </div>
             <div className="brand-detail-column">
